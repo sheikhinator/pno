@@ -1,0 +1,44 @@
+# Prepared GitHub Actions workflow.
+# Copy this file to .github/workflows/windows-build.yml in GitHub to enable
+# Windows builds. The current connector can push source, not write workflows.
+name: Windows offline desktop build
+
+on:
+  push:
+    branches: [main]
+    paths: ["desktop/**", ".github/workflows/windows-build.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: desktop/pyproject.toml
+      - name: Test, build executable, verify local model, package
+        shell: pwsh
+        run: ./desktop/scripts/build_windows.ps1
+      - name: Save tested build
+        uses: actions/upload-artifact@v4
+        with:
+          name: PNO-Windows-Offline
+          path: |
+            desktop/dist/PNO.exe
+            desktop/dist/PNO-Windows-Offline.zip
+            desktop/dist/SHA256SUMS.txt
+          if-no-files-found: error
+      - name: Publish test release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v0.1.0-preview-${{ github.run_number }}"
+          gh release create $tag desktop/dist/PNO.exe desktop/dist/PNO-Windows-Offline.zip desktop/dist/SHA256SUMS.txt --target "${{ github.sha }}" --title "PNO Windows test build ${{ github.run_number }}" --prerelease --notes "Offline Windows x64 test build. ZIP includes executable, verified 491 MB local text model, fictional examples, and instructions. Local data only. Unsigned: obtain corporate IT approval. Corporate layouts remain unverified. Scores are provisional review aids. Python tests and frozen Windows executable smoke test passed."
