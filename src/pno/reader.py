@@ -86,22 +86,31 @@ def _calamine_bytes(data: bytes, warnings: list[str]) -> list[Sheet]:
         return []
     try:
         wb = pc.CalamineWorkbook.from_filelike(io.BytesIO(data))
-    except Exception as e:
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as e:            # the Rust reader reports some damaged files as a panic, not an Exception
         warnings.append(f"Fast reader could not open the workbook ({e}).")
         return []
     out = []
+    failed = False
     for meta in wb.sheets_metadata:
         if str(meta.typ).split(".")[-1].lower() != "worksheet":
             continue
         try:
             sh = wb.get_sheet_by_name(meta.name)
             rows = [list(r) for r in sh.iter_rows()]
-        except Exception as e:
-            warnings.append(f"Sheet '{meta.name}' could not be read: {e}")
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:             # e.g. a completely empty sheet; the slower reader handles these files
+            failed = True
             continue
         rows = [[None if c == "" else c for c in r] for r in rows]
         hidden = str(meta.visible).split(".")[-1].lower() != "visible"
         out.append(Sheet(name=meta.name, rows=rows, hidden=hidden))
+    if failed:
+        slow = _openpyxl_bytes(data, [])
+        if slow:
+            return slow
     return out
 
 

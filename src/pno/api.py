@@ -254,17 +254,25 @@ class Api:
         return {"stores": stores, "aliases": aliases}
 
     def api_store_alias_set(self, alias: str, store_id: int, confirm: bool = True) -> dict:
-        self.db.x("UPDATE store_aliases SET store_id=?, confirmed=? WHERE alias=?", (int(store_id), int(bool(confirm)), alias))
-        self._relink_store_rows(alias, int(store_id))
+        self._relink_store_rows(alias, int(store_id), confirm)
         return {"ok": True}
 
-    def _relink_store_rows(self, alias: str, store_id: int) -> None:
-        """Rows imported under an alias follow it when HR moves the alias to another store."""
+    def _relink_store_rows(self, alias: str, store_id: int, confirm: bool = True) -> None:
+        """Point a store name at another store; rows imported under that name follow it. All or nothing."""
         raw = self.db.val("SELECT raw FROM store_aliases WHERE alias=?", (alias,))
         if not raw:
-            return
+            raise ValueError("Unknown store name.")
+        clash = self.db.q1("""SELECT 1 FROM sales a JOIN sales b ON b.import_id=a.import_id AND b.period=a.period
+                              AND b.as_of=a.as_of AND b.code=a.code AND b.store_id=? AND b.store_raw<>a.store_raw
+                              WHERE a.store_raw=? LIMIT 1""", (store_id, raw)) or \
+            self.db.q1("""SELECT 1 FROM productivity a JOIN productivity b ON b.import_id=a.import_id AND b.row_code=a.row_code
+                          AND b.store_id=? AND b.store_raw<>a.store_raw WHERE a.store_raw=? LIMIT 1""", (store_id, raw))
+        if clash:
+            raise ValueError("That store already has its own figures in the same report, so these are two different "
+                             "stores. Choose another store or keep it separate.")
         with self.db.tx() as db:
             c = db.conn
+            c.execute("UPDATE store_aliases SET store_id=?, confirmed=? WHERE alias=?", (store_id, int(bool(confirm)), alias))
             c.execute("UPDATE roster SET store_id=? WHERE bu_raw=?", (store_id, raw))
             c.execute("UPDATE att_people SET store_id=? WHERE bu_raw=?", (store_id, raw))
             c.execute("UPDATE sales SET store_id=? WHERE store_raw=?", (store_id, raw))
@@ -285,7 +293,6 @@ class Api:
         key = f"{p.format}|{p.city}|{' '.join(p.tokens)}|{alias}"
         sid = self.db.x("INSERT INTO stores(key, name, format, city, code, is_ho) VALUES(?,?,?,?,?,?)",
                         (key, p.name, p.format, p.city, p.code, int(p.is_ho))).lastrowid
-        self.db.x("UPDATE store_aliases SET store_id=?, confirmed=1 WHERE alias=?", (sid, alias))
         self._relink_store_rows(alias, sid)
         return {"ok": True, "store_id": sid}
 

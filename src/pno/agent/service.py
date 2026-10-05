@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 
 from .. import engine, importers
-from ..db import now
+from ..db import now, ro_uri
 from . import basic, llm, local
 from .secrets import mask, protect, unprotect
 from .tools import Toolbox, openai_tools
@@ -176,7 +176,7 @@ class AgentService:
     # ---------------------------------------------------------------- the read-only SQL sandbox
     def sql_connection(self, month: str | None, anonymise: bool) -> sqlite3.Connection:
         mm = engine.model(self.db, month)
-        con = sqlite3.connect(f"file:{self.db.path}?mode=ro", uri=True)
+        con = sqlite3.connect(ro_uri(self.db.path), uri=True)
         con.execute("""CREATE TEMP TABLE people(emp, name, store, city, format, dept_code, dept, section, designation, grade, gender,
                        role, role_label, score, band, coverage, attendance_score, presence_pct, compliance_pct, worked_days,
                        absent_days, leave_days, off_days, punches_to_fix, longest_absence, avg_hours, sales_vs_budget_pct,

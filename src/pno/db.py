@@ -172,6 +172,11 @@ def now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def ro_uri(path: str | Path) -> str:
+    """A read-only SQLite URI that works for any Windows path (spaces, #, %, ?)."""
+    return Path(path).resolve().as_uri() + "?mode=ro"
+
+
 class Database:
     """One connection shared by the app's worker threads, serialised by a lock. WAL keeps reads fast."""
 
@@ -285,7 +290,7 @@ class Database:
 
     def restore(self, src: str | Path) -> None:
         src = Path(src)
-        test = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+        test = sqlite3.connect(ro_uri(src), uri=True)
         try:
             if test.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ValueError("The backup file is damaged.")

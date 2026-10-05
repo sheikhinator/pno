@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
 
 GROQ_URL = "https://api.groq.com/openai/v1"
@@ -28,6 +29,18 @@ def ssl_ctx() -> ssl.SSLContext:
         except Exception:
             pass
     return _SSL
+
+
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def urlopen(req, timeout: float):
+    """Open a URL; the offline AI on this PC is always reached directly, never through an office proxy."""
+    url = req.full_url if isinstance(req, urllib.request.Request) else str(req)
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return _DIRECT.open(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx())
 
 
 def _friendly(status: int, body: str) -> str:
@@ -56,7 +69,7 @@ def chat(base_url: str, key: str, model: str, messages: list[dict], tools: list[
     req = urllib.request.Request(base_url.rstrip("/") + "/chat/completions", data=json.dumps(body).encode("utf-8"),
                                  headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx()) as r:
+        with urlopen(req, timeout) as r:
             data = json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         raise LLMError(_friendly(e.code, e.read().decode("utf-8", "replace")), e.code) from None
@@ -71,7 +84,7 @@ def chat(base_url: str, key: str, model: str, messages: list[dict], tools: list[
 def list_models(base_url: str, key: str, timeout: float = 15) -> list[str]:
     req = urllib.request.Request(base_url.rstrip("/") + "/models", headers={"Authorization": f"Bearer {key}", "User-Agent": "PNO/1.0"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx()) as r:
+        with urlopen(req, timeout) as r:
             data = json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         raise LLMError(_friendly(e.code, e.read().decode("utf-8", "replace")), e.code) from None

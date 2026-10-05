@@ -14,3 +14,5 @@ selftest.log
 *.xlsm
 *.csv
 !tests/fixtures/*.csv
+packaging/runtime/
+*.gguf

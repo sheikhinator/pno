@@ -21,6 +21,7 @@ import zipfile
 from pathlib import Path
 
 from ..paths import data_dir, resource
+from . import llm
 from .llm import ssl_ctx
 
 PORT = 18181
@@ -155,7 +156,7 @@ class Server:
         if not self.proc or self.proc.poll() is not None:
             return False
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=2) as r:
+            with llm.urlopen(f"http://127.0.0.1:{PORT}/health", 2) as r:
                 return r.status == 200
         except Exception:
             return False

@@ -48,6 +48,7 @@ const store = {
 const S = { page: "home", arg: null, month: null, months: [], compare: null, scope: store.get("scope", {}), opts: {}, init: null,
   chat: [], attach: [], people: { q: "", role: "", band: "", sort: "score", desc: true, flag: "" }, perfRole: "SM",
   attTab: "fixes", setTab: "scoring", busy: 0, selected: new Set(), importSess: null };
+window.PNO_state = S;
 
 const ICON = {
   home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
@@ -215,7 +216,7 @@ window.go = go;
 async function render() {
   const view = $("#view");
   if (!view) return;
-  const token = ++S.busy; window.PNO_renders = (window.PNO_renders || 0) + 1;
+  const token = ++S.busy;
   const page = S.page;
   view.scrollTop = 0;
   view.innerHTML = `<div class="page"><div class="loading"><span class="spin"></span>Loading…</div></div>`;
