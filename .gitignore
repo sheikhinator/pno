@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+*.sqlite3
+*.db
+selftest.log
+.venv/
+# Never commit corporate data
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+!tests/fixtures/*.csv
