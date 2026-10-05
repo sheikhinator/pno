@@ -233,3 +233,19 @@ def test_offline_ai_starts_and_answers(api, tmp_path, monkeypatch):
     finally:
         local.SERVER.stop()
     assert not local.SERVER.ready()
+
+
+def test_runtime_asset_picker_handles_renamed_releases():
+    from pno.agent.local import pick_runtime_asset
+
+    def rel(tag, *names):
+        return {"tag_name": tag, "assets": [{"name": n, "browser_download_url": "u/" + n} for n in names]}
+    old = rel("b6000", "llama-b6000-bin-win-cuda-12.4-x64.zip", "llama-b6000-bin-win-cpu-x64.zip", "llama-b6000-bin-win-cpu-arm64.zip")
+    assert pick_runtime_asset([old], "Windows")[1]["name"] == "llama-b6000-bin-win-cpu-x64.zip"
+    new = rel("v0.6.0", "llama-v0.6.0-windows-x64-vulkan.zip", "llama-v0.6.0-windows-arm64-cpu.zip", "llama-v0.6.0-windows-x64-cpu.zip")
+    assert pick_runtime_asset([new, old], "Windows")[1]["name"] == "llama-v0.6.0-windows-x64-cpu.zip"
+    none = rel("v0.7.0", "llama-v0.7.0-src.tar.gz", "llama-v0.7.0-windows-x64-cuda.zip")
+    r, a = pick_runtime_asset([none, old], "Windows")
+    assert r["tag_name"] == "b6000"
+    assert pick_runtime_asset([none], "Windows") == (None, None)
+    assert pick_runtime_asset([old], "Linux") == (None, None)

@@ -44,10 +44,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $rel = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; "User-Agent" = "pno-build" } `
-                 -Uri "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
-          $asset = $rel.assets | Where-Object { $_.name -match "bin-win-cpu-x64\.zip$" } | Select-Object -First 1
-          if (-not $asset) { throw "No Windows CPU build found in llama.cpp $($rel.tag_name)" }
+          $h = @{ Authorization = "Bearer $env:GH_TOKEN"; "User-Agent" = "pno-build" }
+          $rels = Invoke-RestMethod -Headers $h -Uri "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=30"
+          $bad = "cuda|cudart|vulkan|hip|rocm|radeon|sycl|opencl|kompute|arm64|aarch64|openvino|npu|xcframework"
+          $rel = $null; $asset = $null
+          foreach ($r in ($rels | Where-Object { -not $_.draft })) {
+            $zips = $r.assets | Where-Object { $_.name -match "\.zip$" }
+            $asset = $zips | Where-Object { $_.name -match "bin-win-cpu-x64\.zip$" } | Select-Object -First 1
+            if (-not $asset) {
+              $asset = $zips | Where-Object { $_.name -match "win" -and $_.name -match "x64|amd64" -and $_.name -notmatch $bad } |
+                       Sort-Object { if ($_.name -match "cpu") { 0 } else { 1 } } | Select-Object -First 1
+            }
+            if ($asset) { $rel = $r; break }
+            Write-Host "llama.cpp $($r.tag_name): no Windows CPU zip among: $(($r.assets | ForEach-Object name) -join ', ')"
+          }
+          if (-not $asset) { throw "No Windows CPU build found in the last 30 llama.cpp releases" }
           Write-Host "llama.cpp $($rel.tag_name): $($asset.name)"
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile llama.zip
           New-Item -ItemType Directory -Force packaging/runtime/llama | Out-Null

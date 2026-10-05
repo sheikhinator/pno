@@ -118,15 +118,35 @@ def download_model() -> str:
     return DOWNLOADS.start(url, models_dir() / MODEL["file"], MODEL["name"])
 
 
+_GPU = re.compile(r"cuda|cudart|vulkan|hip|rocm|radeon|sycl|opencl|kompute|openvino|npu|xcframework", re.I)
+
+
+def pick_runtime_asset(releases: list[dict], system: str) -> tuple[dict | None, dict | None]:
+    """The CPU build of llama-server for this system from the newest release that has one (asset names change over time)."""
+    exact = {"Windows": r"bin-win-cpu-x64\.zip$", "Darwin": r"bin-macos-arm64\.zip$"}.get(system, r"bin-ubuntu-x64\.zip$")
+    os_word = {"Windows": r"win", "Darwin": r"mac"}.get(system, r"ubuntu|linux")
+    arch = r"arm64" if system == "Darwin" else r"x64|amd64|x86_64"
+    for rel in releases:
+        if rel.get("draft"):
+            continue
+        zips = [a for a in rel.get("assets") or [] if a["name"].lower().endswith(".zip")]
+        hit = next((a for a in zips if re.search(exact, a["name"])), None)
+        if not hit:
+            loose = [a for a in zips if re.search(os_word, a["name"], re.I) and re.search(arch, a["name"], re.I)
+                     and not _GPU.search(a["name"]) and (system == "Darwin" or not re.search(r"arm64|aarch64", a["name"], re.I))]
+            loose.sort(key=lambda a: 0 if "cpu" in a["name"].lower() else 1)
+            hit = loose[0] if loose else None
+        if hit:
+            return rel, hit
+    return None, None
+
+
 def install_runtime() -> str:
     """Fetch the CPU build of llama.cpp for this PC (only needed when running from source)."""
-    with urllib.request.urlopen(urllib.request.Request("https://api.github.com/repos/ggml-org/llama.cpp/releases/latest",
+    with urllib.request.urlopen(urllib.request.Request("https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=30",
                                                        headers={"User-Agent": "PNO/1.0"}), timeout=30, context=ssl_ctx()) as r:
-        rel = json.loads(r.read().decode("utf-8"))
-    sysname = platform.system()
-    pat = re.compile(r"bin-win-cpu-x64\.zip$" if sysname == "Windows" else r"bin-macos-arm64\.zip$" if sysname == "Darwin"
-                     else r"bin-ubuntu-x64\.zip$")
-    asset = next((a for a in rel.get("assets") or [] if pat.search(a["name"])), None)
+        releases = json.loads(r.read().decode("utf-8"))
+    rel, asset = pick_runtime_asset(releases, platform.system())
     if not asset:
         raise RuntimeError("No llama.cpp build was found for this computer.")
     target = runtime_dir() / "llama"
