@@ -215,3 +215,12 @@ def test_demo_switch(api):
 def test_audit_log(api):
     api.dispatch("holiday_add", {"day": "2026-12-31", "name": "Audit"})
     assert any(r["action"] == "holiday" for r in api.dispatch("audit", {})["rows"])
+
+
+def test_store_separate_twice_is_harmless(api, db):
+    lst = api.dispatch("store_list", {})
+    alias = next(a for a in lst["aliases"] if a["raw"].startswith("HB PK KCH"))
+    first = api.dispatch("store_new", {"alias": alias["alias"]})
+    assert first["ok"]
+    again = api.dispatch("store_new", {"alias": alias["alias"]})
+    assert again["ok"] and again["store_id"] == first["store_id"]

@@ -120,7 +120,11 @@ class AgentService:
     def offline_install(self, what: str = "all") -> dict:
         jobs = []
         if what in ("all", "runtime") and not local.find_runtime():
-            jobs.append(local.install_runtime())
+            try:
+                jobs.append(local.install_runtime())
+            except Exception as e:                       # e.g. GitHub blocked by the office network
+                raise ValueError(f"The offline AI engine could not be downloaded ({e}). The PNO installer already "
+                                 "includes it: please reinstall PNO, or check the internet connection.") from None
         if what in ("all", "model") and not local.model_path(self.db):
             jobs.append(local.download_model())
         return {"jobs": jobs, **self.offline_status()}

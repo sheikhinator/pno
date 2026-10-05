@@ -294,8 +294,16 @@ class Api:
         raw = self.db.val("SELECT raw FROM store_aliases WHERE alias=?", (alias,))
         if not raw:
             raise ValueError("Unknown store name.")
+        cur = self.db.val("SELECT store_id FROM store_aliases WHERE alias=?", (alias,))
+        if self.db.val("SELECT COUNT(*) FROM store_aliases WHERE store_id=?", (cur,), 0) <= 1:
+            self.db.x("UPDATE store_aliases SET confirmed=1 WHERE alias=?", (alias,))
+            return {"ok": True, "store_id": cur, "message": "This name is already a store of its own."}
         p = parse_name(raw)
-        key = f"{p.format}|{p.city}|{' '.join(p.tokens)}|{alias}"
+        base = f"{p.format}|{p.city}|{' '.join(p.tokens)}|{alias}"
+        key, n = base, 1
+        while self.db.q1("SELECT 1 FROM stores WHERE key=?", (key,)):
+            n += 1
+            key = f"{base}#{n}"
         sid = self.db.x("INSERT INTO stores(key, name, format, city, code, is_ho) VALUES(?,?,?,?,?,?)",
                         (key, p.name, p.format, p.city, p.code, int(p.is_ho))).lastrowid
         self._relink_store_rows(alias, sid)

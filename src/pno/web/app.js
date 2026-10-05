@@ -99,22 +99,26 @@ function toast(msg, opts = {}) {
   setTimeout(() => { t.style.transition = "opacity .3s"; t.style.opacity = "0"; setTimeout(() => t.remove(), 320); }, opts.ms || 3800);
 }
 const fail = e => toast(e.message || String(e), { err: true, ms: 6000 });
-async function call(m, p) { try { return await API.call(m, p); } catch (e) { fail(e); throw e; } }
+async function call(m, p) { try { return await API.call(m, p); } catch (e) { fail(e); e.shown = true; throw e; } }
 const req = (extra = {}) => ({ month: S.month, scope: S.scope, ...extra });
 
 /* ---------------------------------------------------------------- shell */
-function shell() {
-  $("#app").innerHTML = `
-  <aside class="side">
+function sideHtml() {
+  return `
     <div class="brand"><div class="logo">PNO</div><div><b>PNO</b><small>People &amp; Performance</small></div></div>
     <nav class="nav" id="nav">${NAV.map(([k, l, i], n) => (n === 6 ? `<div class="nav-label">Tools</div>` : "") +
-      `<button data-go="${k}" ${S.page === k ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "settings" && S.init && S.init.unsure_stores ? `<span class="badge">${S.init.unsure_stores}</span>` : ""}</button>`).join("")}</nav>
+      `<button data-go="${k}" ${S.page === k || (S.page === "store" && k === "stores") ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "settings" && S.init && S.init.unsure_stores ? `<span class="badge">${S.init.unsure_stores}</span>` : ""}</button>`).join("")}</nav>
     <div class="side-foot">
       ${S.init && S.init.demo ? `<button class="demo-pill" data-act="demo-off" title="Return to your own data">DEMO DATA · exit</button>` : ""}
       <button class="ai-pill" data-go="settings" data-tab="ai"><span class="dot ${S.init && S.init.ai.active === "basic" ? "off" : ""}"></span><span>${esc(S.init ? S.init.ai.label : "AI")}</span></button>
       <span>Offline · data stays on this PC</span><span>v${esc(S.init ? S.init.version : "")}</span>
     </div>
-  </aside>
+  `;
+}
+function shell() {
+  if ($("#view") && $(".side")) { updateSide(); topbar(); return; }     // built once; later only parts are refreshed
+  $("#app").innerHTML = `
+  <aside class="side">${sideHtml()}</aside>
   <div class="main">
     <header class="top" id="top"></header>
     <div class="view" id="view"></div>
@@ -122,6 +126,7 @@ function shell() {
   </div>`;
   topbar();
 }
+function updateSide() { const sd = $(".side"); if (sd) sd.innerHTML = sideHtml(); }
 
 function topbar() {
   const o = S.opts || {};
@@ -217,17 +222,24 @@ async function render() {
   const view = $("#view");
   if (!view) return;
   const token = ++S.busy;
-  const page = S.page;
-  view.scrollTop = 0;
-  view.innerHTML = `<div class="page"><div class="loading"><span class="spin"></span>Loading…</div></div>`;
+  const page = S.page, arg = S.arg;
+  const cur = view.firstElementChild;
+  const same = cur && cur.dataset.page === page && S.shownArg === arg;   // a refresh of the screen already shown
+  // keep what is on screen while the data loads; only a slow load shows a spinner (no blank flash)
+  if (cur) cur.classList.add("stale");
+  const slow = setTimeout(() => { if (token === S.busy && !same) view.innerHTML = `<div class="page"><div class="loading"><span class="spin"></span>Loading…</div></div>`; }, 260);
   try {
-    const html = await (PAGES[page] || PAGES.home)(S.arg);
+    const html = await (PAGES[page] || PAGES.home)(arg);
     if (token !== S.busy) return;
-    view.innerHTML = `<div class="page enter" data-page="${page}">${html}</div>`;
+    view.innerHTML = `<div class="page${same ? "" : " enter"}" data-page="${page}">${html}</div>`;
+    if (!same) view.scrollTop = 0;
+    S.shownArg = arg;
     const after = AFTER[page]; if (after) after();
   } catch (e) {
     if (token !== S.busy) return;
-    view.innerHTML = `<div class="page"><div class="errbox">${esc(e.message || e)}</div></div>`;
+    view.innerHTML = `<div class="page" data-page="${page}"><div class="errbox">${esc(e.message || e)}</div></div>`;
+  } finally {
+    clearTimeout(slow);
   }
 }
 
@@ -299,7 +311,14 @@ AFTER.home = () => {
 };
 function band(v) { return v == null ? "none" : v >= 9 ? "excellent" : v >= 7.5 ? "good" : v >= 6 ? "ok" : v >= 4 ? "warn" : "bad"; }
 
-/* people */
+/* people: long lists are drawn in chunks as you scroll, so the screen opens instantly */
+const PEOPLE_CHUNK = 80;
+const compareBtn = () => S.selected.size >= 2 ? `<button class="btn primary" data-act="compare">Compare ${S.selected.size}</button>` : "";
+function drawCompareBtn() { const b = $("#cmpbtn"); if (b) b.innerHTML = compareBtn(); }
+const personRow = p => `<tr class="click" data-person="${p.emp}"><td><input type="checkbox" data-sel="${p.emp}" ${S.selected.has(p.emp) ? "checked" : ""}></td>
+        <td><b>${esc(p.name)}</b><span class="sub">${esc(p.designation)} · ${esc(p.emp)}</span></td><td>${esc(p.role_label)}</td><td>${esc(p.store)}<span class="sub">${esc(p.format || "")}</span></td>
+        <td>${esc(p.dept || "—")}<span class="sub">${esc(p.section || "")}</span></td><td class="n">${p.score == null ? statusChip(p) || "—" : pill(p.score, p.band_key)}${p.provisional && p.score != null ? '<span class="sub">provisional</span>' : ""}</td>
+        <td class="n">${p.delta == null ? "" : delta(p.delta, "up")}</td><td class="n">${scoreTxt(p.attendance)}</td><td class="n">${p.absent ?? "—"}</td><td class="n">${p.fixes || ""}</td></tr>`;
 PAGES.people = async () => {
   if (!S.month) return noData();
   const P = S.people;
@@ -309,7 +328,7 @@ PAGES.people = async () => {
   const th = (k, l, n) => `<th class="sort ${n ? "n" : ""}" data-act="sort" data-key="${k}">${l}${P.sort === k ? (P.desc ? " ↓" : " ↑") : ""}</th>`;
   const flagName = { long_absence: "Absent 7+ days in a row", fixes: "Has punches to fix", managers: "Reporting line to confirm", new_joiners: "New joiners" }[P.flag];
   return `<div class="ph"><div><h1>People</h1><p>${d.total.toLocaleString("en-US")} people · ${esc(S.months.find(m => m.value === d.month)?.label || "")}. Click anyone to open their profile.</p></div>
-      <div class="actions">${S.selected.size >= 2 ? `<button class="btn primary" data-act="compare">Compare ${S.selected.size}</button>` : ""}<button class="btn" data-act="export" data-pack="people">${ic("export", 16)}Export list</button></div></div>
+      <div class="actions"><span id="cmpbtn">${compareBtn()}</span><button class="btn" data-act="export" data-pack="people">${ic("export", 16)}Export list</button></div></div>
     <div class="panel"><div class="row">
       <div class="search" style="flex:1 1 260px;max-width:none">${ic("search", 16)}<input id="pq" placeholder="Name, employee number, designation or store" value="${esc(P.q)}"></div>
       <div class="seg">${ROLES.map(([k, l]) => `<button data-act="role" data-role="${k}" aria-pressed="${P.role === k}">${l}<span class="c">${k === "" ? total : k === "MANAGERS" ? total - (counts.STAFF || 0) : counts[k] || 0}</span></button>`).join("")}</div></div>
@@ -318,16 +337,29 @@ PAGES.people = async () => {
     </div>
     <div class="panel flush"><div class="tbl-wrap" style="max-height:calc(100vh - 330px)"><table class="t"><thead><tr><th style="width:34px"></th>
       ${th("name", "Person")}${th("role", "Role")}${th("store", "Store")}<th>Department</th>${th("score", "Score", 1)}<th class="n">Change</th>${th("attendance", "Attendance", 1)}${th("absent", "Absent days", 1)}${th("fixes", "Punches to fix", 1)}</tr></thead>
-      <tbody>${d.rows.map(p => `<tr class="click" data-person="${p.emp}"><td><input type="checkbox" data-sel="${p.emp}" ${S.selected.has(p.emp) ? "checked" : ""}></td>
-        <td><b>${esc(p.name)}</b><span class="sub">${esc(p.designation)} · ${esc(p.emp)}</span></td><td>${esc(p.role_label)}</td><td>${esc(p.store)}<span class="sub">${esc(p.format || "")}</span></td>
-        <td>${esc(p.dept || "—")}<span class="sub">${esc(p.section || "")}</span></td><td class="n">${p.score == null ? statusChip(p) || "—" : pill(p.score, p.band_key)}${p.provisional && p.score != null ? '<span class="sub">provisional</span>' : ""}</td>
-        <td class="n">${p.delta == null ? "" : delta(p.delta, "up")}</td><td class="n">${scoreTxt(p.attendance)}</td><td class="n">${p.absent ?? "—"}</td><td class="n">${p.fixes || ""}</td></tr>`).join("") ||
+      <tbody id="ptbody">${d.rows.slice(0, PEOPLE_CHUNK).map(personRow).join("") ||
         `<tr><td colspan="10"><div class="empty">Nobody matches these filters.</div></td></tr>`}</tbody></table></div></div>`;
 };
 AFTER.people = () => {
+  const wrap = $('[data-page="people"] .tbl-wrap'), body = $("#ptbody"), rows = DATA.people ? DATA.people.rows : [];
+  if (wrap && body) {
+    let shown = Math.min(PEOPLE_CHUNK, rows.length);
+    const more = () => {
+      if (shown >= rows.length || wrap.scrollTop + wrap.clientHeight < wrap.scrollHeight - 600) return;
+      body.insertAdjacentHTML("beforeend", rows.slice(shown, shown + 120).map(personRow).join(""));
+      shown = Math.min(shown + 120, rows.length);
+    };
+    wrap.addEventListener("scroll", more, { passive: true });
+  }
   const q = $("#pq"); let t;
   if (q) { q.oninput = () => { clearTimeout(t); t = setTimeout(() => { S.people.q = q.value; render().then(() => { const n = $("#pq"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 260); }; }
-  $$("[data-sel]").forEach(c => c.onclick = e => { e.stopPropagation(); c.checked ? S.selected.add(c.dataset.sel) : S.selected.delete(c.dataset.sel); if (S.selected.size > 4) { S.selected.delete(c.dataset.sel); c.checked = false; toast("Compare up to 4 people at a time."); } render(); });
+  if (body) body.addEventListener("click", e => {          // one listener also covers rows added while scrolling
+    const c = e.target.closest("[data-sel]"); if (!c) return;
+    e.stopPropagation();
+    c.checked ? S.selected.add(c.dataset.sel) : S.selected.delete(c.dataset.sel);
+    if (S.selected.size > 4) { S.selected.delete(c.dataset.sel); c.checked = false; toast("Compare up to 4 people at a time."); }
+    drawCompareBtn();
+  });
 };
 
 /* performance */
@@ -715,22 +747,43 @@ AFTER.settings = () => {
 /* ---------------------------------------------------------------- person sheet */
 function compRow(c) {
   const col = c.score == null ? "var(--none)" : `var(--${band(c.score)})`;
-  setTimeout(() => $$(".comp .bar i[data-w]").forEach(i => { i.style.width = i.dataset.w + "%"; }), 80);
   return `<div class="comp ${c.available ? "" : "na"}"><div class="lbl"><b>${esc(c.label)}</b><small>${esc(c.display || "No data: left out of the score")}${c.flag ? " · ⚠ " + esc(c.flag) : ""}</small></div>
     <div class="w" title="Weight">${c.weight}${c.share != null && c.share !== c.weight ? `<br><small>→${c.share}%</small>` : ""}</div><div class="bar"><i data-w="${c.score == null ? 0 : c.score * 10}" style="background:${col}"></i></div>
     <div class="sc">${c.score == null ? "—" : c.score.toFixed(1)}</div></div>`;
 }
-async function openPerson(emp) {
-  closeSheet(true);
-  const scrim = document.createElement("div"); scrim.className = "scrim"; scrim.onclick = () => closeSheet();
-  const sh = document.createElement("section"); sh.className = "sheet"; sh.setAttribute("role", "dialog");
-  sh.innerHTML = `<div class="sheet-body"><div class="loading"><span class="spin"></span>Loading profile…</div></div>`;
-  document.body.append(scrim, sh);
-  requestAnimationFrame(() => { scrim.classList.add("on"); sh.classList.add("on"); });
+async function openPerson(emp, opts = {}) {
+  emp = String(emp);
+  let sh = S.sheetEl, scrim = S.scrimEl;
+  const reuse = sh && sh.isConnected && !sh.dataset.closing;
+  if (!reuse) {
+    // a panel that is still sliding out is removed at once; the new one slides in fresh
+    if (sh) { sh.remove(); scrim && scrim.remove(); }
+    clearTimeout(S.sheetTimer);
+    scrim = document.createElement("div"); scrim.className = "scrim"; scrim.onclick = () => closeSheet();
+    sh = document.createElement("section"); sh.className = "sheet"; sh.setAttribute("role", "dialog");
+    sh.innerHTML = `<div class="sheet-body"><div class="loading"><span class="spin"></span>Loading profile…</div></div>`;
+    document.body.append(scrim, sh);
+    S.sheetEl = sh; S.scrimEl = scrim; S.sheetStack = [];
+    sh.getBoundingClientRect();                       // start the slide from off-screen, every time
+    scrim.classList.add("on"); sh.classList.add("on");
+  } else {
+    if (S.sheet && S.sheet.emp === emp) return;
+    if (S.sheet && !opts.back) S.sheetStack.push(S.sheet.emp);
+    sh.classList.add("swapping");                     // the open panel stays put; only its content changes
+  }
+  const token = S.sheetToken = (S.sheetToken || 0) + 1;
   let p;
-  try { p = await API.call("person", { emp, month: S.month }); } catch (e) { sh.innerHTML = `<div class="sheet-body"><div class="errbox">${esc(e.message)}</div><button class="btn" data-act="sheet-close">Close</button></div>`; return; }
-  S.sheet = { emp, tab: "overview", p };
+  try { p = await API.call("person", { emp, month: S.month }); }
+  catch (e) {
+    if (token !== S.sheetToken || !sh.isConnected) return;
+    sh.classList.remove("swapping");
+    sh.innerHTML = `<div class="sheet-body"><div class="errbox">${esc(e.message)}</div><button class="btn" data-act="sheet-close">Close</button></div>`;
+    return;
+  }
+  if (token !== S.sheetToken || !sh.isConnected || sh.dataset.closing) return;   // a newer click or a close won
+  S.sheet = { emp, tab: reuse && S.sheet ? S.sheet.tab : "overview", p };
   drawSheet();
+  sh.classList.remove("swapping");
 }
 window.openPerson = openPerson;
 function drawSheet() {
@@ -769,7 +822,7 @@ function drawSheet() {
       <div class="panel"><div class="phd"><h2>Notes</h2></div><div class="row"><input class="input" id="pn-text" placeholder="Add a note (visible only in PNO)" style="flex:1"><button class="btn primary" data-act="pn-add">Add</button></div>
       ${p.notes.map(n => `<div class="row" style="justify-content:space-between;border-bottom:1px solid var(--line-2);padding:6px 0"><span>${esc(n.text)} <small style="color:var(--muted)">· ${esc(n.created_at.slice(0, 10))}</small></span><button class="btn sm ghost danger" data-act="pn-del" data-id="${n.id}">Remove</button></div>`).join("") || `<small style="color:var(--muted)">No notes.</small>`}</div>`;
   }
-  sh.innerHTML = `<div class="sheet-head"><span class="av lg">${esc(initials(p.name))}</span><div style="flex:1;min-width:0"><h2>${esc(p.name)}</h2>
+  const head = `<div class="sheet-head">${S.sheetStack && S.sheetStack.length ? `<button class="close back" data-act="sheet-back" aria-label="Back" title="Back">${ic("back", 16)}</button>` : ""}<span class="av lg">${esc(initials(p.name))}</span><div style="flex:1;min-width:0"><h2>${esc(p.name)}</h2>
       <p>${esc(p.designation)} · ${esc(p.store)} · ${esc(p.role_label)} · <span class="num">${esc(p.emp)}</span></p>
       <p style="font-size:12.5px">${p.chain.length ? "Reports to " + p.chain.map(c => c.emp ? `<a href="#" data-person="${c.emp}" style="color:var(--brand);font-weight:700;text-decoration:none">${esc(c.name)}</a>` : esc(c.name)).join(" › ") : esc(p.manager.name ? "Reports to " + p.manager.name : "")}
       ${p.manager.status === "uncertain" ? ' <span class="chip warn">name matches several people</span>' : ""}</p></div>
@@ -777,16 +830,27 @@ function drawSheet() {
       <button class="close" data-act="sheet-close" aria-label="Close">${ic("x", 16)}</button></div>
     <div style="padding:10px 22px 0;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div class="seg">${tabs.map(([k, l]) => `<button data-act="sheet-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join("")}</div>
       <button class="btn sm" data-act="export" data-pack="scorecard" data-emp="${p.emp}">${ic("export", 14)}Scorecard</button></div>
-    <div class="sheet-body">${body}</div>`;
+    `;
+  const key = p.emp + "|" + S.month + "|" + (S.sheetStack ? S.sheetStack.length : 0);
+  if (sh.dataset.key !== key || !sh.querySelector(".sheet-body")) {
+    sh.innerHTML = head + `<div class="sheet-body">${body}</div>`;
+    sh.dataset.key = key;
+  } else {
+    sh.querySelectorAll('[data-act="sheet-tab"]').forEach(b => b.setAttribute("aria-pressed", b.dataset.tab === tab));
+    const bd = sh.querySelector(".sheet-body"); bd.innerHTML = body; bd.scrollTop = 0;
+  }
+  requestAnimationFrame(() => sh.querySelectorAll(".comp .bar i[data-w]").forEach(i => { i.style.width = i.dataset.w + "%"; }));
   if (tab === "history") Charts.line($("#ch-hist"), { labels: p.history.map(h => h.label), series: [{ name: "Score", values: p.history.map(h => h.score) }, { name: "Attendance score", values: p.history.map(h => h.attendance) }], fmt: "score", yMin: 0, yMax: 10, height: 240 });
 }
 function closeSheet(instant) {
-  const sh = $(".sheet"), sc = $(".scrim");
+  const sh = S.sheetEl, sc = S.scrimEl;
+  S.sheet = null; S.sheetEl = null; S.scrimEl = null; S.sheetStack = [];
+  S.sheetToken = (S.sheetToken || 0) + 1;
   if (!sh) return;
-  S.sheet = null;
   if (instant) { sh.remove(); sc && sc.remove(); return; }
+  sh.dataset.closing = "1";
   sh.classList.remove("on"); sc && sc.classList.remove("on");
-  setTimeout(() => { sh.remove(); sc && sc.remove(); }, 420);
+  setTimeout(() => { sh.remove(); sc && sc.remove(); }, 450);
 }
 
 /* ---------------------------------------------------------------- export, modal, menu */
@@ -896,13 +960,14 @@ const ACT = {
   "demo-on": async () => { toast("Loading demo data…"); S.init = await call("demo", { on: true }); S.scope = {}; await boot(true); toast("Demo data: fictional people and stores"); },
   "demo-off": async () => { S.init = await call("demo", { on: false }); S.scope = {}; await boot(true); toast("Back to your data"); },
   theme: async b => { await call("settings_save", { theme: b.dataset.theme }); applyTheme(b.dataset.theme); render(); },
-  "sheet-close": () => closeSheet(), "sheet-tab": b => { S.sheet.tab = b.dataset.tab; drawSheet(); },
+  "sheet-close": () => closeSheet(),
+  "sheet-back": () => { const prev = S.sheetStack.pop(); if (prev) openPerson(prev, { back: true }); }, "sheet-tab": b => { S.sheet.tab = b.dataset.tab; drawSheet(); },
   "pl-add": async () => { await call("leave_add", { emp: S.sheet.emp, d_from: $("#pl-from").value, d_to: $("#pl-to").value || $("#pl-from").value, type: $("#pl-type").value }); toast("Leave added · attendance recalculated"); await refreshSheet(); },
   "pl-del": async b => { await call("leave_delete", { leave_id: +b.dataset.id }); await refreshSheet(); },
   "pn-add": async () => { await call("note_add", { emp: S.sheet.emp, text: $("#pn-text").value }); await refreshSheet(); },
   "pn-del": async b => { await call("note_delete", { note_id: +b.dataset.id }); await refreshSheet(); },
 };
-async function refreshSheet() { const tab = S.sheet.tab; S.sheet.p = await API.call("person", { emp: S.sheet.emp, month: S.month }); S.sheet.tab = tab; drawSheet(); }
+async function refreshSheet() { if (!S.sheet) return; const tab = S.sheet.tab; if (S.sheetEl) delete S.sheetEl.dataset.key; S.sheet.p = await API.call("person", { emp: S.sheet.emp, month: S.month }); S.sheet.tab = tab; drawSheet(); }
 function markAction(b, how) { const m = S.chat[+b.dataset.m]; if (m) (m.actions || []).forEach(a => { if (a.id === b.dataset.id) a.done = how; }); drawChat(); }
 async function afterDataChange(full) {
   S.init = await API.call("init");
@@ -938,7 +1003,11 @@ document.addEventListener("click", e => {
   const g = e.target.closest("[data-go]");
   if (g && !e.target.closest("[data-act]")) { if (g.dataset.tab) S.setTab = g.dataset.tab; closeSheet(); return go(g.dataset.go); }
   const a = e.target.closest("[data-act]");
-  if (a && ACT[a.dataset.act]) { e.preventDefault(); return ACT[a.dataset.act](a, e); }
+  if (a && ACT[a.dataset.act]) {
+    e.preventDefault();
+    // an action that fails has already told the user (toast); keep it from surfacing as a screen error
+    return Promise.resolve().then(() => ACT[a.dataset.act](a, e)).catch(err => { if (!err || !err.shown) fail(err); });
+  }
   const p = e.target.closest("[data-person]");
   if (p && !e.target.closest("input")) { e.preventDefault(); openPerson(p.dataset.person); }
 });

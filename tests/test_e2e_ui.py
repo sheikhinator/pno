@@ -352,3 +352,54 @@ def test_click_everything(app):
         errors += [f"js: {e}" for e in page.evaluate("window.PNO_errors")]
         browser.close()
     assert not errors, "\n".join(errors)
+
+
+SAMPLE = """ms => new Promise(res => { const out = []; const t0 = performance.now();
+  (function f(){ const s = document.querySelectorAll('.sheet');
+    out.push([s.length, s.length ? getComputedStyle(s[s.length - 1]).transform : 'gone']);
+    if (performance.now() - t0 < ms) requestAnimationFrame(f); else res(out); })(); })"""
+
+
+def test_profile_panel_stays_open_while_moving_between_people(app):
+    """Clicking a manager or team member inside an open profile swaps the content; the panel never slides away."""
+    url, srv, home = app
+    with pw.sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(executable_path=CHROME) if CHROME else p.chromium.launch()
+        except Exception as e:
+            pytest.skip(f"Chromium not available: {e}")
+        page = browser.new_page(viewport={"width": 1366, "height": 768})
+        page.goto(url)
+        page.wait_for_function("window.PNO_ready === true", timeout=30000)
+        page.evaluate("go('people')")
+        page.wait_for_selector("[data-act=role][data-role=SM]")
+        page.locator("[data-act=role][data-role=SM]").click()
+        page.wait_for_selector("[data-page=people] [data-person]")
+        page.locator("[data-page=people] [data-person]").first.click()
+        page.wait_for_selector(".sheet.on .sheet-head")
+        time.sleep(0.7)
+        first = page.locator(".sheet-head h2").inner_text()
+        for target in [".sheet-head [data-person]", ".sheet .prow[data-person]"]:
+            if target.endswith(".prow[data-person]"):
+                page.locator("[data-act=sheet-tab][data-tab=team]").click()
+                page.wait_for_selector(target)
+            before = page.locator(".sheet-head h2").inner_text()
+            page.locator(target).first.click()
+            frames = page.evaluate(SAMPLE, 700)
+            assert all(n == 1 and t in ("none", "matrix(1, 0, 0, 1, 0, 0)") for n, t in frames), frames
+            page.wait_for_function(f"document.querySelector('.sheet-head h2').innerText !== {before!r}")
+        assert page.locator("[data-act=sheet-back]").count()
+        page.locator("[data-act=sheet-back]").click()
+        page.wait_for_function("!document.querySelector('.sheet.swapping')")
+        page.locator("[data-act=sheet-back]").click()
+        page.wait_for_function(f"document.querySelector('.sheet-head h2').innerText === {first!r}")
+        assert not page.locator("[data-act=sheet-back]").count()
+        # close, then reopen while it is still sliding out: one panel, fully open
+        page.keyboard.press("Escape")
+        time.sleep(0.1)
+        page.locator("[data-page=people] [data-person]").nth(1).click()
+        page.wait_for_selector(".sheet.on .sheet-head")
+        time.sleep(0.8)
+        assert page.locator(".sheet").count() == 1 and page.locator(".scrim").count() == 1
+        assert not page.evaluate("window.PNO_errors").__len__()
+        browser.close()
