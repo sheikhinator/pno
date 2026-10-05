@@ -964,6 +964,7 @@ async function boot(keepPage) {
   shell();
   await refreshOptions();
   render();
+  if (S.init.notice) toast(S.init.notice, { ms: 15000 });
   window.PNO_ready = true;
 }
 boot(false).catch(e => { $("#app").innerHTML = `<div class="errbox" style="margin:40px">PNO could not start: ${esc(e.message || e)}</div>`; });

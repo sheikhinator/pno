@@ -99,7 +99,12 @@ class Api:
                 "options": analytics.options(mm, {}) if mm else {"cities": [], "formats": [], "stores": [], "depts": [], "sections": []},
                 "counts": counts, "has_data": any(counts.values()), "hide_names": self._hide(),
                 "theme": self.db.get_setting("theme", "auto"), "ai": self.agent.public_status(),
-                "unsure_stores": self.db.val("SELECT COUNT(*) FROM store_aliases WHERE confirmed=0", (), 0)}
+                "unsure_stores": self.db.val("SELECT COUNT(*) FROM store_aliases WHERE confirmed=0", (), 0),
+                "notice": self._take_notice()}
+
+    def _take_notice(self) -> str:
+        n, self.real_db.notice = getattr(self.real_db, "notice", ""), ""
+        return n
 
     def api_options(self, month: str | None = None, scope: dict | None = None) -> dict:
         return analytics.options(engine.model(self.db, month), scope or {})

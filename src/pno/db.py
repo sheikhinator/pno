@@ -12,6 +12,7 @@ from typing import Any, Iterable
 from .paths import db_path
 
 SCHEMA_VERSION = 1
+APP_ID = 0x504E4F31        # 'PNO1' in the file header: marks databases made by this version of PNO
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS imports (
@@ -184,17 +185,66 @@ class Database:
         self.path = Path(path) if path else db_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
-        self.conn = sqlite3.connect(str(self.path), check_same_thread=False, timeout=30, isolation_level=None)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA synchronous=NORMAL")
-        self.conn.execute("PRAGMA foreign_keys=OFF")
+        self.notice = ""          # shown once on the screen (e.g. an older PNO database was set aside)
+        self.conn = self._open()
+        if self._foreign():
+            # A database left by an earlier, different PNO (same folder, other tables). Keep it untouched beside
+            # the new one and start fresh, instead of failing on every import.
+            self.conn.close()
+            moved = self.path.with_name(f"pno-previous-version-{datetime.now():%Y%m%d-%H%M%S}.sqlite3")
+            self.path.replace(moved)
+            for ext in ("-wal", "-shm"):
+                side = Path(str(self.path) + ext)
+                if side.exists():
+                    side.replace(Path(str(moved) + ext))
+            self.notice = (f"A database from an earlier version of PNO was found and kept as '{moved.name}' in "
+                           f"{moved.parent}. PNO started with a fresh database: please import your reports again.")
+            self.conn = self._open()
+        self._add_missing_columns()
         self.conn.executescript(SCHEMA)
         v = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if v > SCHEMA_VERSION:
             raise RuntimeError("This database was made by a newer version of PNO. Please update PNO.")
         self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        self.conn.execute(f"PRAGMA application_id = {APP_ID}")
         self.version = 0          # bumped on every write; caches use it
+
+    def _open(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(self.path), check_same_thread=False, timeout=30, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA foreign_keys=OFF")
+        return conn
+
+    def _foreign(self) -> bool:
+        """True when the file holds tables but was not made by this PNO (and does not look like its schema)."""
+        if self.conn.execute("PRAGMA application_id").fetchone()[0] == APP_ID:
+            return False
+        tables = {r[0] for r in self.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not tables - {"sqlite_sequence"}:
+            return False                                   # empty / brand new file
+        if "imports" in tables:
+            cols = {r[1] for r in self.conn.execute("PRAGMA table_info(imports)")}
+            if {"file_hash", "kind", "active"} <= cols and "roster" in tables:
+                return False                               # this PNO's schema, made before the marker existed
+        return True
+
+    def _add_missing_columns(self) -> None:
+        """Bring an existing PNO database up to the current tables (new columns are added, nothing is removed)."""
+        ref = sqlite3.connect(":memory:")
+        try:
+            ref.executescript(SCHEMA)
+            for (table,) in ref.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"):
+                have = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+                if not have:
+                    continue                               # a new table: created by the schema below
+                for _, name, typ, _nn, default, _pk in ref.execute(f"PRAGMA table_info({table})"):
+                    if name not in have:
+                        d = f" DEFAULT {default}" if default is not None else ""
+                        self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}{d}")
+        finally:
+            ref.close()
 
     # ---------------------------------------------------------------- basics
     def q(self, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
