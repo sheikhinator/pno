@@ -113,8 +113,9 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
           & $iscc "/DAppVersion=$v" "/DSourceDir=$PWD\dist\PNO" packaging/installer.iss
           if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
-          Get-ChildItem dist -File | ForEach-Object {
-            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Out-File dist/SHA256SUMS.txt -Encoding ascii
+          $sums = @(Get-ChildItem dist -File | Where-Object Name -ne "SHA256SUMS.txt" | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" })
+          $sums | Out-File dist/SHA256SUMS.txt -Encoding ascii
           Get-Content dist/SHA256SUMS.txt
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
 
