@@ -373,6 +373,10 @@ def test_native_window_has_complete_primary_navigation(app, tmp_path):
 
     window = MainWindow(EmptyStore(tmp_path / "local.sqlite3"))
     expected = {
+        "command",
+        "leaders",
+        "turnover",
+        "roster",
         "dashboard",
         "sales_daily",
         "sales_mtd",

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 from .ui_helpers import APP_STYLE, BRAND_GOLD, BRAND_WHITE
 from .ui_imports import ImportsPage
 from .ui_pages import AnalysisPage, AttendancePage, OverviewPage, SalesPage, StaffPage
+from .ui_po import CommandCenterPage, LeadersPage, RosterPage, TurnoverPage, load_demo_mode, pack_import_panel, po_settings_panel
 from .ui_tools import AssistantPage, SettingsPage
 
 
@@ -57,13 +58,20 @@ class MainWindow(QMainWindow):
     """All navigation pages share a single persistent local SQLite store."""
 
     NAVIGATION = [
+        ("P&O REVIEW", None),
+        ("Command Center", "command"),
+        ("Leaders 360°", "leaders"),
+        ("Turnover", "turnover"),
+        ("Roster coverage", "roster"),
+        ("Assistant · analyst", "assistant"),
+        ("OPERATIONS", None),
         ("Overview", "dashboard"),
         ("Sales · daily", "sales_daily"),
         ("Sales · monthly", "sales_mtd"),
         ("Attendance", "attendance"),
         ("Staff & hierarchy", "staff"),
         ("Performance analysis", "analysis"),
-        ("Assistant · offline", "assistant"),
+        ("DATA", None),
         ("Imports & history", "imports"),
         ("Settings & backup", "settings"),
     ]
@@ -83,8 +91,9 @@ class MainWindow(QMainWindow):
         self._pages: dict[str, QWidget] = {}
         self._page_containers: dict[str, QScrollArea] = {}
         self._navigation: list[tuple[QPushButton, str]] = []
+        load_demo_mode()
         self._build()
-        self.navigate("dashboard")
+        self.navigate("command")
 
     def _build(self) -> None:
         root = QWidget()
@@ -103,9 +112,14 @@ class MainWindow(QMainWindow):
         name.setStyleSheet(f"font-size:11px;font-weight:700;letter-spacing:1.6px;color:{BRAND_WHITE};padding-left:11px")
         side_layout.addWidget(brand)
         side_layout.addWidget(name)
-        side_layout.addSpacing(17)
+        side_layout.addSpacing(10)
         for label, key in self.NAVIGATION:
-            button = QPushButton(label)
+            if key is None:
+                group = QLabel(label)
+                group.setStyleSheet(f"color:{BRAND_GOLD};font-size:10px;font-weight:800;letter-spacing:1.4px;padding:12px 0 2px 12px")
+                side_layout.addWidget(group)
+                continue
+            button = QPushButton(label.replace("&", "&&"))
             button.setObjectName("navButton")
             button.setProperty("active", False)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -162,6 +176,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
 
         page_specs = [
+            ("command", CommandCenterPage, (self.store, self.run_job, self.navigate)),
+            ("leaders", LeadersPage, (self.store, self.run_job, self.navigate)),
+            ("turnover", TurnoverPage, (self.store, self.run_job, self.navigate)),
+            ("roster", RosterPage, (self.store, self.run_job, self.navigate)),
             ("dashboard", OverviewPage, (self.store, self.run_job)),
             ("sales_daily", SalesPage, (self.store, self.run_job, "sales_daily")),
             ("sales_mtd", SalesPage, (self.store, self.run_job, "sales_mtd")),
@@ -182,6 +200,12 @@ class MainWindow(QMainWindow):
             container.setWidget(page)
             self._page_containers[key] = container
             self.stack.addWidget(container)
+        imports_layout = self._pages["imports"].layout()
+        if imports_layout is not None:
+            imports_layout.insertWidget(0, pack_import_panel(self._pages["imports"], self.store, self.run_job, self.refresh_data))
+        settings_layout = self._pages["settings"].layout()
+        if settings_layout is not None:
+            settings_layout.insertWidget(1, po_settings_panel(self.refresh_data))
 
     def navigate(self, page_key: str) -> None:
         page = self._pages.get(page_key)
@@ -193,13 +217,17 @@ class MainWindow(QMainWindow):
             button.style().unpolish(button)
             button.style().polish(button)
         title = {
+            "command": "Command Center",
+            "leaders": "Leaders 360°",
+            "turnover": "Turnover & retention",
+            "roster": "Roster coverage",
             "dashboard": "Workforce overview",
             "sales_daily": "Daily sales",
             "sales_mtd": "Monthly sales · MTD",
             "attendance": "Attendance & hours",
             "staff": "Staff & hierarchy",
             "analysis": "Performance analysis",
-            "assistant": "Assistant · offline",
+            "assistant": "Assistant · P&O analyst",
             "imports": "Imports & history",
             "settings": "Settings & backup",
         }.get(page_key, "Workforce analytics")

@@ -67,6 +67,9 @@ def _observation_date(value: Any) -> str | None:
 
 def _batch_coverage(kind: str, period: str, records: list[dict]) -> dict:
     """Build exact observation keys, retaining uncertain rows for fail-closed checks."""
+    if kind.startswith("po_"):
+        # P&O workbook tabs are whole-month snapshots: one batch per kind and period.
+        return {"keys": {(None, None, period)}, "unknown": set(), "complete": True}
     keys: set[tuple] = set()
     unknown: set[tuple] = set()
     for record in records:
@@ -457,7 +460,7 @@ class Store:
             connection.close()
 
     def dimensions(self) -> dict[str, list[str]]:
-        active_records = self.records()
+        active_records = [r for r in self.records() if not str(r.get("_kind", "")).startswith("po_")]
         output: dict[str, list[str]] = {}
         for dimension in ("store", "department", "section"):
             values = {

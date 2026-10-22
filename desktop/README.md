@@ -2,6 +2,18 @@
 
 ## What this preview includes
 
+### P&O review (new)
+
+- **One-click P&O workbook import**: all ten tabs (YTD productivity, shift roster, performance ratings, periodic store performance/sales, NPS, shrinkage & stock days, time in role, DA, turnover, Basic Sheet) are recognised by their columns, not their tab names. Store, section and name spellings are matched across tabs; garbled names are repaired. Birth dates, ages, phone numbers, e-mails and marital status are never imported.
+- **Command Center**: country KPIs, store league table with status, stores × sections heatmap (sales vs budget, growth, productivity vs target, shrinkage, stock days, OOS, margin) and ranked alerts from every tab.
+- **Leaders 360°**: every section leader with the business results of the area they run, rating history, time in role, roster pattern, team turnover and DA, plus a transparent, adjustable P&O index; talent grid (rating × results) and bench-strength flags.
+- **Turnover** and **Roster coverage** pages.
+- **P&O analyst** in the Assistant: plain-English questions ("Who are the weakest leaders in Lucky One?", "Compare Fortress and Emporium", "Brief me for the country review") answered from the imported data with no invented numbers.
+- **Board pack PDF** (landscape, presentation-ready), leader one-pagers and an Excel data workbook.
+- **Presentation mode** (Settings) hides employee names and IDs on screen and in exports.
+
+### Operations
+
 - Local SQLite history for roster, attendance, productivity, daily sales and MTD sales.
 - Multi-sheet Excel (.xlsx/.xls) and CSV/TSV import detection, manual mappings, previews and validation warnings.
 - Pasted tabular data import.

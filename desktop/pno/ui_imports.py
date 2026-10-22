@@ -85,7 +85,7 @@ class ImportsPage(QWidget):
         self.period.setEditable(True)
         self.period.setPlaceholderText("Report period · YYYY-MM-DD or YYYY-MM")
         self.period.addItems([__import__("datetime").date.today().replace(day=1).isoformat()])
-        self.preview_button = QPushButton("Scan & preview")
+        self.preview_button = QPushButton("Scan && preview")
         self.preview_button.setObjectName("goldButton")
         self.choose_file.clicked.connect(self.select_file)
         self.paste_button.clicked.connect(self.paste_data)

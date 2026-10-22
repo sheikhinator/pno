@@ -75,6 +75,7 @@ QPushButton#dangerButton {{ color: #8D3329; }}
 QLineEdit, QComboBox, QDateEdit, QSpinBox {{ background: white; border: 1px solid #DED8CE; border-radius: 7px; padding: 8px; min-height: 20px; }}
 QComboBox QAbstractItemView {{ background: white; selection-background-color: #E8DEC9; }}
 QFrame#card, QFrame#panel {{ background: white; border: 1px solid #E7E2D9; border-radius: 13px; }}
+QFrame#card QLabel, QFrame#panel QLabel, QFrame#card QCheckBox, QFrame#panel QCheckBox {{ background: transparent; }}
 QLabel#metricValue {{ color: {BRAND_BROWN}; font-size: 24px; font-weight: 700; }}
 QLabel#metricLabel {{ color: {MUTED}; font-size: 11px; font-weight: 700; }}
 QLabel#hint {{ color: {MUTED}; }}

@@ -42,3 +42,9 @@ Offline controlled query interpreter/rule commentary always available and clearl
 `MainWindow(store)`; launch via python -m pno. Dashboard, Imports & History, Sales, Attendance, Staff & Hierarchy, Analyze, Assistant, Settings. Brown #31261D gold #B5975A white. All UI uses contract above.
 Imports: file picker + pasted TSV/CSV, period and kind, multi-sheet preview with candidate selection and column mapping, warnings, save selected with explicit correction confirmation. Background work for scan/import/LLM. Daily/MTD distinguished.
 Filters/search; date/calendar history; as-of staff; charts; PDF/Excel export; backup/restore; model selection. Empty states honest. No synthetic auto-seeded production data.
+
+## P&O review (pno/workbook_pack.py, canon.py, insights.py, po_assistant.py, po_reports.py, ui_po.py)
+
+`scan_pack(path) -> PackPlan` recognises the ten P&O tabs by header signature; `import_pack(store, plan, "YYYY-MM", kinds)` saves each as kind `po_*` (one batch per kind per month; re-import replaces). The Basic Sheet is mirrored into `roster` for Staff & hierarchy. Personal contact fields are never read.
+`Insights(store, weights)` reads the latest month of each `po_*` kind: `headline()`, `store_scorecard()`, `section_matrix(metric)`, `leaders()`, `bench()`, `turnover_summary()`, `roster_summary()`, `alerts()`. Missing values stay None; a leader index needs at least three weighted measures.
+`PoAnalyst(insights).answer(question) -> html | None`; None falls back to the report assistant.

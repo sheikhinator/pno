@@ -88,7 +88,7 @@ def main() -> int:
             temporary.cleanup()
             return 1
         required_pages = {
-            "dashboard", "sales_daily", "sales_mtd", "attendance", "staff",
+            "command", "leaders", "turnover", "roster", "dashboard", "sales_daily", "sales_mtd", "attendance", "staff",
             "analysis", "assistant", "imports", "settings",
         }
         if set(window._pages) != required_pages:

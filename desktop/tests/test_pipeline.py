@@ -15,7 +15,7 @@ def test_fictional_workbook_pipeline(tmp_path, monkeypatch):
     store_path = tmp_path / "history.sqlite3"
     store = Store(store_path)
     counts = {}
-    for filename in sorted(make_samples.ROOT.glob("*.xlsx")):
+    for filename in sorted(p for p in make_samples.ROOT.glob("*.xlsx") if "po-workbook" not in p.name):
         plan = scan_workbook(filename, period="2026-08")
         assert plan.candidates, f"No tables detected in {filename.name}"
         for candidate in plan.candidates:

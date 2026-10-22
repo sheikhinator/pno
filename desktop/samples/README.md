@@ -9,3 +9,5 @@ python scripts/make_samples.py
 They are included automatically in the full Windows ZIP. Import the roster as of 2026-08-01, attendance as 2026-08, productivity as 2026-08, and sales sheets for their respective reporting periods. MTD is cumulative: do not import it as daily transactions.
 
 Use these only to learn navigation and import preview. They are not representative of every corporate workbook layout.
+
+`fictional-po-workbook.xlsx` mirrors the ten-tab P&O review workbook with invented people and numbers. Load it with **Imports & history → Import full P&O workbook…** to explore the Command Center, Leaders 360°, Turnover and Roster pages.

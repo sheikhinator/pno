@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from typing import Any, Callable
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -60,18 +60,40 @@ class AssistantPage(QWidget):
         layout.setContentsMargins(24, 22, 24, 22)
         layout.setSpacing(12)
         layout.addWidget(empty_panel(
-            "Ask about your reports",
-            "Answers use locally imported data and this laptop's optional GGUF model. "
-            "This assistant sends no report data or questions to an online service.",
+            "Your P&O analyst",
+            "Ask in plain English about stores, sections, leaders, turnover, roster and sales. Every number comes from the "
+            "imported workbook and is calculated by the engine, never guessed. Nothing leaves this computer.",
         ))
+        from .po_assistant import SUGGESTIONS
+
+        chips = QHBoxLayout()
+        chips.setSpacing(6)
+        chip_box = QVBoxLayout()
+        for index, text in enumerate(SUGGESTIONS):
+            chip = QPushButton(text)
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
+            chip.setStyleSheet("QPushButton { background:#F6F1E7; border:1px solid #E3D8C4; border-radius:14px; padding:6px 12px; font-weight:600 } QPushButton:hover { background:#EADFC9 }")
+            chip.clicked.connect(lambda _c=False, t=text: self._ask_text(t))
+            chips.addWidget(chip)
+            if index % 4 == 3:
+                chips.addStretch(1)
+                chip_box.addLayout(chips)
+                chips = QHBoxLayout()
+                chips.setSpacing(6)
+        chips.addStretch(1)
+        chip_box.addLayout(chips)
+        layout.addLayout(chip_box)
         self.filters = FilterBar(self.store)
+        self.filters.setVisible(False)  # scope for report questions; P&O questions use the whole workbook
         layout.addWidget(self.filters)
         self.model_label = QLabel()
         self.model_label.setObjectName("hint")
+        self.model_label.setVisible(False)
         layout.addWidget(self.model_label)
         model_path = selected_model_path(self.settings)
         self.model_label.setText(f"Selected local model: {model_path or 'None · rule-based answers remain available'}")
         self.transcript = QTextBrowser()
+        self.transcript.setMinimumHeight(430)
         self.transcript.setOpenExternalLinks(False)
         self.transcript.setPlaceholderText("Ask a question about the visible report scope.")
         self.transcript.append(
@@ -81,7 +103,7 @@ class AssistantPage(QWidget):
         layout.addWidget(self.transcript, 1)
         row = QHBoxLayout()
         self.question = QLineEdit()
-        self.question.setPlaceholderText("e.g., How did sales compare with budget this month?")
+        self.question.setPlaceholderText("e.g., Who are the weakest leaders in Lucky One?  ·  Brief me on Emporium  ·  Where is turnover highest?")
         self.question.returnPressed.connect(self.ask)
         self.send = QPushButton("Ask locally")
         self.send.setObjectName("primaryButton")
@@ -92,6 +114,10 @@ class AssistantPage(QWidget):
         self.notice = QLabel("Assistant is offline.")
         self.notice.setObjectName("hint")
         layout.addWidget(self.notice)
+
+    def _ask_text(self, text: str) -> None:
+        self.question.setText(text)
+        self.ask()
 
     def ask(self) -> None:
         if self._request_active:
@@ -107,18 +133,35 @@ class AssistantPage(QWidget):
         filters = self.filters.filters()
         model_path = selected_model_path(self.settings)
 
-        def work() -> str:
+        from .ui_po import load_weights
+
+        weights = load_weights()
+
+        def work() -> tuple[str, str]:
+            try:
+                from .po_assistant import answer as po_answer
+
+                smart = po_answer(self.store, question, weights)
+            except Exception:  # fall back to the report assistant rather than fail
+                smart = None
+            if smart:
+                return "html", smart
             from .assistant import Assistant
 
-            return Assistant(self.store, model_path=model_path).ask(question, filters=filters)
+            return "text", Assistant(self.store, model_path=model_path).ask(question, filters=filters)
 
-        def done(answer: str) -> None:
+        def done(result: tuple[str, str]) -> None:
             self._request_active = False
             self.question.setEnabled(True)
             self.send.setEnabled(True)
-            rendered = html.escape(str(answer), quote=True).replace("\n", "<br>")
-            self.transcript.append(f"<p><b>PNO · Local</b><br>{rendered}</p>")
-            self.notice.setText("Answer generated locally from the selected report scope.")
+            kind, answer = result
+            if kind == "html":
+                self.transcript.append(f"<p><b style='color:#B5975A'>PNO analyst</b></p>{answer}<hr style='border:0;border-top:1px solid #E7E2D9'>")
+                self.notice.setText("Answer calculated locally from the imported P&O workbook.")
+            else:
+                rendered = html.escape(str(answer), quote=True).replace("\n", "<br>")
+                self.transcript.append(f"<p><b>PNO · Local</b><br>{rendered}</p>")
+                self.notice.setText("Answer generated locally from the selected report scope.")
 
         def failed(error: Exception) -> None:
             self._request_active = False
