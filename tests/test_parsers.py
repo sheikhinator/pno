@@ -181,10 +181,11 @@ def test_every_demo_file_is_recognised(demo):
     kinds = {}
     for name, data in demo.files.items():
         a = importers.analyze_bytes(data, name)
-        assert a["results"], name
-        kinds.setdefault(a["results"][0].kind, 0)
-        kinds[a["results"][0].kind] += 1
-    assert kinds == {"roster": 1, "leave": 2, "attendance": 2, "productivity": 2, "sales": 2}
+        assert a["results"] and not a["skipped"], name
+        for r in a["results"]:
+            kinds[r.kind] = kinds.get(r.kind, 0) + 1
+    assert kinds == {"roster": 1, "leave": 2, "attendance": 2, "productivity": 2, "sales": 2, "po_rating": 1, "po_role": 1,
+                     "po_shift": 1, "po_turnover": 1, "po_da": 1, "po_nps": 1, "po_shrink": 1}
 
 
 def test_unknown_file_is_skipped_not_guessed():

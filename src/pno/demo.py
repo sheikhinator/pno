@@ -432,11 +432,90 @@ def leave_xlsx(people: list[Person], month: date, seed: int = 41) -> tuple[bytes
     return _xlsx({"Leave": rows}), taken
 
 
+def po_review_xlsx(people: list[Person], seed: int = 51) -> bytes:
+    """The P&O review workbook's own tabs, for the same fictional people: ratings, time in role, shift roster,
+    turnover, DA pivot, NPS and shrinkage & stock days."""
+    rnd = random.Random(seed)
+    leads = [p for p in people if p.designation in ("Section Manager", "Team Leader", "Department Head", "Store Manager",
+                                                   "Deputy Manager", "Supervisor")]
+    labels = {1: "Does Not Meet Expectations", 2: "Partially Meets Expectations", 3: "Meets expectations",
+              4: "Exceeds expectations", 5: "Outstanding"}
+    rating = [["User Status", "Form Template Name", "Subject Employee ID", "Subject Full Name", "Subject Division/Entity",
+               "Subject Position Title", "Subject Department", "Subject Pay Grade", "Subject Gender", "Manager Full Name",
+               "HR Business Email", "Overall Performance Rating", "Overall Performance Rating Description",
+               "Unadjusted Calculated Overall Performance Rating", "Section Rating", "Section Rating Label"]]
+    role = [["Sr", "Employee Number", "Business Unit", "Department ", "Section ", "Employee Name", "Designation", "on this role", "Remarks"]]
+    days = [date(2026, 9, 1) + timedelta(days=i) for i in range(30)]
+    shift = [["Instructions:"], ["", "Morning", "till 11 Consider all in Morning"], ["", "MID", "Till 2 Consider all in MID"],
+             ["", "Evening/Closing", "After 2 consider all in Evening"], [],
+             ["Business Unit", "Department ", "Section ", "Employee Number", "Employee Name", "Designation", *days]]
+    codes = ["MOR", "MOR", "MID", "Evening", "Evening", "MOR", "DAY OFF"]
+    for i, p in enumerate(leads, 1):
+        base = rnd.choices([2, 3, 3, 3, 4, 4, 5], k=1)[0]
+        for year in (2024, 2025):
+            r = max(1, min(5, base + rnd.choice([-1, 0, 0, 1]) if year == 2024 else base))
+            rating.append(["Active User", f"{year} Performance Journey", p.emp, p.name, f"{p.bu} (MAFR-000)", p.designation,
+                           f"{p.section} (MAFR-000.000)", f"000-{p.grade}**-Full Time-Local", p.gender[:1], p.manager, "",
+                           r, labels[r], round(r - rnd.random() * 0.4, 2), r, labels[r]])
+        since = date(2026, 9, 1) - timedelta(days=rnd.choice([40, 120, 300, 500, 800, 1300]))
+        note = rnd.choice(["", "", "", "DOA acting role", "Working as Team Leader but in system he is sales person"])
+        role.append([i, p.emp, p.bu, p.dept, p.section, p.name, p.designation, since, (f"Leading {p.section.split(' - ')[-1]} since {since:%b-%Y}" + (f" · {note}" if note else ""))])
+        start = rnd.randrange(7)
+        leave = set(rnd.sample(range(30), rnd.choice([0, 0, 2, 3, 5])))
+        shift.append([p.bu, p.dept, p.section, p.emp, p.name, p.designation,
+                      *["AL" if d in leave else codes[(d + start) % 7] for d in range(30)]])
+    turnover = [["Emp. No.", "Emp. Name", "Requested Date", "Business Unit", "Dept.", "Sect.", "End of Service Type", "Reason", "Salary Period"]]
+    reasons = [("Resignation", "Found Better Job"), ("Resignation", "Personal Reasons"), ("Resignation", "Family Reasons"),
+               ("Termination", "Termination of contract"), ("Termination", "Long Absentism"), ("Resignation", "Continue Studies"),
+               ("Termination", "Low Performance")]
+    staff = [p for p in people if p not in leads]
+    for i in range(70):
+        p = rnd.choice(staff)
+        d = date(2026, 9, 28) - timedelta(days=rnd.randint(0, 700))
+        typ, why = rnd.choice(reasons)
+        turnover.append([str(29000000 + i), f"Former {p.name.split()[-1]} {i:02d}", d.strftime("%d/%m/%Y"), p.bu,
+                         p.dept.split(":")[-1], p.section.split(" - ")[-1], typ, why, d.strftime("%Y%m")])
+    da = [["Row Labels", "Count of Section"]]
+    bus = sorted({p.bu for p in people})
+    for sec in ("CCO - Cashiers", "FFD - Delicatessen Counter", "CGD - FMCG (Common)", "LHH - House-ware"):
+        picks = rnd.sample(bus, 3)
+        counts = [rnd.randint(1, 4) for _ in picks]
+        da.append([sec, sum(counts)])
+        da += [[bu, c] for bu, c in zip(picks, counts)]
+    da.append(["Grand Total", sum(r[1] for r in da[1:] if r[0].startswith(("CCO", "FFD", "CGD", "LHH")))])
+    nps = [["Details", "Section", "Product Influence", "NPS "]]
+    for city in ("Lahore", "Karachi", "Islamabad", "Faisalabad", "Gujranwala"):
+        for year in (2024, 2025):
+            for sec, cat in [("Bakery ", "Bakery"), ("Market - F&V", "Fruit and Vegetables"), ("Butchery", "Butchery"),
+                             ("TXT", "Menswear"), ("LHH", "Household, Kitchen World and Appliances"), ("HHH", "TV, Sound Systems and Headphones")]:
+                nps.append([f"{city} NPS {year}", sec, cat, rnd.randint(-20, 95)])
+    sections = ["CGD - Beverage", "CGD - DPH", "CGD - Grocery", "CGD - OPSS", "FFD - Bakery", "FFD - Butchery", "FFD - Delicatessen Counter",
+                "FFD - Fishery", "FFD - Fruits & Vegetables", "HHH - Heavy Household", "LHH - Light Household", "TXT - Textile"]
+    shops = [b for b in bus if not b.upper().startswith(("H&B", "HB "))]
+    h1, h2, h3 = ["Sections"], [""], [""]
+    for b in shops:
+        h1 += [b, "", "", "", ""]
+        h2 += ["Shrinkges", "", "", "Stock Days", ""]
+        h3 += ["Budget %", "Actual %", "Act-Bud", "Budget", "Actual"]
+    shrink = [h1, h2, h3]
+    for sec in sections:
+        row = [sec]
+        for _ in shops:
+            b = -round(rnd.uniform(0.05, 1.5), 2)
+            a = round(b + rnd.uniform(-2.5, 1.2), 2)
+            bud = rnd.choice([10, 15, 20, 30, 45, 60])
+            row += [f"{b}%", f"{a}%", f"{round(a - b, 2)}%", bud, round(bud * rnd.uniform(0.7, 1.6))]
+        shrink.append(row)
+    return _xlsx({"Performance Rating": rating, "In this role": role, "Roster": shift, "Turnover": turnover, "DA": da,
+                  "NPS": nps, "Shrinkage & Stock Days": shrink})
+
+
 def build(seed: int = 7) -> Demo:
     """Two months of demo files: August and September 2026."""
     people = build_people(seed)
     demo = Demo(people=people)
     demo.files["Employee Basic Details.xlsx"] = roster_xlsx(people)
+    demo.files["P&O Review Workbook (demo).xlsx"] = po_review_xlsx(people)
     for m in (date(2026, 8, 1), date(2026, 9, 1)):
         lv, taken = leave_xlsx(people, m)
         tag = m.strftime("%b %Y")
