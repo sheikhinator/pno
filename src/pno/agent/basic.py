@@ -29,10 +29,14 @@ def answer(tb: Toolbox, question: str) -> str:
     ql = q.lower()
     mm = tb._mm()
     if not mm.people and not getattr(mm, "sales", {}):
-        return "There is no data yet. Import the roster, attendance, productivity and BO sales reports first (Import screen)."
+        return _po_answer(tb, q) or "There is no data yet. Import the roster, attendance, productivity and BO sales reports first (Import screen)."
     store = _find_store(tb, mm, ql)
     city = _find_city(ql)
     person, _ = _find_person_in_text(tb, mm, q)
+    if not person:                                   # P&O review topics (leaders, turnover, ratings, shrinkage, roster…)
+        po = _po_answer(tb, q, only_if_topic=True)
+        if po:
+            return po
 
     # --- data entry: leave and holidays
     if "holiday" in ql and re.search(r"\badd\b|\bmark\b|\bset\b|\bis\b|\bas\b", ql):
@@ -155,7 +159,22 @@ def answer(tb: Toolbox, question: str) -> str:
         cards = "; ".join(f"{k}: {_fmt(v)}" for c in d["cards"] for k, v in c.items() if k not in ("change_vs_last_month", "note"))
         return f"**{d['scope']} · {d['month']}** (data up to {d['data_up_to']}). {cards}." + (
             "\n\n" + "\n".join("- " + a for a in d["alerts"]) if d["alerts"] else "")
-    return HELP
+    return _po_answer(tb, q) or HELP
+
+
+def _po_answer(tb: Toolbox, question: str, only_if_topic: bool = False) -> str | None:
+    """Questions about the P&O review workbook (leaders, turnover, ratings, shrinkage, roster…)."""
+    try:
+        from ..po.analyst import PO_WORDS, PoAnalyst, to_markdown
+        if only_if_topic and not PO_WORDS.search(question):
+            return None
+        ins = tb.svc.api._po()
+        if ins.empty:
+            return None
+        html = PoAnalyst(ins).answer(question)
+        return to_markdown(html) if html else None
+    except Exception:
+        return None
 
 
 def _fmt(v):

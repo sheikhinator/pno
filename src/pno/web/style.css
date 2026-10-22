@@ -394,3 +394,37 @@ body.present .present-bar{display:flex;position:fixed;right:18px;bottom:18px;z-i
 
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 @media print{.side,.top,.present-bar{display:none}.app{display:block}.view{overflow:visible}body{overflow:visible}}
+
+/* ---------------------------------------------------------------- P&O review */
+.kpis.po-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
+.kpis.po-kpis4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.kpis .kpi-v small{font-size:.5em;color:var(--muted);font-weight:700}
+td.po-h{font-weight:800}
+td.po-h.good{background:var(--good-bg);color:var(--good-ink)}
+td.po-h.warn{background:var(--warn-bg);color:var(--warn-ink)}
+td.po-h.bad{background:var(--bad-bg);color:var(--bad-ink)}
+td.po-h.none{color:var(--muted);font-weight:500}
+table.po-heat td{padding:8px 10px}
+.po-split{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:start}
+.po-profile{min-height:420px;overflow:auto;max-height:calc(100vh - 220px)}
+.po-html{background:#FFFDF9;color:#28231F;border-radius:12px;padding:6px 10px}
+.po-html table td{padding:4px 8px}
+tr.po-sel td{background:var(--gold-soft)!important}
+.po-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.po-box{border-radius:14px;padding:12px;min-height:170px;display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.po-box b{margin-bottom:4px}
+.po-box.r2c2{background:var(--good-bg)}.po-box.r2c1,.po-box.r1c2{background:color-mix(in srgb,var(--good-bg) 55%,var(--card))}
+.po-box.r1c1{background:var(--card-2)}.po-box.r0c0{background:var(--bad-bg)}
+.po-box.r2c0,.po-box.r1c0,.po-box.r0c1,.po-box.r0c2{background:var(--warn-bg)}
+.po-name{border:0;background:transparent;padding:2px 0;text-align:left;cursor:pointer;color:var(--ink);font:inherit;font-weight:700}
+.po-name small{color:var(--muted);font-weight:500;margin-left:6px}
+.po-name:hover{text-decoration:underline}
+.po-axis{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;color:var(--muted);font-size:12px;font-weight:700}
+table.po-shifts th,table.po-shifts td.po-s{padding:6px 4px;text-align:center;min-width:34px}
+.po-s{font-weight:800;font-size:11.5px;border-radius:5px;padding:1px 5px}
+.po-s.m{background:#DCEBDF;color:#245B33}.po-s.d{background:#E8E1F2;color:#4B3A72}.po-s.e{background:#F7E7C2;color:#7A5410}
+.po-s.o{background:var(--line-2);color:var(--muted)}.po-s.l{background:#F3CFCB;color:#8D2B22}.po-s.i{background:#D6E4F0;color:#22496B}.po-s.n{background:transparent}
+@media (max-width:1100px){.kpis.po-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.po-split{grid-template-columns:1fr}}
+table.t td.n{white-space:nowrap}
+table.po-shifts th .sub{display:block;font-size:10px;color:var(--muted)}
+.po-kpis4 .kpi-v{font-size:clamp(20px,2.2vw,30px);line-height:1.15}

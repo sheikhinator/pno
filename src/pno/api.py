@@ -442,6 +442,115 @@ class Api:
             self.host.open_path(path)
         return {"ok": True, "path": path, "name": Path(path).name}
 
+    # ---------------------------------------------------------------- P&O review (the ten-tab P&O workbook)
+    def _po(self):
+        from .po import privacy
+        from .po.insights import Insights
+        from .po.store import PoStore
+
+        hide = self._hide()
+        privacy.set_demo_mode(hide)
+        weights = self.db.get_setting("po_weights", None)
+        key = (str(self.db.path), self.db.version, json.dumps(weights, sort_keys=True), hide)
+        cached = getattr(self, "_po_cache", None)
+        if cached and cached[0] == key:
+            return cached[1]
+        ins = Insights(PoStore(self.db), weights=weights)
+        self._po_cache = (key, ins)
+        return ins
+
+    def api_po_review(self, metric: str = "sales_vs_budget") -> dict:
+        from .po.insights import PACK_LABELS
+        ins = self._po()
+        if ins.empty:
+            return {"has_data": False}
+        h = ins.headline()
+        stores, sections, values = ins.section_matrix(metric)
+        return {"has_data": True, "headline": h, "stores": ins.store_scorecard(), "alerts": ins.alerts(40),
+                "heat": {"metric": metric, "stores": stores, "sections": sections,
+                         "values": [[values.get((st, sec)) for sec in sections] for st in stores]},
+                "sources": [{"kind": PACK_LABELS.get(k, k), "source": v} for k, v in sorted(ins.sources.items())]}
+
+    def _leader_row(self, ins, leader, ranks) -> dict:
+        from .po.format import leader_name
+        from .po.insights import tenure_text
+        box = ins.talent_box(leader)
+        return {"key": leader.key, "rank": ranks.get(leader.key), "name": leader_name(leader), "store": leader.store or "—",
+                "leads": leader.section_text, "role": leader.designation, "score": leader.score, "business": leader.business,
+                "rating": leader.latest_rating, "rating_label": leader.rating_label, "in_role": tenure_text(leader.months_in_role),
+                "months_in_role": leader.months_in_role, "talent": ins.TALENT_NAMES.get(box) if box else None}
+
+    def api_po_leaders(self, q: str = "", store: str = "") -> dict:
+        from .po.format import leader_name
+        ins = self._po()
+        if ins.empty:
+            return {"has_data": False}
+        all_leaders = ins.leaders()
+        ranks = {l.key: i + 1 for i, l in enumerate(x for x in all_leaders if x.score is not None)}
+        rows = ins.find_leader(q) if q.strip() else all_leaders
+        if store:
+            rows = [l for l in rows if l.store == store]
+        boxes = {}
+        for l in all_leaders:
+            b = ins.talent_box(l)
+            if b:
+                boxes.setdefault(b, []).append({"key": l.key, "name": leader_name(l), "store": l.store, "score": l.score})
+        talent = [{"col": c, "row": r, "name": ins.TALENT_NAMES[(c, r)], "leaders": sorted(boxes.get((c, r), []), key=lambda x: -(x["score"] or 0))}
+                  for r in (2, 1, 0) for c in (0, 1, 2)]
+        bench = [{"severity": f["severity"], "reason": f["reason"], **self._leader_row(ins, f["leader"], ranks)} for f in ins.bench()]
+        return {"has_data": True, "leaders": [self._leader_row(ins, l, ranks) for l in rows], "talent": talent, "bench": bench,
+                "stores": sorted({l.store for l in all_leaders if l.store}), "weights": ins.weights,
+                "scored": len(ranks), "total": len(all_leaders)}
+
+    def api_po_leader(self, key: str) -> dict:
+        from .po.format import leader_profile_html
+        ins = self._po()
+        leader = next((l for l in ins.leaders() if l.key == key), None)
+        if not leader:
+            raise ValueError("Leader not found.")
+        return {"key": key, "html": leader_profile_html(ins, leader)}
+
+    def api_po_turnover(self) -> dict:
+        from .po import privacy
+        ins = self._po()
+        if ins.empty or not ins.has("po_turnover"):
+            return {"has_data": False}
+        t = ins.turnover_summary()
+        recent = sorted((r for r in ins.rows("po_turnover") if r.get("date")), key=lambda r: r["date"], reverse=True)[:40]
+        return {"has_data": True, **t, "as_of": ins.as_of,
+                "recent": [{"date": r["date"], "name": privacy.name(r["employee_name"], r.get("employee_id") or r["employee_name"]),
+                            "store": r["store"], "section": r["section"], "type": r["exit_type"], "reason": r["reason"]} for r in recent]}
+
+    def api_po_shifts(self, store: str = "") -> dict:
+        from .po import canon, privacy
+        ins = self._po()
+        if ins.empty or not ins.has("po_shift"):
+            return {"has_data": False}
+        r = ins.roster_summary()
+        known = [s[0] for s in canon._STORES]
+        stores = sorted(r["stores"], key=lambda n: (known.index(n) if n in known else 99, n))
+        store = store if store in stores else (stores[0] if stores else "")
+        rows = [x for x in ins.rows("po_shift") if x["store"] == store]
+        people: dict = {}
+        for x in rows:
+            p = people.setdefault(x["employee_id"], {"emp": x["employee_id"], "name": privacy.name(x["employee_name"], x["employee_id"]),
+                                                       "section": x["section"], "designation": x["designation"], "days": {}})
+            p["days"][x["date"]] = x["shift"]
+        grid = sorted(people.values(), key=lambda p: (canon.department(p["section"]), p["section"], p["name"]))
+        return {"has_data": True, "stores": stores, "store": store, "days": r["days"], "people": r["people"], "mix": dict(r["mix"]),
+                "grid": [{**p, "days": [p["days"].get(d, "Not rostered") for d in r["days"]]} for p in grid],
+                "gaps": r["gaps"], "leave": [{"name": privacy.name(n, n), "store": s, "days": d} for n, s, d in r["leave"]]}
+
+    def api_po_weights(self, weights: dict | None = None, reset: bool = False) -> dict:
+        from .po.insights import DEFAULT_WEIGHTS, WEIGHT_LABELS
+        if reset:
+            self.db.x("DELETE FROM settings WHERE key='po_weights'")
+        elif weights is not None:
+            clean = {k: max(0.0, float(v)) for k, v in weights.items() if k in DEFAULT_WEIGHTS and v not in (None, "")}
+            self.db.set_setting("po_weights", clean)
+        current = {**DEFAULT_WEIGHTS, **(self.db.get_setting("po_weights", None) or {})}
+        return {"weights": current, "labels": WEIGHT_LABELS, "defaults": DEFAULT_WEIGHTS}
+
     def api_open_path(self, path: str) -> dict:
         self.host.open_path(path)
         return {"ok": True}

@@ -31,6 +31,14 @@ CREATE TABLE IF NOT EXISTS imports (
 );
 CREATE INDEX IF NOT EXISTS imports_kind ON imports(kind, active);
 
+CREATE TABLE IF NOT EXISTS po_records (         -- P&O workbook tabs (ratings, roles, turnover, DA, NPS, shrinkage, shifts…)
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_id INTEGER NOT NULL REFERENCES imports(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL                       -- JSON record in the P&O review's canonical shape
+);
+CREATE INDEX IF NOT EXISTS po_records_import ON po_records(import_id, kind);
+
 CREATE TABLE IF NOT EXISTS stores (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     key TEXT NOT NULL UNIQUE,           -- FORMAT|CITY|NAME

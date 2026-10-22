@@ -11,10 +11,15 @@ from ..db import Database, now
 from ..reader import Workbook, from_text, open_bytes, open_file
 from ..stores import StoreResolver
 from ..util import month_bounds
-from . import attendance, leave, productivity, roster, sales
+from ..po import store as po_store
+from . import attendance, leave, po_tabs, productivity, roster, sales
 from .base import KIND_LABEL, ParseResult
 
-PARSERS = [("sales", sales), ("productivity", productivity), ("attendance", attendance), ("roster", roster), ("leave", leave)]
+PARSERS = [("sales", sales), ("productivity", productivity), ("attendance", attendance), ("roster", roster), ("leave", leave),
+           *po_tabs.PARSERS]
+KIND_LABEL.update(po_tabs.LABELS)
+PO_MIRROR = {"sales": ("po_sales", po_store.sales_records), "productivity": ("po_productivity", po_store.productivity_records),
+             "roster": ("po_master", po_store.master_records)}
 
 
 def detect(sheet) -> tuple[str | None, float]:
@@ -161,7 +166,14 @@ def _commit_one(db: Database, res: ParseResult, analysis: dict, opt: dict, sourc
                       r.get("items"), r.get("avg_basket"), r.get("asp"), r.get("margin"), r.get("waste"),
                       r.get("margin_net"), r.get("avg_stock"), r.get("oos"))
                      for r in res.rows if sid.get(r["store_raw"]) and (r["as_of"] or as_of)])
-            elif res.kind == "leave":
+            elif res.kind.startswith("po_"):
+                c.executemany("INSERT INTO po_records(import_id, kind, payload) VALUES(?,?,?)",
+                              [(iid, res.kind, json.dumps(r, ensure_ascii=False, default=str)) for r in res.rows])
+            if res.kind in PO_MIRROR:               # the P&O review reads the same report in its own shape
+                po_kind, convert = PO_MIRROR[res.kind]
+                c.executemany("INSERT INTO po_records(import_id, kind, payload) VALUES(?,?,?)",
+                              [(iid, po_kind, json.dumps(r, ensure_ascii=False, default=str)) for r in convert(res.rows)])
+            if res.kind == "leave":
                 c.executemany("INSERT INTO leaves(emp_no, d_from, d_to, type, note, import_id, created_at) VALUES(?,?,?,?,?,?,?)",
                               [(r["emp_no"], r["d_from"], r["d_to"], r["type"], r.get("note"), iid, now()) for r in res.rows])
     except Exception:

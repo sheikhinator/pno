@@ -19,7 +19,8 @@ BROWN, BROWN2, GOLD, GOLD_SOFT, INK, MUTED, LINE, BG = "#2A1A11", "#94481A", "#B
 GOOD, WARN, BAD = "#2E7D4F", "#B7791F", "#B3261E"
 BAND_COLORS = {"excellent": "#2E7D4F", "good": "#5B9A63", "ok": "#B8860B", "warn": "#D9822B", "bad": "#B3261E", "none": "#9A8F84"}
 PACKS = {"director": "Monthly HR Director Pack", "store": "Store Report", "dept": "Department Comparison",
-         "scorecard": "Individual Scorecard", "attendance": "Attendance Exceptions", "people": "People Ranking"}
+         "scorecard": "Individual Scorecard", "attendance": "Attendance Exceptions", "people": "People Ranking",
+         "po": "P&O Review Pack"}
 
 
 def _f(v, fmt: str = "") -> str:
@@ -277,6 +278,81 @@ def _pack_people(db, mm, rep, scope, emp, store_id, hide):
         ("Store", "store", ""), ("Department", "dept", ""), ("Score", "score", "score"), ("Band", "band", ""),
         ("Change", "delta", "signed"), ("Attendance", "attendance", "score"), ("Presence", "presence", "pct0"),
         ("Absent days", "absent", "int"), ("Punches to fix", "fixes", "int")], "rows": data["rows"]})
+
+
+def _pack_po(db, mm, rep, scope, emp, store_id, hide):
+    """P&O review: store scorecard, section heatmaps, leaders, talent and bench, turnover and roster gaps."""
+    from .po import privacy
+    from .po.format import leader_name
+    from .po.insights import WEIGHT_LABELS, tenure_text
+    from .po.store import PoStore
+    from .po.insights import Insights
+
+    privacy.set_demo_mode(hide)
+    ins = Insights(PoStore(db), weights=db.get_setting("po_weights", None))
+    if ins.empty:
+        raise ValueError("Import the P&O workbook first (Import screen) to build the P&O review pack.")
+    h = ins.headline()
+    rep["subtitle"] = f"Country P&O review · data as of {h['as_of']:%d %B %Y}"
+    rep["sources"] = sorted({f"{k.replace('po_', '').title()}: {v}" for k, v in ins.sources.items()})
+    pct = lambda v, d=1: None if v is None else round(v, d)  # noqa: E731
+    rep["sections"].append({"type": "kpis", "items": [
+        {"label": "Sales MTD", "value": _f(h["sales"], "money"), "sub": f"{_f(h['sales_vs_budget_pct'], 'pct')} of budget"},
+        {"label": "Growth vs last year", "value": _f(h["growth_pct"], "signed") + "%", "sub": "All stores"},
+        {"label": "Productivity vs target", "value": _f(h["productivity_vs_target_pct"], "signed") + "%", "sub": "Average across stores"},
+        {"label": "Stores on track", "value": f"{h['stores_on_track']} / {h['stores']}", "sub": f"{h['stores_at_risk']} at risk"},
+        {"label": "Leavers · 12 months", "value": _f(h["leavers_12m"], "int"), "sub": f"{_f(h['voluntary_pct'], 'pct0')} voluntary"},
+        {"label": "Disciplinary cases", "value": _f(h["da_cases"], "int"), "sub": "DA tab"}]})
+    alerts = ins.alerts(12)
+    if alerts:
+        rep["sections"].append({"type": "text", "title": "Top priorities",
+                                "lines": [f"{a['severity']} · {a['area']} · {a['store']}: {a['message']}" for a in alerts]})
+    cards = ins.store_scorecard()
+    rep["sections"].append({"type": "table", "title": "Store league table", "columns": [
+        ("Store", "store", ""), ("Status", "status", ""), ("Sales", "sales", "money"), ("vs budget", "sales_vs_budget_pct", "pct0"),
+        ("Growth", "growth_pct", "signed"), ("Prod. vs target", "productivity_vs_target_pct", "signed"),
+        ("Shrink vs bud. (pp)", "shrink_variance_avg", "signed"), ("OOS", "oos_pct", "pct"), ("Margin", "margin_pct", "pct"),
+        ("Leavers 12m", "leavers_12m", "int"), ("DA", "da_cases", "int"), ("Leader index", "avg_leader_score", "int")], "rows": cards})
+    rep["sections"].append({"type": "chart", "kind": "hbar", "title": "Sales vs budget by store (%)",
+                            "labels": [c["store"] for c in cards], "series": [{"name": "% of budget", "values": [pct(c["sales_vs_budget_pct"], 0) for c in cards]}]})
+    for title, metric in (("Sales vs budget by section (%)", "sales_vs_budget"), ("Shrinkage vs budget by section (pp)", "shrink_variance"),
+                          ("Productivity vs target by section (%)", "productivity_vs_target")):
+        stores, sections, values = ins.section_matrix(metric)
+        if sections:
+            rep["sections"].append({"type": "table", "title": title,
+                                    "columns": [("Store", "store", "")] + [(s, s, "signed" if metric != "sales_vs_budget" else "pct0") for s in sections],
+                                    "rows": [{"store": st, **{s: pct(values.get((st, s))) for s in sections}} for st in stores]})
+    leaders = [l for l in ins.leaders() if l.score is not None]
+    row = lambda l: {"name": leader_name(l), "store": l.store, "leads": l.section_text, "role": l.designation,  # noqa: E731
+                     "index": round(l.score), "rating": l.latest_rating, "in_role": tenure_text(l.months_in_role)}
+    cols = [("Leader", "name", ""), ("Store", "store", ""), ("Leads", "leads", ""), ("Role", "role", ""), ("P&O index", "index", "int"),
+            ("Rating", "rating", ""), ("In role", "in_role", "")]
+    if leaders:
+        rep["sections"].append({"type": "table", "title": "Top 10 leaders · P&O index", "columns": cols, "rows": [row(l) for l in leaders[:10]]})
+        rep["sections"].append({"type": "table", "title": "Bottom 10 leaders · P&O index", "columns": cols, "rows": [row(l) for l in leaders[-10:][::-1]]})
+        weights = ins.weights
+        rep["sections"].append({"type": "text", "title": "How the P&O index is built", "lines": [
+            f"{WEIGHT_LABELS[k]}: weight {v:g}" for k, v in weights.items()] + [
+            "Each measure comes from the section(s) the leader runs and is scaled 0-100; missing measures are left out, never counted as zero."]})
+    bench = ins.bench()
+    if bench:
+        rep["sections"].append({"type": "table", "title": "Bench strength · roles at risk", "columns": [
+            ("Priority", "severity", ""), ("Leader", "name", ""), ("Store", "store", ""), ("Leads", "leads", ""), ("Why flagged", "reason", "")],
+            "rows": [{"severity": f["severity"], "name": leader_name(f["leader"]), "store": f["leader"].store,
+                      "leads": f["leader"].section_text, "reason": f["reason"]} for f in bench]})
+    if ins.has("po_turnover"):
+        t = ins.turnover_summary()
+        rep["sections"].append({"type": "chart", "kind": "line", "title": "Leavers per month", "labels": [m for m, _ in t["monthly"]],
+                                "series": [{"name": "Leavers", "values": [n for _, n in t["monthly"]]}]})
+        rep["sections"].append({"type": "chart", "kind": "hbar", "title": "Why people leave · last 12 months",
+                                "labels": [r for r, _ in t["by_reason"][:10]], "series": [{"name": "Leavers", "values": [n for _, n in t["by_reason"][:10]]}]})
+        rep["sections"].append({"type": "table", "title": "Turnover hotspots · last 12 months", "columns": [
+            ("Store", "store", ""), ("Section", "section", ""), ("Leavers", "n", "int")],
+            "rows": [{"store": s, "section": sec, "n": n} for s, sec, n in t["hotspots"]]})
+    gaps = ins.roster_summary().get("gaps", [])
+    if gaps:
+        rep["sections"].append({"type": "table", "title": "Roster coverage gaps (all department leaders off)", "columns": [
+            ("Store", "store", ""), ("Department", "department", ""), ("Date", "date", ""), ("Leaders off", "leaders", "int")], "rows": gaps})
 
 
 def file_name(rep: dict, fmt: str) -> str:

@@ -66,11 +66,17 @@ const ICON = {
   attach: '<path d="M20.5 11.5 12 20a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6L14.6 7"/>',
   send: '<path d="M4 12 20 4l-6 16-3-7z"/>', file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
   paste: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3h6v1"/>', undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  review: '<path d="M4 4h16v16H4z"/><path d="M4 10h16M10 10v10"/>',
+  talent: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21c.8-4 3.6-6 7-6s6.2 2 7 6"/><path d="m17 3 1 2 2 .3-1.5 1.4.4 2.1-1.9-1-1.9 1 .4-2.1L14 5.3l2-.3z"/>',
+  retention: '<path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M11 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/>',
+  shifts: '<rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7 13h2M11 13h2M15 13h2M7 17h2M11 17h2"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
 };
 const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[n] || ""}</svg>`;
 const NAV = [["home", "Home", "home"], ["people", "People", "people"], ["performance", "Performance", "perf"], ["stores", "Stores", "stores"],
-  ["attendance", "Attendance", "att"], ["org", "Org chart", "org"], ["ask", "Ask PNO", "ask"], ["import", "Import", "import"], ["settings", "Settings", "settings"]];
+  ["attendance", "Attendance", "att"], ["org", "Org chart", "org"], ["review", "P&O review", "review"], ["talent", "Leaders & talent", "talent"],
+  ["retention", "Turnover", "retention"], ["shifts", "Shift roster", "shifts"], ["ask", "Ask PNO", "ask"], ["import", "Import", "import"], ["settings", "Settings", "settings"]];
+const NAV_GROUP = { review: "P&amp;O review", ask: "Tools" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -106,7 +112,7 @@ const req = (extra = {}) => ({ month: S.month, scope: S.scope, ...extra });
 function sideHtml() {
   return `
     <div class="brand"><div class="logo">PNO</div><div><b>PNO</b><small>People &amp; Performance</small></div></div>
-    <nav class="nav" id="nav">${NAV.map(([k, l, i], n) => (n === 6 ? `<div class="nav-label">Tools</div>` : "") +
+    <nav class="nav" id="nav">${NAV.map(([k, l, i]) => (NAV_GROUP[k] ? `<div class="nav-label">${NAV_GROUP[k]}</div>` : "") +
       `<button data-go="${k}" ${S.page === k || (S.page === "store" && k === "stores") ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "settings" && S.init && S.init.unsure_stores ? `<span class="badge">${S.init.unsure_stores}</span>` : ""}</button>`).join("")}</nav>
     <div class="side-foot">
       ${S.init && S.init.demo ? `<button class="demo-pill" data-act="demo-off" title="Return to your own data">DEMO DATA · exit</button>` : ""}
@@ -864,13 +870,14 @@ function modal(html) {
 }
 function closeModal() { $$(".modal").forEach(m => m.remove()); $$(".scrim[data-modal]").forEach(s => s.remove()); }
 const PACKS = [["director", "Monthly HR Director Pack", "Country / filtered summary, store league, top & bottom, attendance health, trends"],
+  ["po", "P&O Review Pack", "Store league, section heatmaps, leaders & P&O index, bench strength, turnover, roster gaps (P&O workbook)"],
   ["store", "Store Report", "The selected store: GM scorecard, departments, sections with managers, attendance"],
   ["dept", "Department Comparison", "The selected department across stores, with its managers"],
   ["scorecard", "Manager Scorecards", "One page per manager in the current filters (or one person)"],
   ["attendance", "Attendance Exceptions", "Real vs system absence, long absences, punches to fix, 9-hour compliance"],
   ["people", "People Ranking", "Everyone in the current filters with scores and attendance"]];
 function openExport(o = {}) {
-  const def = o.pack || { home: "director", people: "people", performance: "scorecard", stores: "director", store: "store", attendance: "attendance" }[S.page] || "director";
+  const def = o.pack || { review: "po", talent: "po", retention: "po", shifts: "po", home: "director", people: "people", performance: "scorecard", stores: "director", store: "store", attendance: "attendance" }[S.page] || "director";
   const m = modal(`<h3>Export</h3><p style="color:var(--muted);margin:0 0 12px">Uses the month and filters on screen: <b>${esc($(".crumbs") ? $(".crumbs").textContent.replace(/🇵🇰\s*/, "") : "Pakistan")}</b></p>
     <div style="display:flex;flex-direction:column;gap:6px">${PACKS.map(([k, l, d]) => `<label class="setting" style="cursor:pointer;padding:8px 4px"><span><b>${l}</b><small>${d}</small></span><input type="radio" name="pack" value="${k}" ${k === def ? "checked" : ""}></label>`).join("")}</div>
     <div class="setting"><div><b>Format</b></div><div class="seg" id="fmtseg">${[["pdf", "PDF"], ["pptx", "PowerPoint"], ["xlsx", "Excel"]].map(([k, l], i) => `<button data-fmt="${k}" aria-pressed="${i === 0}">${l}</button>`).join("")}</div></div>
@@ -998,6 +1005,176 @@ async function openCompare() {
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="clear-sel">Clear selection</button><button class="btn primary" data-act="modal-close">Done</button></div>`).style.width = "min(900px,calc(100vw - 40px))";
 }
 ACT["clear-sel"] = () => { S.selected.clear(); closeModal(); render(); };
+
+/* ---------------------------------------------------------------- P&O review (ten-tab P&O workbook) */
+S.po = { metric: "sales_vs_budget", q: "", store: "", tab: "leaders", leader: null, shiftStore: "" };
+const PO_HEAT = [["sales_vs_budget", "Sales vs budget", 100, 92, true, v => v.toFixed(0) + "%"],
+  ["growth", "Growth vs LY", 5, 0, true, v => (v > 0 ? "+" : "") + v.toFixed(0) + "%"],
+  ["productivity_vs_target", "Productivity vs target", 0, -10, true, v => (v > 0 ? "+" : "") + v.toFixed(0) + "%"],
+  ["shrink_variance", "Shrinkage vs budget", 0, -1, true, v => (v > 0 ? "+" : "") + v.toFixed(1)],
+  ["stock_days", "Stock days vs budget", 105, 130, false, v => v.toFixed(0) + "%"],
+  ["oos", "Out of stock", 8, 15, false, v => v.toFixed(1) + "%"], ["margin", "Net margin", 5, 0, true, v => v.toFixed(1) + "%"]];
+const poTone = (v, good, bad, higher = true) => { if (v == null) return ""; let x = v, g = good, b = bad; if (!higher) { x = -v; g = -good; b = -bad; } return x >= g ? "good" : x <= b ? "bad" : "warn"; };
+const poCell = (v, good, bad, higher, f) => v == null ? `<td class="n po-h none">—</td>` : `<td class="n po-h ${poTone(v, good, bad, higher)}">${f(v)}</td>`;
+const poMoney = v => v == null ? "—" : Math.abs(v) >= 1e9 ? (v / 1e9).toFixed(2) + " bn" : Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + " M" : money(v);
+const poSigned = (v, d = 1, s = "%") => v == null ? "—" : (v > 0 ? "+" : "") + (+v).toFixed(d) + s;
+const poStatus = s => `<span class="chip ${{ "On track": "good", Watch: "warn", "At risk": "bad" }[s] || ""}">${esc(s)}</span>`;
+const poIndex = v => v == null ? "—" : `<span class="chip ${v >= 70 ? "good" : v <= 45 ? "bad" : "warn"}">${Math.round(v)}</span>`;
+const poEmpty = () => `<div class="panel"><div class="hero"><div class="logo" style="width:64px;height:64px;font-size:22px;border-radius:18px">P&amp;O</div>
+  <h2>Import the P&amp;O workbook</h2><p>Drop the whole workbook on the Import screen. All ten tabs are recognised by their columns: YTD productivity,
+  shift roster, performance ratings, store performance (sales), NPS, shrinkage &amp; stock days, time in role, DA, turnover and the Basic Sheet.
+  Birth dates, phone numbers, e-mails and marital status are never read.</p>
+  <div class="row" style="justify-content:center"><button class="btn primary" data-go="import">${ic("import", 16)}Import the workbook</button></div></div></div>`;
+
+PAGES.review = async () => {
+  const d = DATA.review = await API.call("po_review", { metric: S.po.metric });
+  if (!d.has_data) return poEmpty();
+  const h = d.headline;
+  const kpi = (l, v, s, go) => `<button class="kpi" ${go ? `data-go="${go}"` : ""}><span class="kpi-l">${esc(l)}</span><span class="kpi-v">${v}</span><span class="kpi-s"><span>${s}</span></span></button>`;
+  const high = d.alerts.filter(a => a.severity === "High").length;
+  const [, label, good, bad, higher, f] = PO_HEAT.find(m => m[0] === S.po.metric);
+  const heat = d.heat.sections.length ? `<div class="tbl-wrap"><table class="t po-heat"><thead><tr><th>Store</th>${d.heat.sections.map(s => `<th class="n">${esc(s.replace("Fruits & Vegetables", "F&V").replace("Light Household", "LHH").replace("Heavy Household", "HHH"))}</th>`).join("")}</tr></thead>
+    <tbody>${d.heat.stores.map((st, i) => `<tr><td><b>${esc(st)}</b></td>${d.heat.values[i].map(v => poCell(v, good, bad, higher, f)).join("")}</tr>`).join("")}</tbody></table></div>` : `<div class="empty">No data for this measure.</div>`;
+  return `
+    <div class="ph slide"><div><h1>P&amp;O review · Country</h1><p>${h.stores} stores · ${h.leaders} section leaders · data as of ${fmtDate(h.as_of)}</p></div>
+      <div class="row"><button class="btn" data-act="export" data-pack="po">${ic("export", 16)}Export P&amp;O pack</button></div></div>
+    <div class="kpis stagger po-kpis">
+      ${kpi("Sales MTD", poMoney(h.sales), `${pct(h.sales_vs_budget_pct, 1)} of budget`, "stores")}
+      ${kpi("Growth vs last year", poSigned(h.growth_pct), "All stores")}
+      ${kpi("Productivity vs target", poSigned(h.productivity_vs_target_pct), "Average across stores")}
+      ${kpi("Stores on track", `${h.stores_on_track}<small>/${h.stores}</small>`, `${h.stores_at_risk} at risk`)}
+      ${kpi("Leavers · 12 months", h.leavers_12m ?? "—", `${pct(h.voluntary_pct)} voluntary`, "retention")}
+      ${kpi("Open alerts", d.alerts.length, `${high} high priority`)}
+    </div>
+    <div class="panel flush slide"><div class="phd" style="padding:14px 16px 0"><h2>Store league table</h2><small>Status combines sales vs budget, productivity vs target and shrinkage</small></div>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th>Status</th><th class="n">Sales</th><th class="n">vs budget</th><th class="n">Growth</th><th class="n">Prod. vs target</th><th class="n">Shrink vs bud.</th><th class="n">OOS</th><th class="n">Margin</th><th class="n">NPS</th><th class="n">Leavers 12m</th><th class="n">DA</th><th class="n">Leader index</th></tr></thead>
+      <tbody>${d.stores.map(c => `<tr class="click" data-act="po-store" data-store="${esc(c.store)}"><td><b>${esc(c.store)}</b><span class="sub">${esc(c.format || "")}</span></td><td>${poStatus(c.status)}</td>
+        <td class="n">${poMoney(c.sales)}</td>${poCell(c.sales_vs_budget_pct, 100, 92, true, v => v.toFixed(0) + "%")}${poCell(c.growth_pct, 5, 0, true, v => poSigned(v))}
+        ${poCell(c.productivity_vs_target_pct, 0, -10, true, v => poSigned(v, 0))}${poCell(c.shrink_variance_avg, 0, -1, true, v => poSigned(v, 1, " pp"))}
+        ${poCell(c.oos_pct, 8, 15, false, v => v.toFixed(1) + "%")}<td class="n">${pct(c.margin_pct, 1)}</td><td class="n">${c.nps == null ? "—" : Math.round(c.nps)}</td>
+        ${poCell(c.leavers_12m, 2, 6, false, v => v)}<td class="n">${c.da_cases ?? "—"}</td><td class="n">${poIndex(c.avg_leader_score)}</td></tr>`).join("")}</tbody></table></div></div>
+    <div class="panel slide"><div class="phd"><h2>Section heatmap</h2><div class="seg">${PO_HEAT.map(([k, l]) => `<button data-act="po-metric" data-metric="${k}" aria-pressed="${S.po.metric === k}">${l}</button>`).join("")}</div></div>
+      <small style="color:var(--muted)">${esc(label)} · stores × sections · green on plan, amber watch, red act · — not in the workbook</small>${heat}</div>
+    <div class="grid g2 slide">
+      <div class="panel"><div class="phd"><h2>What needs attention</h2><small>${d.alerts.length} alerts from every tab, biggest first</small></div>
+        <div style="display:flex;flex-direction:column;gap:8px;max-height:520px;overflow:auto">${d.alerts.slice(0, 30).map(a => `<div class="alert ${a.severity === "High" ? "bad" : a.severity === "Medium" ? "warn" : ""}"><span class="ic">${a.severity === "High" ? "!" : a.severity === "Medium" ? "•" : "i"}</span>
+          <span><b>${esc(a.store)}</b> · ${esc(a.message)}<small style="display:block;color:var(--muted)">${esc(a.area)}</small></span></div>`).join("")}</div></div>
+      <div class="panel"><div class="phd"><h2>Sales vs budget by store</h2><small>% of budget · click a store for its leaders</small></div><div id="ch-po-sales"></div></div>
+    </div>
+    <small style="color:var(--muted)">Sources · ${d.sources.map(s => `${esc(s.kind)}: ${esc(s.source)}`).join(" · ")}</small>`;
+};
+AFTER.review = () => {
+  const d = DATA.review; if (!d || !d.has_data || !$("#ch-po-sales")) return;
+  const rows = d.stores.filter(c => c.sales_vs_budget_pct != null).sort((a, b) => b.sales_vs_budget_pct - a.sales_vs_budget_pct);
+  Charts.hbar($("#ch-po-sales"), { labels: rows.map(r => r.store), values: rows.map(r => r.sales_vs_budget_pct), fmt: "pct0", ref: 100, name: "% of budget",
+    colors: rows.map(r => r.sales_vs_budget_pct >= 100 ? "var(--good)" : r.sales_vs_budget_pct >= 92 ? "var(--warn)" : "var(--bad)"),
+    onClick: i => { S.po = { ...S.po, store: rows[i].store, q: "", tab: "leaders" }; go("talent"); } });
+};
+
+PAGES.talent = async () => {
+  const d = DATA.talent = await API.call("po_leaders", { q: S.po.q, store: S.po.store });
+  if (!d.has_data) return poEmpty();
+  const tab = S.po.tab;
+  const tabs = `<div class="seg">${[["leaders", "Leader 360°"], ["grid", "Talent grid"], ["bench", "Bench strength"], ["weights", "Index weights"]].map(([k, l]) => `<button data-act="po-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join("")}</div>`;
+  let body = "";
+  if (tab === "leaders") {
+    if (!S.po.leader || !d.leaders.some(l => l.key === S.po.leader)) S.po.leader = d.leaders.length ? d.leaders[0].key : null;
+    body = `<div class="grid po-split">
+      <div class="panel flush"><div class="row" style="padding:12px 12px 0;gap:8px"><input class="input" id="po-q" placeholder="Search leader or employee number" value="${esc(S.po.q)}" style="flex:1">
+        <select class="input" data-act-change="po-store-filter" id="po-store"><option value="">All stores</option>${d.stores.map(s => `<option ${s === S.po.store ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
+        <div class="tbl-wrap" style="max-height:calc(100vh - 300px)"><table class="t"><thead><tr><th>#</th><th>Leader</th><th>Leads</th><th class="n">Index</th><th class="n">Rating</th><th class="n">In role</th></tr></thead><tbody>
+        ${d.leaders.map(l => `<tr class="click ${l.key === S.po.leader ? "po-sel" : ""}" data-act="po-leader" data-key="${esc(l.key)}"><td>${l.rank ?? "—"}</td><td><b>${esc(l.name)}</b><span class="sub">${esc(l.role || "")} · ${esc(l.store)}</span></td>
+          <td>${esc(l.leads)}</td><td class="n">${poIndex(l.score)}</td><td class="n">${l.rating == null ? "—" : l.rating}</td><td class="n">${esc(l.in_role)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">No leader matches.</td></tr>`}
+        </tbody></table></div></div>
+      <div class="panel po-profile" id="po-profile"><div class="loading"><span class="spin"></span>Loading…</div></div></div>`;
+  } else if (tab === "grid") {
+    body = `<div class="panel"><small style="color:var(--muted)">Appraisal rating (rows) against the business results of the area each leader runs (columns). Click a name for their 360°. Leaders need both a rating and section results to be placed.</small>
+      <div class="po-grid">${d.talent.map(b => `<div class="po-box r${b.row}c${b.col}"><b>${esc(b.name)} <span class="chip">${b.leaders.length}</span></b>
+        ${b.leaders.slice(0, 12).map(l => `<button class="po-name" data-act="po-leader" data-key="${esc(l.key)}">${esc(l.name)}<small>${esc(l.store || "")}</small></button>`).join("")}${b.leaders.length > 12 ? `<small>+${b.leaders.length - 12} more</small>` : ""}</div>`).join("")}</div>
+      <div class="po-axis"><span>Results low</span><span>Results on plan</span><span>Results strong</span></div></div>`;
+  } else if (tab === "bench") {
+    body = `<div class="panel flush"><div class="tbl-wrap" style="max-height:calc(100vh - 260px)"><table class="t"><thead><tr><th>Priority</th><th>Leader</th><th>Store</th><th>Leads</th><th>Why flagged</th></tr></thead><tbody>
+      ${d.bench.map(f => `<tr class="click" data-act="po-leader" data-key="${esc(f.key)}"><td><span class="chip ${f.severity === "High" ? "bad" : f.severity === "Medium" ? "warn" : ""}">${f.severity}</span></td><td><b>${esc(f.name)}</b><span class="sub">${esc(f.role || "")}</span></td><td>${esc(f.store)}</td><td>${esc(f.leads)}</td><td>${esc(f.reason)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">No roles flagged.</td></tr>`}
+      </tbody></table></div></div>`;
+  } else {
+    const w = await API.call("po_weights", {});
+    body = `<div class="panel" style="max-width:720px"><div class="phd"><h2>P&amp;O leader index</h2></div>
+      <small style="color:var(--muted)">How much each measure counts. Weights are relative. Each measure comes from the section(s) a leader runs and is scaled 0–100; missing measures are left out, never counted as zero; a leader needs 3 measures to get an index.</small>
+      ${Object.entries(w.labels).map(([k, l]) => `<label class="setting"><span><b>${esc(l)}</b><small>default ${w.defaults[k]}</small></span><input class="input" type="number" min="0" max="100" step="5" data-po-w="${k}" value="${w.weights[k]}" style="width:90px"></label>`).join("")}
+      <div class="row" style="justify-content:flex-end"><button class="btn" data-act="po-w-reset">Reset</button><button class="btn primary" data-act="po-w-save">Save weights</button></div></div>`;
+  }
+  return `<div class="ph"><div><h1>Leaders &amp; talent</h1><p>${d.total} section leaders · ${d.scored} with a P&amp;O index · every leader joined to the results of the area they run</p></div>${tabs}</div>${body}`;
+};
+AFTER.talent = async () => {
+  const q = $("#po-q");
+  if (q) q.addEventListener("input", () => { clearTimeout(S.po.t); S.po.t = setTimeout(() => { S.po.q = q.value; render(); }, 280); });
+  const sel = $("#po-store");
+  if (sel) sel.addEventListener("change", () => { S.po.store = sel.value; render(); });
+  const box = $("#po-profile");
+  if (box && S.po.leader) {
+    try { const r = await API.call("po_leader", { key: S.po.leader }); box.innerHTML = `<div class="po-html">${r.html}</div>`; }
+    catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+  } else if (box) box.innerHTML = `<div class="empty">No leader selected.</div>`;
+  if (q && document.activeElement !== q && S.po.q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+};
+
+PAGES.retention = async () => {
+  const d = DATA.retention = await API.call("po_turnover", {});
+  if (!d.has_data) return poEmpty();
+  const types = Object.fromEntries(d.by_type);
+  const kpi = (l, v, s) => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  return `<div class="ph"><div><h1>Turnover &amp; retention</h1><p>Last 12 months to ${fmtDate(d.as_of)} · by requested date</p></div></div>
+    <div class="kpis po-kpis4">${kpi("Leavers · 12 months", d.total, `${d.all_time} on file`)}${kpi("Voluntary", pct(d.voluntary_pct), `${types.Resignation || 0} resignations`)}
+      ${kpi("Terminations", types.Termination || 0, `${types.Absconding || 0} absconded`)}${kpi("Top reason", esc(d.by_reason.length ? d.by_reason[0][0] : "—"), d.by_reason.length ? d.by_reason[0][1] + " leavers" : "")}</div>
+    <div class="panel"><div class="phd"><h2>Leavers per month</h2><small>Last 24 months</small></div><div id="ch-po-monthly"></div></div>
+    <div class="grid g2"><div class="panel"><div class="phd"><h2>Why people leave</h2><small>last 12 months</small></div><div id="ch-po-reasons"></div></div>
+      <div class="panel"><div class="phd"><h2>Leavers by store</h2><small>last 12 months</small></div><div id="ch-po-stores"></div></div></div>
+    <div class="grid g2"><div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Hotspots</h2><small>store × section</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th>Section</th><th class="n">Leavers</th></tr></thead>
+      <tbody>${d.hotspots.map(([s, sec, n]) => `<tr><td><b>${esc(s)}</b></td><td>${esc(sec)}</td>${poCell(n, 3, 6, false, v => v)}</tr>`).join("")}</tbody></table></div></div>
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Most recent leavers</h2></div><div class="tbl-wrap" style="max-height:420px"><table class="t"><thead><tr><th>Date</th><th>Name</th><th>Store</th><th>Section</th><th>Type</th><th>Reason</th></tr></thead>
+      <tbody>${d.recent.map(r => `<tr><td>${fmtDate(r.date)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.store)}</td><td>${esc(r.section)}</td><td>${esc(r.type)}</td><td>${esc(r.reason)}</td></tr>`).join("")}</tbody></table></div></div></div>
+    <small style="color:var(--muted)">Many records carry salary period 2025-12 whatever their date; counts use the requested date. Confirm with HR operations which date is the official exit date.</small>`;
+};
+AFTER.retention = () => {
+  const d = DATA.retention; if (!d || !d.has_data || !$("#ch-po-monthly")) return;
+  const ml = d.monthly.map(([m]) => new Date(m + "-01T00:00:00").toLocaleDateString("en-GB", { month: "short", year: "2-digit" }));
+  Charts.columns($("#ch-po-monthly"), { labels: ml, series: [{ name: "Leavers", values: d.monthly.map(([, n]) => n) }], height: 220 });
+  Charts.hbar($("#ch-po-reasons"), { labels: d.by_reason.slice(0, 10).map(r => r[0]), values: d.by_reason.slice(0, 10).map(r => r[1]), name: "Leavers", fmt: "int" });
+  Charts.hbar($("#ch-po-stores"), { labels: d.by_store.slice(0, 12).map(r => r[0]), values: d.by_store.slice(0, 12).map(r => r[1]), name: "Leavers", fmt: "int", colors: d.by_store.slice(0, 12).map(() => "var(--s2)") });
+};
+
+const PO_SHIFT = { Morning: ["M", "m"], Mid: ["Mid", "d"], Evening: ["E", "e"], Off: ["Off", "o"], Leave: ["AL", "l"], Inventory: ["Inv", "i"], "Not rostered": ["", "n"], Other: ["?", "n"] };
+PAGES.shifts = async () => {
+  const d = DATA.shifts = await API.call("po_shifts", { store: S.po.shiftStore });
+  if (!d.has_data) return poEmpty();
+  S.po.shiftStore = d.store;
+  const mix = d.mix, worked = (mix.Morning || 0) + (mix.Mid || 0) + (mix.Evening || 0);
+  const day = x => new Date(x + "T00:00:00");
+  const gaps = d.gaps.filter(g => g.store === d.store);
+  return `<div class="ph"><div><h1>Shift roster</h1><p>${d.people} leaders · ${fmtDate(d.days[0])} – ${fmtDate(d.days[d.days.length - 1])} · Morning till 11, Mid till 2, Evening after 2</p></div>
+      <select class="input" id="po-shift-store">${d.stores.map(s => `<option ${s === d.store ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
+    <div class="kpis po-kpis4"><div class="kpi"><span class="kpi-l">Morning share</span><span class="kpi-v">${pct(worked ? 100 * (mix.Morning || 0) / worked : null)}</span><span class="kpi-s"><span>of worked shifts</span></span></div>
+      <div class="kpi"><span class="kpi-l">Mid share</span><span class="kpi-v">${pct(worked ? 100 * (mix.Mid || 0) / worked : null)}</span><span class="kpi-s"><span>of worked shifts</span></span></div>
+      <div class="kpi"><span class="kpi-l">Evening share</span><span class="kpi-v">${pct(worked ? 100 * (mix.Evening || 0) / worked : null)}</span><span class="kpi-s"><span>of worked shifts</span></span></div>
+      <div class="kpi"><span class="kpi-l">Coverage gaps</span><span class="kpi-v">${d.gaps.length}</span><span class="kpi-s"><span>department-days, all leaders off</span></span></div></div>
+    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>${esc(d.store)}</h2><small>${Object.entries(PO_SHIFT).filter(([k]) => !["Not rostered", "Other"].includes(k)).map(([k, [c, cl]]) => `<span class="po-s ${cl}">${c}</span> ${k}`).join(" &nbsp; ")}</small></div>
+      <div class="tbl-wrap"><table class="t po-shifts"><thead><tr><th>Leader</th>${d.days.map(x => `<th class="n">${day(x).getDate()}<br><span class="sub">${day(x).toLocaleDateString("en-GB", { weekday: "short" }).slice(0, 2)}</span></th>`).join("")}</tr></thead>
+      <tbody>${d.grid.map(p => `<tr><td><b>${esc(p.name)}</b><span class="sub">${esc(p.section)}</span></td>${p.days.map(s => { const [c, cl] = PO_SHIFT[s] || ["?", "n"]; return `<td class="po-s ${cl}">${c}</td>`; }).join("")}</tr>`).join("")}</tbody></table></div></div>
+    <div class="grid g2"><div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Coverage gaps</h2><small>every rostered leader of a department off or on leave</small></div><div class="tbl-wrap" style="max-height:360px"><table class="t"><thead><tr><th>Store</th><th>Department</th><th>Date</th><th class="n">Leaders</th></tr></thead>
+      <tbody>${d.gaps.map(g => `<tr><td><b>${esc(g.store)}</b></td><td>${esc(g.department)}</td><td>${fmtDate(g.date)}</td><td class="n">${g.leaders}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">No gaps.</td></tr>`}</tbody></table></div></div>
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Leave this month</h2></div><div class="tbl-wrap" style="max-height:360px"><table class="t"><thead><tr><th>Leader</th><th>Store</th><th class="n">Days</th></tr></thead>
+      <tbody>${d.leave.map(l => `<tr><td><b>${esc(l.name)}</b></td><td>${esc(l.store)}</td>${poCell(l.days, 3, 6, false, v => v)}</tr>`).join("")}</tbody></table></div></div></div>`;
+};
+AFTER.shifts = () => { const s = $("#po-shift-store"); if (s) s.addEventListener("change", () => { S.po.shiftStore = s.value; render(); }); };
+
+Object.assign(ACT, {
+  "po-metric": b => { S.po.metric = b.dataset.metric; render(); },
+  "po-tab": b => { S.po.tab = b.dataset.tab; render(); },
+  "po-leader": b => { S.po.leader = b.dataset.key; if (S.po.tab !== "leaders" || S.page !== "talent") { S.po = { ...S.po, tab: "leaders", q: "", store: "" }; go("talent"); } else render(); },
+  "po-store": b => { S.po = { ...S.po, store: b.dataset.store, q: "", tab: "leaders", leader: null }; go("talent"); },
+  "po-w-save": async () => { const w = {}; $$("[data-po-w]").forEach(i => { w[i.dataset.poW] = +i.value; }); await call("po_weights", { weights: w }); toast("Index weights saved"); render(); },
+  "po-w-reset": async () => { await call("po_weights", { reset: true }); toast("Index weights reset"); render(); },
+});
 
 document.addEventListener("click", e => {
   const g = e.target.closest("[data-go]");

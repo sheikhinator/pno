@@ -35,6 +35,30 @@ Same store, different spellings across reports (for example `H&B PK KCH Lucky On
 are matched automatically; anything uncertain is listed under Settings → Stores to confirm once.
 Every import can be undone and redone. Re-importing the same file is detected.
 
+## P&O review (new in 1.1)
+
+Drop the **whole P&O review workbook** on the Import screen: every tab is recognised by its columns, not its name, and store,
+section and people spellings are matched across tabs (garbled names such as `MuhMORmad` are repaired).
+
+| Tab | Used for |
+|---|---|
+| YTD productivity (store blocks) · Store performance (BO 200-10-05) · Basic Sheet | Read by the existing parsers and joined to the review |
+| Performance rating (SuccessFactors export) | Rating history per person |
+| In this role | Time in role, sections each leader actually runs, acting (DOA) and designation mismatches |
+| Shift roster (Morning / Mid / Evening per day) | Shift grid, coverage gaps, leave |
+| Turnover | Leavers by month, reason, store and section; hotspots |
+| DA (pivot) | Disciplinary cases by store and section |
+| NPS | Customer score by city, year and category |
+| Shrinkage & stock days | Budget vs actual by section and store |
+
+Birth dates, ages, phone numbers, e-mails and marital status are never read.
+
+Screens: **P&O review** (country KPIs, store league table, stores × sections heatmap, ranked alerts) · **Leaders & talent**
+(every section leader with the results of the area they run, rating history, time in role, roster, team turnover and DA,
+an adjustable P&O index, talent grid and bench strength) · **Turnover** · **Shift roster**. Ask PNO answers questions such
+as *"Who are the weakest leaders in Lucky One?"*, *"Compare Fortress and Emporium"* or *"Which roles are at risk?"* from the
+same data, and Export has a **P&O Review Pack** (PDF, PowerPoint, Excel). *Hide names* applies to all of it.
+
 ## How the score works
 
 Each person is scored only on what they control, using the latest data for the month:

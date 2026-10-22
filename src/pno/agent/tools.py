@@ -68,6 +68,12 @@ TOOLS: list[dict] = [
     {"name": "propose_note", "description": "Prepare a note on a person's profile for the user to confirm.",
      "parameters": {"type": "object", "properties": {"who": {"type": "string"}, "text": {"type": "string"}}, "required": ["who", "text"]}},
 ]
+TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: store league (sales vs budget, growth, productivity vs target, "
+              "shrinkage and stock days vs budget, out of stock, NPS), section leaders and their P&O index, talent grid, bench strength "
+              "(acting, new in role, not in HR system, low rating), performance ratings, time in role, turnover (leavers, reasons, hotspots), "
+              "disciplinary cases and shift-roster coverage. Pass the question in plain English, for example 'weakest leaders in Lucky One', "
+              "'turnover hotspots', 'compare Fortress and Emporium', 'brief me for the country review', 'which roles are at risk'.",
+              "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}})
 WRITE_TOOLS = {"propose_leave", "propose_holiday", "propose_note"}
 
 
@@ -156,6 +162,19 @@ class Toolbox:
             return {"error": f"bad arguments: {e}"}
         except Exception as e:
             return {"error": str(e)}
+
+    def t_po_review(self, question: str = "", **kw) -> dict:
+        from ..po import privacy
+        from ..po.analyst import PoAnalyst, to_markdown
+        ins = self.svc.api._po()
+        privacy.set_demo_mode(self.anon or self.svc.api._hide())
+        try:
+            html = PoAnalyst(ins).answer(question or "brief me for the country review")
+        finally:
+            privacy.set_demo_mode(self.svc.api._hide())
+        if not html:
+            html = PoAnalyst(ins).country_brief() if not ins.empty else None
+        return {"answer": to_markdown(html) if html else "The P&O workbook has not been imported yet."}
 
     def t_overview(self, month=None, **kw) -> dict:
         sc = self._scope(kw)
