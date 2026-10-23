@@ -5,6 +5,8 @@ Built once per month and cached until the data changes, so every screen, export 
 
 from __future__ import annotations
 
+import re
+
 import copy
 import math
 import threading
@@ -219,6 +221,19 @@ def _build(db: Database, month: str) -> MonthModel:
         p.role = role_of(p.designation, p.store_format, p.dept_code, p.section, bool(p.reports))
         if p.role == "GM" and len({people[e].store_id for e in p.reports if e in people}) >= 2:
             p.role = "AREA"
+    # a store with nobody titled Store Manager is run by its Deputy / Assistant Store Manager or Store In-charge
+    led = {p.store_id for p in people.values() if p.role in ("GM", "HBM", "AREA")}
+    acting: dict = {}
+    for p in people.values():
+        d = norm(p.designation)
+        if p.store_id in led or p.role in ("DH", "CCO") or not p.store_id:
+            continue
+        rank = 3 if re.search(r"STORE (IN ?CHARGE|HEAD)|ACTING STORE MANAGER", d) else \
+            2 if re.search(r"DEPUTY (STORE )?MANAGER|ASSISTANT STORE MANAGER|ASST STORE MANAGER", d) else 0
+        if rank and (p.store_id not in acting or rank > acting[p.store_id][0]):
+            acting[p.store_id] = (rank, p)
+    for _sid, (_rank, p) in acting.items():
+        p.role = "HBM" if p.store_format == "HB" else "GM"
     _domains(people, sec_over)
 
     # ---------------------------------------------------------------- attendance

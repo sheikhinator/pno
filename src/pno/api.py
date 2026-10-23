@@ -90,6 +90,12 @@ class Api:
 
     # ---------------------------------------------------------------- start-up
     def api_init(self) -> dict:
+        if not getattr(self, "_repaired", False):
+            self._repaired = True
+            try:
+                self._repair_store_names()
+            except Exception:
+                traceback.print_exc()
         months = analytics.month_list(self.db)
         default = months[0]["value"] if months else None
         mm = engine.model(self.db, default) if default else None
@@ -197,6 +203,9 @@ class Api:
             except Exception as e:
                 out.append({"file": a["file"], "error": str(e)})
         self.sessions.pop(token, None)
+        new_sets = [r["import_id"] for f in out for r in f.get("results", []) if r.get("kind") == "dataset" and r.get("status") == "ok"]
+        if new_sets:
+            threading.Thread(target=self._ai_label_datasets, args=(new_sets,), daemon=True).start()
         return {"done": out, "months": analytics.month_list(self.db)}
 
     def api_imports(self) -> dict:
@@ -287,6 +296,31 @@ class Api:
                       (store_id, raw))
             c.execute("DELETE FROM stores WHERE id NOT IN (SELECT store_id FROM store_aliases)")
         self.db.rebuild_attendance()
+
+    def _repair_store_names(self) -> None:
+        """Earlier versions misread names like 'PK HM GUJ Steel Casting' as a store with no format: relink them once."""
+        from .stores import StoreResolver, parse_name
+        bad = self.db.q("""SELECT a.alias, a.raw, a.store_id FROM store_aliases a JOIN stores s ON s.id=a.store_id
+                           WHERE COALESCE(s.format,'')='' AND COALESCE(s.is_ho,0)=0""")
+        for row in bad:
+            p = parse_name(row["raw"])
+            if not p.format:
+                continue
+            target, _sure = StoreResolver(self.db)._match(p)
+            fmt = self.db.val("SELECT format FROM stores WHERE id=?", (target,), "") if target else ""
+            if target == row["store_id"] or not fmt:
+                target = None
+            if target is None:
+                key = f"{p.format}|{p.city}|{' '.join(p.tokens)}"
+                ex = self.db.q1("SELECT id FROM stores WHERE key=?", (key,))
+                target = ex[0] if ex else self.db.x(
+                    "INSERT INTO stores(key, name, format, city, code, is_ho) VALUES(?,?,?,?,?,0)",
+                    (key, p.name, p.format, p.city, p.code)).lastrowid
+            if target != row["store_id"]:
+                try:
+                    self._relink_store_rows(row["alias"], target)
+                except ValueError:
+                    pass
 
     def api_store_new(self, alias: str) -> dict:
         """Split an alias that was linked to the wrong store into a store of its own."""
@@ -540,6 +574,73 @@ class Api:
         return {"has_data": True, "stores": stores, "store": store, "days": r["days"], "people": r["people"], "mix": dict(r["mix"]),
                 "grid": [{**p, "days": [p["days"].get(d, "Not rostered") for d in r["days"]]} for p in grid],
                 "gaps": r["gaps"], "leave": [{"name": privacy.name(n, n), "store": s, "days": d} for n, s, d in r["leave"]]}
+
+    # ---------------------------------------------------------------- Data explorer (any other table)
+    def api_datasets(self) -> dict:
+        from .po import explorer
+        return {"datasets": explorer.datasets(self.db)}
+
+    def api_dataset(self, import_id: int, group: str | None = None, measure: str | None = None, agg: str | None = None) -> dict:
+        from .po import explorer
+        return explorer.view(self.db, int(import_id), group, measure, agg)
+
+    def _dataset_meta_save(self, import_id: int, **fields) -> None:
+        row = self.db.q1("SELECT id, payload FROM po_records WHERE import_id=? AND kind='dataset_meta'", (import_id,))
+        if row:
+            meta = json.loads(row["payload"])
+            meta.update(fields)
+            self.db.x("UPDATE po_records SET payload=? WHERE id=?", (json.dumps(meta, ensure_ascii=False, default=str), row["id"]))
+
+    def api_dataset_ai(self, import_id: int, question: str = "") -> dict:
+        """AI-written insights for a dataset (from computed summaries, not raw files); built-in insights otherwise."""
+        from .po import explorer
+        v = explorer.view(self.db, int(import_id))
+        prompt = ("You are an HR and retail analyst at Carrefour Pakistan. Below is a table imported into PNO, already summarised. "
+                  "Write 4-7 short, specific insights a P&O director would act on, as markdown bullets, using only these numbers. "
+                  "Then one line starting 'Title:' with a short title for the table and one line starting 'About:' describing "
+                  "what the table contains in one sentence." + (f" Focus on: {question}" if question else "") +
+                  "\n\n" + explorer.summary_for_ai(v))
+        try:
+            out = self.agent.complete(prompt, max_tokens=900)
+        except Exception as e:  # noqa: BLE001 - shown to the user, built-in insights still apply
+            return {"engine": "basic", "text": "", "note": str(e), "insights": v["insights"]}
+        if not out:
+            return {"engine": "basic", "text": "", "note": "No AI is set up (Settings → AI). Built-in insights are shown.",
+                    "insights": v["insights"]}
+        text, engine_name = out
+        title = next((l.split(":", 1)[1].strip() for l in text.splitlines() if l.lower().startswith("title:")), "")
+        about = next((l.split(":", 1)[1].strip() for l in text.splitlines() if l.lower().startswith("about:")), "")
+        body = "\n".join(l for l in text.splitlines() if not l.lower().startswith(("title:", "about:"))).strip()
+        self._dataset_meta_save(int(import_id), ai_insights=body, **({"ai_title": title[:80]} if title else {}),
+                                **({"ai_description": about[:300]} if about else {}))
+        return {"engine": engine_name, "text": body, "title": title, "about": about, "insights": v["insights"]}
+
+    def _ai_label_datasets(self, import_ids: list[int]) -> None:
+        """Right after import, if a cloud AI is set up, let it name each new dataset and its unclear columns."""
+        from .po import explorer
+        for iid in import_ids:
+            try:
+                meta, rows = explorer.load(self.db, iid)
+                cols = [{"name": c["name"], "type": c["type"], "guess": c.get("role", ""), "sample": c.get("sample", [])}
+                        for c in meta.get("columns", [])]
+                prompt = ("Columns of a table imported into a retail HR analytics app, with sample values. Reply with JSON only: "
+                          '{"title": short title, "about": one sentence, "roles": {column name: one of store, section, department, '
+                          "employee_id, employee_name, designation, manager, city, date, month, actual, budget, target, last_year, "
+                          'forecast, count, score, reason, type or ""}}.\n' + json.dumps(cols, default=str)[:6000])
+                out = self.agent.complete(prompt, max_tokens=700, allow_offline=False)
+                if not out:
+                    return
+                text = out[0]
+                data = json.loads(text[text.find("{"): text.rfind("}") + 1])
+                roles = data.get("roles") or {}
+                for c in meta.get("columns", []):
+                    r = roles.get(c["name"])
+                    if r and not c.get("role"):
+                        c["role"] = r
+                self._dataset_meta_save(iid, columns=meta["columns"], ai_title=str(data.get("title") or "")[:80],
+                                        ai_description=str(data.get("about") or "")[:300])
+            except Exception:  # noqa: BLE001 - labelling is optional
+                continue
 
     def api_po_weights(self, weights: dict | None = None, reset: bool = False) -> dict:
         from .po.insights import DEFAULT_WEIGHTS, WEIGHT_LABELS

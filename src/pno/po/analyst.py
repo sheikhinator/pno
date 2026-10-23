@@ -153,7 +153,7 @@ class PoAnalyst:
         if h["leavers_12m"] is not None:
             lines.append(f"{h['leavers_12m']} people left in the last 12 months ({pct(h['voluntary_pct'], digits=0)} voluntary); {number(h['da_cases'])} disciplinary cases are on record.")
         if leaders:
-            lines.append(f"Strongest leader on the P&amp;O index: <b>{escape(leader_name(leaders[0]))}</b> ({escape(leaders[0].store)}, {escape(leaders[0].section_text)}, {score_text(leaders[0].score)}).")
+            lines.append(f"Strongest leader on the leader index: <b>{escape(leader_name(leaders[0]))}</b> ({escape(leaders[0].store)}, {escape(leaders[0].section_text)}, {score_text(leaders[0].score)}).")
         alerts = self.i.alerts(4)
         out = _h(f"Country brief · data as of {h['as_of']:%d %b %Y}") + _li(lines)
         if alerts:
@@ -178,7 +178,7 @@ class PoAnalyst:
         leaders = sorted((l for l in self.i.leaders() if l.store == store_name and l.score is not None), key=lambda l: -l.score)
         out = _h(f"{store_name} · store brief") + _li(lines)
         if leaders:
-            out += _h("Leaders by P&O index") + _li([
+            out += _h("Leaders by leader index") + _li([
                 f"{escape(leader_name(l))} — {escape(l.section_text)} · {_c(score_text(l.score), tone(l.score, 70, 45))}" for l in leaders[:6]])
             if len(leaders) > 6:
                 out += f"<p style='color:#756E68'>Lowest: {escape(leader_name(leaders[-1]))} ({escape(leaders[-1].section_text)}, {score_text(leaders[-1].score)}).</p>"
@@ -257,7 +257,7 @@ class PoAnalyst:
                 note = f" · strongest: {WEIGHT_LABELS[strongest[0]].lower()}, weakest: {WEIGHT_LABELS[weakest_c[0]].lower()}"
             items.append(f"<b>{escape(leader_name(l))}</b> ({escape(l.store)}, {escape(l.section_text)}) — index "
                          f"{_c(score_text(l.score), tone(l.score, 70, 45))}{note}")
-        title = ("Weakest" if weakest else "Top") + f" {min(n, len(leaders))} leaders{scope} by P&O index"
+        title = ("Weakest" if weakest else "Top") + f" {min(n, len(leaders))} leaders{scope} by leader index"
         return _h(title) + "<ol>" + "".join(f"<li>{i}</li>" for i in items) + "</ol>"
 
     @staticmethod
@@ -338,10 +338,10 @@ class PoAnalyst:
         weights = self.i.weights
         total = sum(weights.values()) or 1
         items = [f"<b>{escape(WEIGHT_LABELS[k])}</b> — weight {v:g} ({100 * v / total:.0f}%)" for k, v in weights.items()]
-        return (_h("How the P&O leader index works") + _li(items) +
-                "<p>Each measure is taken from the section(s) the leader runs, scaled 0–100 "
-                "(e.g. sales 80% of budget = 0, 120% = 100; productivity 80% of target = 0, 120% = 100; shrinkage on budget = 100, "
-                "5 pp worse = 0; stock days on budget = 100, 50% over = 0; rating 1–5 → 0–100; 0 leavers = 100, 10+ = 0). "
+        return (_h("How the leader index works") + _li(items) +
+                "<p>Each measure is taken from the section(s) the leader runs, scored 0–10 "
+                "(e.g. sales 80% of budget = 0, 120% = 10; productivity 80% of target = 0, 120% = 10; shrinkage on budget = 10, "
+                "5 pp worse = 0; stock days on budget = 10, 50% over = 0; rating 1–5 → 0–10; 0 leavers = 10, 10+ = 0). "
                 "A leader needs at least 3 measures to get an index. Missing data is excluded, never counted as zero. "
                 "Weights can be changed in Settings.</p>")
 

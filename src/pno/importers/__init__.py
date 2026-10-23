@@ -12,12 +12,13 @@ from ..reader import Workbook, from_text, open_bytes, open_file
 from ..stores import StoreResolver
 from ..util import month_bounds
 from ..po import store as po_store
-from . import attendance, leave, po_tabs, productivity, roster, sales
+from . import attendance, generic, leave, po_tabs, productivity, roster, sales
 from .base import KIND_LABEL, ParseResult
 
 PARSERS = [("sales", sales), ("productivity", productivity), ("attendance", attendance), ("roster", roster), ("leave", leave),
            *po_tabs.PARSERS]
 KIND_LABEL.update(po_tabs.LABELS)
+KIND_LABEL["dataset"] = "Other data (Data explorer)"
 PO_MIRROR = {"sales": ("po_sales", po_store.sales_records), "productivity": ("po_productivity", po_store.productivity_records),
              "roster": ("po_master", po_store.master_records)}
 
@@ -43,7 +44,12 @@ def analyze_workbook(wb: Workbook, force_kind: str | None = None) -> dict:
                 continue
             kind = force_kind
         if not kind:
-            skipped.append(sh.name)
+            res = generic.parse(sh)            # not a known report: keep it as a dataset rather than skip it
+            if res.rows and len(res.extra.get("columns", [])) >= 2:
+                res.confidence = 0.3
+                results.append(res)
+            else:
+                skipped.append(sh.name)
             continue
         mod = dict(PARSERS)[kind]
         res = mod.parse(sh, wb.name) if kind == "productivity" else mod.parse(sh)
@@ -166,6 +172,12 @@ def _commit_one(db: Database, res: ParseResult, analysis: dict, opt: dict, sourc
                       r.get("items"), r.get("avg_basket"), r.get("asp"), r.get("margin"), r.get("waste"),
                       r.get("margin_net"), r.get("avg_stock"), r.get("oos"))
                      for r in res.rows if sid.get(r["store_raw"]) and (r["as_of"] or as_of)])
+            elif res.kind == "dataset":
+                meta = {**res.extra, "file": analysis["file"], "warnings": res.warnings}
+                c.execute("INSERT INTO po_records(import_id, kind, payload) VALUES(?,?,?)",
+                          (iid, "dataset_meta", json.dumps(meta, ensure_ascii=False, default=str)))
+                c.executemany("INSERT INTO po_records(import_id, kind, payload) VALUES(?,?,?)",
+                              [(iid, "dataset", json.dumps(r, ensure_ascii=False, default=str)) for r in res.rows])
             elif res.kind.startswith("po_"):
                 c.executemany("INSERT INTO po_records(import_id, kind, payload) VALUES(?,?,?)",
                               [(iid, res.kind, json.dumps(r, ensure_ascii=False, default=str)) for r in res.rows])

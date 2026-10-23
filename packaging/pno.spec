@@ -17,7 +17,7 @@ hiddenimports = [
     "pno.window", "pno.agent.service", "pno.agent.basic", "pno.agent.tools", "pno.agent.local", "pno.agent.llm",
     "pno.importers.roster", "pno.importers.attendance", "pno.importers.productivity", "pno.importers.sales",
     "pno.importers.leave", "pno.importers.po_tabs", "pno.po", "pno.po.tabs", "pno.po.canon", "pno.po.insights",
-    "pno.po.store", "pno.po.analyst", "pno.po.format", "pno.po.privacy", "python_calamine", "reportlab.graphics.charts.linecharts", "reportlab.graphics.barcode",
+    "pno.po.store", "pno.po.explorer", "pno.importers.generic", "pno.po.analyst", "pno.po.format", "pno.po.privacy", "python_calamine", "reportlab.graphics.charts.linecharts", "reportlab.graphics.barcode",
     "PySide6.QtWebChannel", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
 ]
 excludes = ["tkinter", "PySide6.Qt3DCore", "PySide6.QtQuick3D", "PySide6.QtCharts", "PySide6.QtDataVisualization",

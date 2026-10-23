@@ -50,7 +50,7 @@ def test_screens(api):
     leaders = api.dispatch("po_leaders", {})
     assert leaders["leaders"] and len(leaders["talent"]) == 9
     first = leaders["leaders"][0]["key"]
-    assert "P&amp;O INDEX" in api.dispatch("po_leader", {"key": first})["html"]
+    assert "LEADER INDEX /10" in api.dispatch("po_leader", {"key": first})["html"]
     assert api.dispatch("po_turnover", {})["total"] > 0
     shifts = api.dispatch("po_shifts", {})
     assert shifts["grid"] and len(shifts["grid"][0]["days"]) == 31
@@ -73,7 +73,7 @@ def test_hide_names_masks_leaders(api):
 
 def test_ask_pno_answers_p_and_o_questions(api):
     for q, expect in [("Which roles are at risk?", "Roles at risk"), ("Where is turnover highest?", "Turnover"),
-                      ("Compare Fortress and Lucky One", "LAH Fortress"), ("Explain the leader index", "P&O leader index")]:
+                      ("Compare Fortress and Lucky One", "LAH Fortress"), ("Explain the leader index", "How the leader index works")]:
         r = api.dispatch("agent_ask", {"question": q})
         assert expect in (r.get("answer") or ""), (q, r)
 

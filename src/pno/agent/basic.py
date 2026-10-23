@@ -29,10 +29,13 @@ def answer(tb: Toolbox, question: str) -> str:
     ql = q.lower()
     mm = tb._mm()
     if not mm.people and not getattr(mm, "sales", {}):
-        return _po_answer(tb, q) or "There is no data yet. Import the roster, attendance, productivity and BO sales reports first (Import screen)."
+        return _dataset_answer(tb, q) or _po_answer(tb, q) or "There is no data yet. Import the roster, attendance, productivity and BO sales reports first (Import screen)."
     store = _find_store(tb, mm, ql)
     city = _find_city(ql)
     person, _ = _find_person_in_text(tb, mm, q)
+    ds = _dataset_answer(tb, q)
+    if ds:
+        return ds
     if not person:                                   # P&O review topics (leaders, turnover, ratings, shrinkage, roster…)
         po = _po_answer(tb, q, only_if_topic=True)
         if po:
@@ -160,6 +163,22 @@ def answer(tb: Toolbox, question: str) -> str:
         return f"**{d['scope']} · {d['month']}** (data up to {d['data_up_to']}). {cards}." + (
             "\n\n" + "\n".join("- " + a for a in d["alerts"]) if d["alerts"] else "")
     return _po_answer(tb, q) or HELP
+
+
+def _dataset_answer(tb: Toolbox, question: str) -> str | None:
+    """A question naming one of the other imported tables: its computed insights."""
+    try:
+        from ..po import explorer
+        q = norm(question)
+        for d in explorer.datasets(tb.db):
+            names = [norm(x) for x in (d.get("ai_title"), d["title"], d["file"].rsplit(".", 1)[0]) if x]
+            if any(n and len(n) >= 4 and n in q for n in names):
+                v = explorer.view(tb.db, d["id"])
+                return f"**{v['title']}** ({v['rows']:,} rows)\n\n" + "\n".join(f"- {i}" for i in v["insights"]) + \
+                    "\n\nOpen **Data explorer** to regroup it or chart another column."
+    except Exception:
+        return None
+    return None
 
 
 def _po_answer(tb: Toolbox, question: str, only_if_topic: bool = False) -> str | None:

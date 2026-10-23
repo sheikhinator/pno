@@ -74,6 +74,11 @@ TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: s
               "disciplinary cases and shift-roster coverage. Pass the question in plain English, for example 'weakest leaders in Lucky One', "
               "'turnover hotspots', 'compare Fortress and Emporium', 'brief me for the country review', 'which roles are at risk'.",
               "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}})
+TOOLS.insert(1, {"name": "datasets", "description": "Other tables the user imported that are not standard PNO reports (KPI sheets, "
+              "training lists, surveys…). Without 'title' lists them; with 'title' returns that table's columns, grouped totals and "
+              "computed insights. Optional group_by and measure are column names.",
+              "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "group_by": {"type": "string"},
+                                                             "measure": {"type": "string"}}}})
 WRITE_TOOLS = {"propose_leave", "propose_holiday", "propose_note"}
 
 
@@ -162,6 +167,20 @@ class Toolbox:
             return {"error": f"bad arguments: {e}"}
         except Exception as e:
             return {"error": str(e)}
+
+    def t_datasets(self, title: str = "", group_by: str | None = None, measure: str | None = None, **kw) -> dict:
+        from ..po import explorer
+        sets = explorer.datasets(self.db)
+        if not title:
+            return {"datasets": [{"title": d["ai_title"] or d["title"], "rows": d["rows"], "file": d["file"]} for d in sets]}
+        t = norm(title)
+        hit = next((d for d in sets if t in norm(d["ai_title"] or "") or t in norm(d["title"]) or t in norm(d["file"])), None)
+        if not hit:
+            return {"error": f"No dataset called {title}", "available": [d["ai_title"] or d["title"] for d in sets]}
+        v = explorer.view(self.db, hit["id"], group_by, measure)
+        return {"title": v["title"], "rows": v["rows"], "columns": [{k: c.get(k) for k in ("name", "type", "role")} for c in v["columns"]],
+                "grouped_by": v["group"], "measure": v["measure"], "aggregation": v["agg"], "groups": v["series"][:30],
+                "trend": v["trend"][-24:], "insights": v["insights"]}
 
     def t_po_review(self, question: str = "", **kw) -> dict:
         from ..po import privacy

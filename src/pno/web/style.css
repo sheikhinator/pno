@@ -428,3 +428,8 @@ table.po-shifts th,table.po-shifts td.po-s{padding:6px 4px;text-align:center;min
 table.t td.n{white-space:nowrap}
 table.po-shifts th .sub{display:block;font-size:10px;color:var(--muted)}
 .po-kpis4 .kpi-v{font-size:clamp(20px,2.2vw,30px);line-height:1.15}
+.dx-l{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.dx-l .input{min-width:170px;text-transform:none;letter-spacing:0;font-weight:600;color:var(--ink)}
+.dx-ins p{margin:0 0 8px;line-height:1.5}
+.dx-ins ul{margin:0;padding-left:18px}.dx-ins li{margin-bottom:6px;line-height:1.5}
+.kpis.dx-kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}

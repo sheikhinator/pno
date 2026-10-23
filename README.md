@@ -59,6 +59,19 @@ an adjustable P&O index, talent grid and bench strength) · **Turnover** · **Sh
 as *"Who are the weakest leaders in Lucky One?"*, *"Compare Fortress and Emporium"* or *"Which roles are at risk?"* from the
 same data, and Export has a **P&O Review Pack** (PDF, PowerPoint, Excel). *Hide names* applies to all of it.
 
+## Any other data: the Data explorer (new in 1.2)
+
+Import or paste **any** table, not just the reports above: a KPI sheet, a training list, a survey, a checklist. PNO finds the
+header row, works out what each column is (stores, sections, people, dates, actual, budget, target, last year…) from the
+header words and from the values, leaves total rows out so nothing is counted twice, and shows it in **Data explorer**:
+key figures, a chart you can regroup by any column, a trend over time, written insights (vs budget, top and bottom,
+outliers, blanks, repeated people) and an **Analyse with AI** button. When Groq is set up, PNO also asks it to name each
+new table and its unclear columns. Ask PNO can answer questions about these tables too.
+
+Fixed in 1.2: store names written `PK HM …` (Steel Casting) are matched to the store (old links are repaired on start);
+a store with no "Store Manager" is led by its Deputy / Assistant Store Manager or Store In-charge. The leader index of
+the P&O review is shown out of 10, like every other score in PNO.
+
 ## How the score works
 
 Each person is scored only on what they control, using the latest data for the month:

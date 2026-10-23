@@ -43,6 +43,7 @@ def parse_name(raw: str) -> Parsed:
     if m:
         code, n = m.group(1), m.group(2)
     fmt = ""
+    n = re.sub(r"^PK\s+(?=(H AND B|HM|SM|HB)\s)", "", n)          # 'PK HM GUJ Steel Casting' = 'HM PK GUJ …'
     m = re.match(r"^(H AND B|HM|SM|HB)\s+(.*)$", n)
     if m:
         fmt, n = FORMATS[m.group(1)], m.group(2)
@@ -65,6 +66,7 @@ def parse_name(raw: str) -> Parsed:
 def _display(text: str, code: str, fmt: str, city: str) -> str:
     s = clean_text(text)
     s = re.sub(r"^\d{3,4}\s+", "", s)
+    s = re.sub(r"^PK\s+(?=(H&B|HM|SM|HB)\s)", "", s, flags=re.I)
     s = re.sub(r"^(H&B|HM|SM|HB)\s+", "", s, flags=re.I)
     s = re.sub(r"^PK\s+", "", s, flags=re.I)
     if city:

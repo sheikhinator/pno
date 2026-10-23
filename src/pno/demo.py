@@ -510,12 +510,27 @@ def po_review_xlsx(people: list[Person], seed: int = 51) -> bytes:
                   "NPS": nps, "Shrinkage & Stock Days": shrink})
 
 
+def kpi_xlsx(seed: int = 61) -> bytes:
+    """A table PNO has no special screen for, to show the Data explorer: weekly footfall, conversion and sales."""
+    rnd = random.Random(seed)
+    rows = [["Weekly store KPI (fictional)"], [], ["Week", "Store", "Department", "Footfall", "Conversion %", "Sales Actual", "Sales Budget"]]
+    for w in range(1, 9):
+        for fmt, city, name, code in STORES[:12]:
+            for dept in ("Fresh Food", "Consumer Goods", "Non Food"):
+                foot = rnd.randint(2000, 14000) * (2 if fmt == "HM" else 1)
+                budget = foot * rnd.randint(900, 1600)
+                rows.append([date(2026, 8, 3) + timedelta(days=7 * (w - 1)), f"{fmt} PK {city} {name}", dept, foot,
+                             f"{rnd.uniform(18, 48):.1f}%", round(budget * rnd.uniform(0.82, 1.18)), budget])
+    return _xlsx({"Store KPI": rows})
+
+
 def build(seed: int = 7) -> Demo:
     """Two months of demo files: August and September 2026."""
     people = build_people(seed)
     demo = Demo(people=people)
     demo.files["Employee Basic Details.xlsx"] = roster_xlsx(people)
     demo.files["P&O Review Workbook (demo).xlsx"] = po_review_xlsx(people)
+    demo.files["Weekly Store KPI (demo).xlsx"] = kpi_xlsx()
     for m in (date(2026, 8, 1), date(2026, 9, 1)):
         lv, taken = leave_xlsx(people, m)
         tag = m.strftime("%b %Y")

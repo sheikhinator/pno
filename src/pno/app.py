@@ -171,7 +171,7 @@ def selftest(log_path: str) -> int:
         win.resize(1440, 900)
         win.show()
         pages = ["home", "people", "performance", "stores", "attendance", "org", "review", "talent", "retention", "shifts",
-                 "ask", "import", "settings"]
+                 "data", "ask", "import", "settings"]
         state = {"i": -1, "errors": [], "t0": time.time(), "visited": []}
 
         def js(code, cb):

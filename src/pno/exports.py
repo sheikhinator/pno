@@ -312,7 +312,7 @@ def _pack_po(db, mm, rep, scope, emp, store_id, hide):
         ("Store", "store", ""), ("Status", "status", ""), ("Sales", "sales", "money"), ("vs budget", "sales_vs_budget_pct", "pct0"),
         ("Growth", "growth_pct", "signed"), ("Prod. vs target", "productivity_vs_target_pct", "signed"),
         ("Shrink vs bud. (pp)", "shrink_variance_avg", "signed"), ("OOS", "oos_pct", "pct"), ("Margin", "margin_pct", "pct"),
-        ("Leavers 12m", "leavers_12m", "int"), ("DA", "da_cases", "int"), ("Leader index", "avg_leader_score", "int")], "rows": cards})
+        ("Leavers 12m", "leavers_12m", "int"), ("DA", "da_cases", "int"), ("Leader index /10", "avg_leader_10", "score")], "rows": [{**c, "avg_leader_10": None if c["avg_leader_score"] is None else c["avg_leader_score"] / 10} for c in cards]})
     rep["sections"].append({"type": "chart", "kind": "hbar", "title": "Sales vs budget by store (%)",
                             "labels": [c["store"] for c in cards], "series": [{"name": "% of budget", "values": [pct(c["sales_vs_budget_pct"], 0) for c in cards]}]})
     for title, metric in (("Sales vs budget by section (%)", "sales_vs_budget"), ("Shrinkage vs budget by section (pp)", "shrink_variance"),
@@ -324,16 +324,16 @@ def _pack_po(db, mm, rep, scope, emp, store_id, hide):
                                     "rows": [{"store": st, **{s: pct(values.get((st, s))) for s in sections}} for st in stores]})
     leaders = [l for l in ins.leaders() if l.score is not None]
     row = lambda l: {"name": leader_name(l), "store": l.store, "leads": l.section_text, "role": l.designation,  # noqa: E731
-                     "index": round(l.score), "rating": l.latest_rating, "in_role": tenure_text(l.months_in_role)}
-    cols = [("Leader", "name", ""), ("Store", "store", ""), ("Leads", "leads", ""), ("Role", "role", ""), ("P&O index", "index", "int"),
+                     "index": round(l.score / 10, 1), "rating": l.latest_rating, "in_role": tenure_text(l.months_in_role)}
+    cols = [("Leader", "name", ""), ("Store", "store", ""), ("Leads", "leads", ""), ("Role", "role", ""), ("Leader index /10", "index", "score"),
             ("Rating", "rating", ""), ("In role", "in_role", "")]
     if leaders:
-        rep["sections"].append({"type": "table", "title": "Top 10 leaders · P&O index", "columns": cols, "rows": [row(l) for l in leaders[:10]]})
-        rep["sections"].append({"type": "table", "title": "Bottom 10 leaders · P&O index", "columns": cols, "rows": [row(l) for l in leaders[-10:][::-1]]})
+        rep["sections"].append({"type": "table", "title": "Top 10 leaders · leader index", "columns": cols, "rows": [row(l) for l in leaders[:10]]})
+        rep["sections"].append({"type": "table", "title": "Bottom 10 leaders · leader index", "columns": cols, "rows": [row(l) for l in leaders[-10:][::-1]]})
         weights = ins.weights
-        rep["sections"].append({"type": "text", "title": "How the P&O index is built", "lines": [
+        rep["sections"].append({"type": "text", "title": "How the leader index is built", "lines": [
             f"{WEIGHT_LABELS[k]}: weight {v:g}" for k, v in weights.items()] + [
-            "Each measure comes from the section(s) the leader runs and is scaled 0-100; missing measures are left out, never counted as zero."]})
+            "Each measure comes from the section(s) the leader runs and is scored 0-10; missing measures are left out, never counted as zero."]})
     bench = ins.bench()
     if bench:
         rep["sections"].append({"type": "table", "title": "Bench strength · roles at risk", "columns": [

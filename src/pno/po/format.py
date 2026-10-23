@@ -67,7 +67,8 @@ def leader_name(leader: Leader) -> str:
 
 
 def score_text(value: float | None) -> str:
-    return "—" if value is None else f"{value:.0f}"
+    """The leader index is kept 0-100 inside; shown out of 10 like every other score in PNO."""
+    return "—" if value is None else f"{value / 10:.1f}"
 
 
 def _change(value: Any) -> str:
@@ -101,7 +102,7 @@ def leader_profile_html(insights: Insights, leader: Leader) -> str:
     )
     score_block = (
         f"<table cellspacing='0' cellpadding='6' style='margin-top:10px'><tr>"
-        f"<td style='background:#F6F1E7;border-radius:8px'><div style='font-size:11px;color:#756E68;font-weight:700'>P&amp;O INDEX</div>"
+        f"<td style='background:#F6F1E7;border-radius:8px'><div style='font-size:11px;color:#756E68;font-weight:700'>LEADER INDEX /10</div>"
         f"<div style='font-size:26px;font-weight:800;color:{score_color}'>{score_text(leader.score)}</div>"
         f"<div style='font-size:11px;color:#756E68'>{'rank ' + str(rank) + ' of ' + str(len(scored)) if rank else 'needs 3+ measures'}</div></td>"
         f"<td style='background:#F6F1E7'><div style='font-size:11px;color:#756E68;font-weight:700'>RATING</div>"
@@ -156,7 +157,7 @@ def leader_profile_html(insights: Insights, leader: Leader) -> str:
     flags = [f for f in insights.bench() if f["leader"] is leader]
     flag_html = " ".join(_chip(f["reason"], SEVERITY_COLOR[f["severity"]]) for f in flags)
     components = "".join(
-        f"<tr><td>{escape(WEIGHT_LABELS[c])}</td><td><b style='color:{tone(v, 70, 45)}'>{v:.0f}</b>/100</td>"
+        f"<tr><td>{escape(WEIGHT_LABELS[c])}</td><td><b style='color:{tone(v, 70, 45)}'>{v / 10:.1f}</b>/10</td>"
         f"<td style='color:#756E68'>weight {insights.weights.get(c, 0):g}</td></tr>"
         for c, v in leader.components.items()
     )
@@ -172,7 +173,7 @@ def leader_profile_html(insights: Insights, leader: Leader) -> str:
     if components:
         html += ["<h3 style='color:#31261D;margin-bottom:4px'>How the index is built</h3>",
                  f"<table cellpadding='4'>{components}</table>",
-                 "<p style='color:#756E68;font-size:11px'>Each measure is scaled 0–100 and weighted (Settings). "
+                 "<p style='color:#756E68;font-size:11px'>Each measure is scored 0–10 and weighted (Settings). "
                  "Missing measures are left out, never counted as zero. A decision aid, not an automated decision.</p>"]
     if leader.remarks:
         html.append(f"<p style='color:#756E68'><i>HR note: {escape(leader.remarks)}</i></p>")

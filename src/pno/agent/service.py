@@ -216,6 +216,26 @@ class AgentService:
         return con
 
     # ---------------------------------------------------------------- asking
+    def complete(self, prompt: str, system: str = "", max_tokens: int = 900, allow_offline: bool = True) -> tuple[str, str] | None:
+        """One plain AI completion (no tools) with whichever AI is set up; None when only the built-in assistant is."""
+        c = self._cfg()
+        key = self._key()
+        engine_name = self._choose(c, key)
+        if engine_name == "offline" and not allow_offline:
+            return None
+        if engine_name == "groq":
+            base, model, k = llm.GROQ_URL, c["model"], key
+        elif engine_name == "offline":
+            path = local.model_path(self.db)
+            if not local.SERVER.ensure(path, wait=60):
+                return None
+            base, model, k = f"http://127.0.0.1:{local.PORT}/v1", "local", ""
+        else:
+            return None
+        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+        msg = llm.chat(base, k, model, msgs, None, timeout=90, max_tokens=max_tokens)
+        return (msg.get("content") or "").strip(), engine_name
+
     def ask(self, question: str, history: list, month: str | None, scope: dict, attachments: list) -> dict:
         t0 = time.time()
         c = self._cfg()
@@ -294,6 +314,12 @@ class AgentService:
             except Exception as e:
                 lines.append(f"**{Path(p).name}**: could not be read ({e}).")
                 continue
+            if a["results"] and all(r.kind == "dataset" for r in a["results"]):
+                leave = self._leave_from_unknown(p, key, c)
+                if leave:
+                    tb.t_propose_leave(leave)
+                    lines.append(f"**{Path(p).name}** looks like a leave list. I prepared {len(leave)} leave records for you to confirm.")
+                    continue
             if a["results"]:
                 known.append(p)
                 for r in a["results"]:

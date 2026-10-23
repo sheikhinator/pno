@@ -185,12 +185,17 @@ def test_every_demo_file_is_recognised(demo):
         for r in a["results"]:
             kinds[r.kind] = kinds.get(r.kind, 0) + 1
     assert kinds == {"roster": 1, "leave": 2, "attendance": 2, "productivity": 2, "sales": 2, "po_rating": 1, "po_role": 1,
-                     "po_shift": 1, "po_turnover": 1, "po_da": 1, "po_nps": 1, "po_shrink": 1}
+                     "po_shift": 1, "po_turnover": 1, "po_da": 1, "po_nps": 1, "po_shrink": 1, "dataset": 1}
 
 
-def test_unknown_file_is_skipped_not_guessed():
+def test_unknown_file_is_kept_as_a_dataset_not_guessed():
     a = importers.analyze_text("fruit,price\napple,3\npear,4\n", "fruit.csv")
-    assert a["results"] == [] and a["skipped"]
+    assert [r.kind for r in a["results"]] == ["dataset"] and not a["skipped"]
+
+
+def test_text_without_a_table_is_skipped():
+    a = importers.analyze_text("hello\n", "note.txt")
+    assert a["results"] == []
 
 
 # ------------------------------------------------------------------ commit, duplicates, undo / redo

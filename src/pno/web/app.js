@@ -70,13 +70,14 @@ const ICON = {
   talent: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21c.8-4 3.6-6 7-6s6.2 2 7 6"/><path d="m17 3 1 2 2 .3-1.5 1.4.4 2.1-1.9-1-1.9 1 .4-2.1L14 5.3l2-.3z"/>',
   retention: '<path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M11 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/>',
   shifts: '<rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7 13h2M11 13h2M15 13h2M7 17h2M11 17h2"/>',
+  data: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6M4 11.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
 };
 const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[n] || ""}</svg>`;
 const NAV = [["home", "Home", "home"], ["people", "People", "people"], ["performance", "Performance", "perf"], ["stores", "Stores", "stores"],
   ["attendance", "Attendance", "att"], ["org", "Org chart", "org"], ["review", "P&O review", "review"], ["talent", "Leaders & talent", "talent"],
-  ["retention", "Turnover", "retention"], ["shifts", "Shift roster", "shifts"], ["ask", "Ask PNO", "ask"], ["import", "Import", "import"], ["settings", "Settings", "settings"]];
-const NAV_GROUP = { review: "P&amp;O review", ask: "Tools" };
+  ["retention", "Turnover", "retention"], ["shifts", "Shift roster", "shifts"], ["data", "Data explorer", "data"], ["ask", "Ask PNO", "ask"], ["import", "Import", "import"], ["settings", "Settings", "settings"]];
+const NAV_GROUP = { review: "P&amp;O review", data: "Tools" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -870,7 +871,7 @@ function modal(html) {
 }
 function closeModal() { $$(".modal").forEach(m => m.remove()); $$(".scrim[data-modal]").forEach(s => s.remove()); }
 const PACKS = [["director", "Monthly HR Director Pack", "Country / filtered summary, store league, top & bottom, attendance health, trends"],
-  ["po", "P&O Review Pack", "Store league, section heatmaps, leaders & P&O index, bench strength, turnover, roster gaps (P&O workbook)"],
+  ["po", "P&O Review Pack", "Store league, section heatmaps, leaders & leader index, bench strength, turnover, roster gaps (P&O workbook)"],
   ["store", "Store Report", "The selected store: GM scorecard, departments, sections with managers, attendance"],
   ["dept", "Department Comparison", "The selected department across stores, with its managers"],
   ["scorecard", "Manager Scorecards", "One page per manager in the current filters (or one person)"],
@@ -1019,7 +1020,7 @@ const poCell = (v, good, bad, higher, f) => v == null ? `<td class="n po-h none"
 const poMoney = v => v == null ? "—" : Math.abs(v) >= 1e9 ? (v / 1e9).toFixed(2) + " bn" : Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + " M" : money(v);
 const poSigned = (v, d = 1, s = "%") => v == null ? "—" : (v > 0 ? "+" : "") + (+v).toFixed(d) + s;
 const poStatus = s => `<span class="chip ${{ "On track": "good", Watch: "warn", "At risk": "bad" }[s] || ""}">${esc(s)}</span>`;
-const poIndex = v => v == null ? "—" : `<span class="chip ${v >= 70 ? "good" : v <= 45 ? "bad" : "warn"}">${Math.round(v)}</span>`;
+const poIndex = v => v == null ? "—" : pill(v / 10, band(v / 10));
 const poEmpty = () => `<div class="panel"><div class="hero"><div class="logo" style="width:64px;height:64px;font-size:22px;border-radius:18px">P&amp;O</div>
   <h2>Import the P&amp;O workbook</h2><p>Drop the whole workbook on the Import screen. All ten tabs are recognised by their columns: YTD productivity,
   shift roster, performance ratings, store performance (sales), NPS, shrinkage &amp; stock days, time in role, DA, turnover and the Basic Sheet.
@@ -1098,12 +1099,12 @@ PAGES.talent = async () => {
       </tbody></table></div></div>`;
   } else {
     const w = await API.call("po_weights", {});
-    body = `<div class="panel" style="max-width:720px"><div class="phd"><h2>P&amp;O leader index</h2></div>
-      <small style="color:var(--muted)">How much each measure counts. Weights are relative. Each measure comes from the section(s) a leader runs and is scaled 0–100; missing measures are left out, never counted as zero; a leader needs 3 measures to get an index.</small>
+    body = `<div class="panel" style="max-width:720px"><div class="phd"><h2>Leader index (out of 10)</h2></div>
+      <small style="color:var(--muted)">How much each measure counts. Weights are relative. Each measure comes from the section(s) a leader runs and is scored 0–10; missing measures are left out, never counted as zero; a leader needs 3 measures to get an index.</small>
       ${Object.entries(w.labels).map(([k, l]) => `<label class="setting"><span><b>${esc(l)}</b><small>default ${w.defaults[k]}</small></span><input class="input" type="number" min="0" max="100" step="5" data-po-w="${k}" value="${w.weights[k]}" style="width:90px"></label>`).join("")}
       <div class="row" style="justify-content:flex-end"><button class="btn" data-act="po-w-reset">Reset</button><button class="btn primary" data-act="po-w-save">Save weights</button></div></div>`;
   }
-  return `<div class="ph"><div><h1>Leaders &amp; talent</h1><p>${d.total} section leaders · ${d.scored} with a P&amp;O index · every leader joined to the results of the area they run</p></div>${tabs}</div>${body}`;
+  return `<div class="ph"><div><h1>Leaders &amp; talent</h1><p>${d.total} section leaders · ${d.scored} with a leader index · every leader joined to the results of the area they run</p></div>${tabs}</div>${body}`;
 };
 AFTER.talent = async () => {
   const q = $("#po-q");
@@ -1175,6 +1176,69 @@ Object.assign(ACT, {
   "po-w-save": async () => { const w = {}; $$("[data-po-w]").forEach(i => { w[i.dataset.poW] = +i.value; }); await call("po_weights", { weights: w }); toast("Index weights saved"); render(); },
   "po-w-reset": async () => { await call("po_weights", { reset: true }); toast("Index weights reset"); render(); },
 });
+
+/* ---------------------------------------------------------------- Data explorer: any other table, charted and explained */
+S.dx = { id: null, group: null, measure: null, agg: null, q: "" };
+const dxNum = (v, type) => v == null ? "—" : type === "percent" ? (+v).toFixed(1) + "%" : Math.abs(v) >= 1e9 ? (v / 1e9).toFixed(2) + " bn" : Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + " M" : (+v).toLocaleString("en-US", { maximumFractionDigits: 2 });
+PAGES.data = async () => {
+  const list = (await API.call("datasets", {})).datasets;
+  if (!list.length) return `<div class="ph"><div><h1>Data explorer</h1><p>Any table PNO does not already know lands here, charted and explained.</p></div></div>
+    <div class="panel"><div class="hero"><div class="logo" style="width:64px;height:64px;font-size:20px;border-radius:18px">DATA</div><h2>No other data yet</h2>
+    <p>Import or paste any table (a KPI sheet, a training list, a survey, a store checklist…). PNO finds the header, understands the columns
+    (stores, sections, people, actual, budget, dates) and shows charts and insights here. Known reports still go to their own screens.</p>
+    <div class="row" style="justify-content:center"><button class="btn primary" data-go="import">${ic("import", 16)}Import or paste data</button></div></div></div>`;
+  if (!S.dx.id || !list.some(d => d.id === S.dx.id)) S.dx = { id: list[0].id, group: null, measure: null, agg: null, q: "" };
+  const v = DATA.data = await API.call("dataset", { import_id: S.dx.id, group: S.dx.group, measure: S.dx.measure, agg: S.dx.agg });
+  const groups = v.columns.filter(c => c.type === "text");
+  const measures = v.columns.filter(c => c.type === "number" || c.type === "percent");
+  const opt = (val, label, cur) => `<option value="${esc(val)}" ${val === cur ? "selected" : ""}>${esc(label)}</option>`;
+  const cols = v.columns.filter(c => !c.name.startsWith("_"));
+  const kpis = [`<div class="kpi"><span class="kpi-l">Rows</span><span class="kpi-v">${v.rows.toLocaleString("en-US")}</span><span class="kpi-s"><span>${v.columns.length} columns</span></span></div>`]
+    .concat(v.totals.slice(0, 4).map(t => `<div class="kpi"><span class="kpi-l">${esc(t.name)}</span><span class="kpi-v">${dxNum(t.value, t.type)}</span><span class="kpi-s"><span>${t.agg === "avg" ? "average" : "total"}</span></span></div>`)).join("");
+  return `<div class="ph"><div><h1>${esc(v.title)}</h1><p>${esc(v.description || "From " + (v.file || "imported data"))} · ${v.rows.toLocaleString("en-US")} rows</p></div>
+      <select class="input" id="dx-pick">${list.map(d => opt(String(d.id), (d.ai_title || d.title) + " · " + d.rows + " rows", String(S.dx.id))).join("")}</select></div>
+    <div class="kpis po-kpis4 dx-kpis">${kpis}</div>
+    <div class="panel"><div class="phd"><h2>Explore</h2><div class="row" style="gap:8px">
+        <label class="dx-l">Group by<select class="input" id="dx-group">${opt("", "Nothing (all rows)", v.group || "")}${groups.map(c => opt(c.name, c.label, v.group)).join("")}</select></label>
+        <label class="dx-l">Measure<select class="input" id="dx-measure">${opt("__count", "Number of rows", v.measure || "__count")}${measures.map(c => opt(c.name, c.label, v.measure)).join("")}</select></label>
+        <label class="dx-l">As<select class="input" id="dx-agg">${[["sum", "Total"], ["avg", "Average"], ["max", "Highest"], ["min", "Lowest"], ["count", "Count"]].map(([k, l]) => opt(k, l, v.agg)).join("")}</select></label></div></div>
+      <div id="ch-dx"></div>${v.series_count > 40 ? `<small style="color:var(--muted)">Showing the top 40 of ${v.series_count}.</small>` : ""}</div>
+    ${v.trend.length >= 2 ? `<div class="panel"><div class="phd"><h2>Over time</h2><small>${esc(v.date)}</small></div><div id="ch-dx-t"></div></div>` : ""}
+    <div class="grid g2">
+      <div class="panel"><div class="phd"><h2>Insights</h2><small>calculated from the data</small></div><div class="dx-ins">${v.insights.map(i => `<p>${md(i)}</p>`).join("")}</div></div>
+      <div class="panel"><div class="phd"><h2>AI analyst</h2><button class="btn sm primary" data-act="dx-ai">${ic("spark", 14)}Analyse with AI</button></div>
+        <div id="dx-ai" class="dx-ins">${v.ai_insights ? md(v.ai_insights) : `<p style="color:var(--muted)">The AI reads the summaries above (not the raw file) and writes what a P&amp;O director should act on. Uses Groq or the offline AI from Settings → AI.</p>`}</div></div>
+    </div>
+    <div class="panel flush"><div class="row" style="padding:12px 14px 0;justify-content:space-between"><h2 style="margin:0">Data</h2><input class="input" id="dx-q" placeholder="Filter rows" value="${esc(S.dx.q)}" style="width:260px"></div>
+      <div class="tbl-wrap" style="max-height:520px"><table class="t" id="dx-table"><thead><tr>${cols.map(c => `<th class="${c.type === "number" || c.type === "percent" ? "n" : ""}">${esc(c.name)}${c.role ? `<span class="sub">${esc(c.role.replace("_", " "))}</span>` : ""}</th>`).join("")}</tr></thead>
+      <tbody>${v.table.slice(0, 500).map(r => `<tr>${cols.map(c => `<td class="${c.type === "number" || c.type === "percent" ? "n" : ""}">${c.type === "number" || c.type === "percent" ? dxNum(r[c.name], c.type) : esc(r[c.name] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>
+    ${v.warnings.length ? `<small style="color:var(--muted)">${v.warnings.map(esc).join(" · ")}</small>` : ""}`;
+};
+AFTER.data = () => {
+  const v = DATA.data; if (!v || !$("#ch-dx")) return;
+  const mcol = v.columns.find(c => c.name === v.measure);
+  const fmt = mcol && mcol.type === "percent" ? "pct" : "num";
+  const s = v.series.slice(0, 25);
+  if (s.length) Charts.hbar($("#ch-dx"), { labels: s.map(x => x[0]), values: s.map(x => x[1]), name: v.measure || "Rows", fmt });
+  if ($("#ch-dx-t")) Charts.line($("#ch-dx-t"), { labels: v.trend.map(x => x[0]), series: [{ name: v.measure || "Rows", values: v.trend.map(x => x[1]) }], height: 220, area: true, fmt });
+  const on = (id, f) => { const el = $(id); if (el) el.addEventListener("change", f); };
+  on("#dx-pick", e => { S.dx = { id: +e.target.value, group: null, measure: null, agg: null, q: "" }; render(); });
+  on("#dx-group", e => { S.dx.group = e.target.value || "__none"; render(); });
+  on("#dx-measure", e => { S.dx.measure = e.target.value; S.dx.agg = null; render(); });
+  on("#dx-agg", e => { S.dx.agg = e.target.value; render(); });
+  const q = $("#dx-q");
+  if (q) {
+    const apply = () => { const t = q.value.toLowerCase(); S.dx.q = q.value; $$("#dx-table tbody tr").forEach(tr => { tr.style.display = !t || tr.textContent.toLowerCase().includes(t) ? "" : "none"; }); };
+    q.addEventListener("input", apply); apply();
+  }
+};
+ACT["dx-ai"] = async b => {
+  b.disabled = true; const box = $("#dx-ai"); box.innerHTML = `<div class="loading"><span class="spin"></span>The AI is reading the summaries…</div>`;
+  try {
+    const r = await call("dataset_ai", { import_id: S.dx.id });
+    box.innerHTML = r.text ? md(r.text) + `<small style="color:var(--muted)">${esc({ groq: "Groq", offline: "Offline AI" }[r.engine] || "")}</small>` : `<p style="color:var(--muted)">${esc(r.note || "")}</p>`;
+  } catch (e) { box.innerHTML = ""; } finally { b.disabled = false; }
+};
 
 document.addEventListener("click", e => {
   const g = e.target.closest("[data-go]");
