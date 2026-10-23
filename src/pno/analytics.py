@@ -437,8 +437,13 @@ def attendance_view(db: Database, month: str | None, scope: dict | None, hide: b
 
 
 # ------------------------------------------------------------------------------------------------ org chart
-def org_chart(db: Database, month: str | None, store_id: int | None, hide: bool = False) -> dict:
+def org_chart(db: Database, month: str | None, store_id: int | None, hide: bool = False, auto: bool = False) -> dict:
     mm = model(db, month)
+    if auto:                              # no store chosen yet: open on the store with the most people
+        from collections import Counter
+        counts = Counter(p.store_id for p in mm.people.values() if p.store_id)
+        if counts and (store_id is None or not counts.get(int(store_id))):
+            store_id = counts.most_common(1)[0][0]
     ppl = [p for p in mm.people.values() if store_id is None or p.store_id == int(store_id)]
     ids = {p.emp for p in ppl}
 
@@ -457,7 +462,7 @@ def org_chart(db: Database, month: str | None, store_id: int | None, hide: bool 
     tree = [{"emp": None, "name": k, "designation": "Reports outside this store" if k != "No manager recorded" else "",
              "role": "EXT", "score": None, "band": "none", "children": v} for k, v in external.items()]
     tree.sort(key=lambda n: -len(n["children"]))
-    return {"month": mm.month, "tree": tree, "people": len(ppl)}
+    return {"store_id": store_id, "month": mm.month, "tree": tree, "people": len(ppl)}
 
 
 def month_list(db: Database) -> list[dict]:

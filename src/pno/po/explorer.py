@@ -11,6 +11,8 @@ import statistics
 from collections import defaultdict
 from typing import Any
 
+from ..period import label as period_label
+
 MEASURE_PRIORITY = ["actual", "count", "score", "budget", "target", "last_year", "forecast", ""]
 GROUP_PRIORITY = ["_store", "store", "_section", "section", "department", "city", "type", "reason", "designation", "employee_name", ""]
 
@@ -22,7 +24,8 @@ def datasets(db) -> list[dict]:
         meta = json.loads(r["payload"])
         out.append({"id": r["id"], "title": meta.get("title") or r["file_name"], "file": r["file_name"], "rows": r["rows"],
                     "columns": len(meta.get("columns", [])), "created": r["created_at"], "ai_title": meta.get("ai_title"),
-                    "description": meta.get("user_description") or meta.get("ai_description", "")})
+                    "description": meta.get("user_description") or meta.get("ai_description", ""),
+                    "period": period_label(meta.get("period_type"), meta.get("period_from"), meta.get("period_to")) if meta.get("period_type") else ""})
     return out
 
 
@@ -135,6 +138,7 @@ def view(db, import_id: int, group: str | None = None, measure: str | None = Non
         "agg": agg, "date": date_col, "series": series[:40], "series_count": len(series), "trend": trend[-60:],
         "totals": totals, "insights": insights(cols, rows, group, measure, agg, series, trend),
         "table": rows[:1000], "warnings": meta.get("warnings", []), "ai_insights": meta.get("ai_insights"),
+        "period": period_label(meta.get("period_type"), meta.get("period_from"), meta.get("period_to")) if meta.get("period_type") else "",
     }
 
 
@@ -220,6 +224,6 @@ def insights(cols: list[dict], rows: list[dict], group: str | None, measure: str
 def summary_for_ai(v: dict) -> str:
     """A compact description of a dataset (no raw rows beyond a few) for the AI to write insights from."""
     cols = [{k: c.get(k) for k in ("name", "type", "role", "distinct", "sample")} for c in v["columns"]]
-    return json.dumps({"title": v["title"], "user_says_it_is": v.get("description", ""), "rows": v["rows"], "columns": cols, "grouped_by": v["group"], "measure": v["measure"],
+    return json.dumps({"title": v["title"], "user_says_it_is": v.get("description", ""), "period": v.get("period") or "not stated", "rows": v["rows"], "columns": cols, "grouped_by": v["group"], "measure": v["measure"],
                        "aggregation": v["agg"], "groups": v["series"][:25], "trend": v["trend"][-24:], "totals": v["totals"],
                        "computed_insights": v["insights"], "sample_rows": v["table"][:5]}, default=str)[:12000]

@@ -28,7 +28,7 @@ class ParseResult:
             self.warnings.append(msg)
 
 
-KIND_LABEL = {"roster": "Employee roster", "attendance": "Biometric attendance", "productivity": "MTD productivity",
+KIND_LABEL = {"roster": "Employee roster", "attendance": "Biometric attendance", "productivity": "Section productivity",
               "sales": "BO 200-10-05 store sales", "leave": "Leave register"}
 
 

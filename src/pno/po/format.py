@@ -97,7 +97,7 @@ def leader_profile_html(insights: Insights, leader: Leader) -> str:
     score_color = tone(leader.score, 70, 45)
     head = (
         f"<div style='font-size:20px;font-weight:800;color:#31261D'>{name}</div>"
-        f"<div style='color:#756E68;margin-top:2px'>{escape(leader.designation or 'Leader')} · {escape(leader.store or '—')}"
+        f"<div style='color:#756E68;margin-top:2px'>{escape(leader.designation or 'Leader')}{(' (HR system: ' + escape(leader.system_designation) + ')') if leader.system_designation else ''} · {escape(leader.store or 'Store not on file')}"
         f" · leads <b>{escape(leader.section_text)}</b></div>"
     )
     score_block = (
@@ -139,7 +139,7 @@ def leader_profile_html(insights: Insights, leader: Leader) -> str:
             f"<td>{n['year']}</td><td style='color:{tone(n['change'], 0, -10)}'>{_change(n['change'])}</td></tr>")
     people = []
     if k.get("leavers") is not None:
-        people.append(f"<b>{k['leavers']}</b> leaver(s) in their section(s) in the last 12 months")
+        people.append(f"<b>{k['leavers']}</b> leaver(s) in their " + ("store" if leader.whole_store else "section(s)") + f" ({insights.leaver_window})")
     if k.get("da") is not None:
         people.append(f"<b>{k['da']}</b> disciplinary case(s) recorded for their section(s)")
     if leader.shifts:

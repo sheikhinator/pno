@@ -136,8 +136,8 @@ class Api:
     def api_attendance(self, month=None, scope=None) -> dict:
         return analytics.attendance_view(self.db, month, scope or {}, self._hide())
 
-    def api_org(self, month=None, store_id=None) -> dict:
-        return analytics.org_chart(self.db, month, store_id, self._hide())
+    def api_org(self, month=None, store_id=None, auto=False) -> dict:
+        return analytics.org_chart(self.db, month, store_id, self._hide(), bool(auto))
 
     def api_compare(self, emps: list, month=None) -> dict:
         return {"people": [analytics.person(self.db, month, str(e), self._hide()) for e in emps[:4]]}
@@ -171,7 +171,7 @@ class Api:
         token = uuid.uuid4().hex[:12]
         self.sessions[token] = {"analyses": analyses, "created": now()}
         suggested = self._suggest_month()
-        return {"token": token, "files": [importers.describe(a) for a in analyses], "errors": errors,
+        return {"token": token, "files": self._lined_up([importers.describe(a) for a in analyses], analyses), "errors": errors,
                 "suggested_month": suggested}
 
     def api_import_upload(self, files: list) -> dict:
@@ -185,12 +185,22 @@ class Api:
                 errors.append({"file": f.get("name", "?"), "error": str(e)})
         token = uuid.uuid4().hex[:12]
         self.sessions[token] = {"analyses": analyses, "created": now()}
-        return {"token": token, "files": [importers.describe(a) for a in analyses], "errors": errors,
+        return {"token": token, "files": self._lined_up([importers.describe(a) for a in analyses], analyses), "errors": errors,
                 "suggested_month": self._suggest_month()}
 
     def _suggest_month(self) -> str:
         m = engine.months_available(self.db)
         return m[-1] if m else date.today().strftime("%Y-%m")
+
+    def _lined_up(self, files: list[dict], analyses: list[dict]) -> list[dict]:
+        """Give sheets without a month of their own the month of the other sheets, and remember it for saving."""
+        from .period import line_up
+        known = self.db.q1("""SELECT MAX(period_to) FROM imports WHERE active=1 AND period_type IN ('ytd','mtd')
+                              AND kind NOT IN ('po_turnover','po_shift','attendance')""")
+        line_up([r for f in files for r in f["results"]], known[0] if known else None)
+        for f, a in zip(files, analyses):
+            a["period_hint"] = {(r["sheet"], r["kind"]): r["period"] for r in f["results"]}
+        return files
 
     def api_import_commit(self, token: str, options: dict | None = None) -> dict:
         sess = self.sessions.get(token)
@@ -210,10 +220,12 @@ class Api:
         return {"done": out, "months": analytics.month_list(self.db)}
 
     def api_imports(self) -> dict:
+        from .period import label as period_label
         rows = [dict(r) for r in self.db.q("SELECT * FROM imports ORDER BY id DESC LIMIT 500")]
         for r in rows:
             r["warnings"] = json.loads(r["warnings"] or "[]")
             r["summary"] = (r["summary"] or "").rsplit(" [", 1)[0]
+            r["period_label"] = period_label(r.get("period_type"), r.get("period_from"), r.get("period_to")) if r.get("period_type") else ""
         return {"rows": rows}
 
     def api_import_undo(self, import_id: int) -> dict:
@@ -486,22 +498,44 @@ class Api:
         hide = self._hide()
         privacy.set_demo_mode(hide)
         weights = self.db.get_setting("po_weights", None)
-        key = (str(self.db.path), self.db.version, json.dumps(weights, sort_keys=True), hide)
+        view = self.db.get_setting("po_view", None)
+        key = (str(self.db.path), self.db.version, json.dumps(weights, sort_keys=True), json.dumps(view, sort_keys=True), hide)
         cached = getattr(self, "_po_cache", None)
         if cached and cached[0] == key:
             return cached[1]
-        ins = Insights(PoStore(self.db), weights=weights)
+        ins = Insights(PoStore(self.db), weights=weights, view=view)
         self._po_cache = (key, ins)
         return ins
+
+    def _po_period(self, ins) -> dict:
+        """The period every P&O screen is showing, what each tab contributes to it, and the choices available."""
+        from .po.insights import PACK_LABELS, _ml
+        cov = sorted(ins.coverage, key=lambda c: (c.get("type") != "general", PACK_LABELS.get(c["kind"], c["kind"])))
+        return {"view": ins.view, "label": ins.view_label, "notes": ins.notes, "leaver_window": ins.leaver_window,
+                "sales_label": ins.periods.get("po_sales") or "",
+                "months": [{"value": m, "label": _ml(m)} for m in ins.available["months"]], "types": ins.available["types"],
+                "ytd_from": ins.available.get("ytd_from", {}), "default_to": ins.available.get("default_to"),
+                "coverage": [{"name": PACK_LABELS.get(c["kind"], c["kind"]), "type": c.get("type") or "", "label": c.get("label") or "—",
+                              "rows": c["rows"], "note": c.get("note", "")} for c in cov]}
+
+    def api_po_period(self) -> dict:
+        ins = self._po()
+        return {"has_data": not ins.empty, **self._po_period(ins)}
+
+    def api_po_view(self, type: str = "latest", **kw) -> dict:  # noqa: A002 - matches the screen's field name
+        """Choose the period for the P&O screens: latest data, one month (MTD) or a year-to-date range (from–to)."""
+        view = {"type": type if type in ("latest", "mtd", "ytd") else "latest", "from": kw.get("from"), "to": kw.get("to")}
+        self.db.set_setting("po_view", view)
+        return self.api_po_period()
 
     def api_po_review(self, metric: str = "sales_vs_budget") -> dict:
         from .po.insights import PACK_LABELS
         ins = self._po()
         if ins.empty:
-            return {"has_data": False}
+            return {"has_data": False, "period": self._po_period(ins)}
         h = ins.headline()
         stores, sections, values = ins.section_matrix(metric)
-        return {"has_data": True, "headline": h, "stores": ins.store_scorecard(), "alerts": ins.alerts(40),
+        return {"has_data": True, "period": self._po_period(ins), "headline": h, "stores": ins.store_scorecard(), "alerts": ins.alerts(40),
                 "heat": {"metric": metric, "stores": stores, "sections": sections,
                          "values": [[values.get((st, sec)) for sec in sections] for st in stores]},
                 "sources": [{"kind": PACK_LABELS.get(k, k), "source": v} for k, v in sorted(ins.sources.items())]}
@@ -511,7 +545,7 @@ class Api:
         from .po.insights import tenure_text
         box = ins.talent_box(leader)
         return {"key": leader.key, "rank": ranks.get(leader.key), "name": leader_name(leader), "store": leader.store or "—",
-                "leads": leader.section_text, "role": leader.designation, "score": leader.score, "business": leader.business,
+                "leads": leader.section_text, "role": leader.designation, "system_role": leader.system_designation, "score": leader.score, "business": leader.business,
                 "rating": leader.latest_rating, "rating_label": leader.rating_label, "in_role": tenure_text(leader.months_in_role),
                 "months_in_role": leader.months_in_role, "talent": ins.TALENT_NAMES.get(box) if box else None}
 
@@ -519,7 +553,7 @@ class Api:
         from .po.format import leader_name
         ins = self._po()
         if ins.empty:
-            return {"has_data": False}
+            return {"has_data": False, "period": self._po_period(ins)}
         all_leaders = ins.leaders()
         ranks = {l.key: i + 1 for i, l in enumerate(x for x in all_leaders if x.score is not None)}
         rows = ins.find_leader(q) if q.strip() else all_leaders
@@ -533,7 +567,7 @@ class Api:
         talent = [{"col": c, "row": r, "name": ins.TALENT_NAMES[(c, r)], "leaders": sorted(boxes.get((c, r), []), key=lambda x: -(x["score"] or 0))}
                   for r in (2, 1, 0) for c in (0, 1, 2)]
         bench = [{"severity": f["severity"], "reason": f["reason"], **self._leader_row(ins, f["leader"], ranks)} for f in ins.bench()]
-        return {"has_data": True, "leaders": [self._leader_row(ins, l, ranks) for l in rows], "talent": talent, "bench": bench,
+        return {"has_data": True, "period": self._po_period(ins), "leaders": [self._leader_row(ins, l, ranks) for l in rows], "talent": talent, "bench": bench,
                 "stores": sorted({l.store for l in all_leaders if l.store}), "weights": ins.weights,
                 "scored": len(ranks), "total": len(all_leaders)}
 
@@ -549,10 +583,10 @@ class Api:
         from .po import privacy
         ins = self._po()
         if ins.empty or not ins.has("po_turnover"):
-            return {"has_data": False}
+            return {"has_data": False, "period": self._po_period(ins)}
         t = ins.turnover_summary()
         recent = sorted((r for r in ins.rows("po_turnover") if r.get("date")), key=lambda r: r["date"], reverse=True)[:40]
-        return {"has_data": True, **t, "as_of": ins.as_of,
+        return {"has_data": True, "period": self._po_period(ins), **t, "as_of": ins.as_of,
                 "recent": [{"date": r["date"], "name": privacy.name(r["employee_name"], r.get("employee_id") or r["employee_name"]),
                             "store": r["store"], "section": r["section"], "type": r["exit_type"], "reason": r["reason"]} for r in recent]}
 
@@ -560,7 +594,7 @@ class Api:
         from .po import canon, privacy
         ins = self._po()
         if ins.empty or not ins.has("po_shift"):
-            return {"has_data": False}
+            return {"has_data": False, "period": self._po_period(ins)}
         r = ins.roster_summary()
         known = [s[0] for s in canon._STORES]
         stores = sorted(r["stores"], key=lambda n: (known.index(n) if n in known else 99, n))
@@ -572,7 +606,7 @@ class Api:
                                                        "section": x["section"], "designation": x["designation"], "days": {}})
             p["days"][x["date"]] = x["shift"]
         grid = sorted(people.values(), key=lambda p: (canon.department(p["section"]), p["section"], p["name"]))
-        return {"has_data": True, "stores": stores, "store": store, "days": r["days"], "people": r["people"], "mix": dict(r["mix"]),
+        return {"has_data": True, "period": self._po_period(ins), "stores": stores, "store": store, "days": r["days"], "people": r["people"], "mix": dict(r["mix"]),
                 "grid": [{**p, "days": [p["days"].get(d, "Not rostered") for d in r["days"]]} for p in grid],
                 "gaps": r["gaps"], "leave": [{"name": privacy.name(n, n), "store": s, "days": d} for n, s, d in r["leave"]]}
 
@@ -650,7 +684,7 @@ class Api:
         ins = self._po()
         rows = [r for r in ins.rows("po_nps") if r.get("nps") is not None and r.get("year")]
         if not rows:
-            return {"has_data": False}
+            return {"has_data": False, "period": self._po_period(ins)}
         years = sorted({r["year"] for r in rows})
         latest, prev = years[-1], (years[-2] if len(years) > 1 else None)
         cities = sorted({r["city"] for r in rows})
@@ -697,7 +731,7 @@ class Api:
             insights.append(f"No {latest} survey yet for: {', '.join(missing)}.")
         by_city = [{"city": c, "nps": avg(pick(c, None, latest)), "prev": avg(pick(c, None, prev)) if prev else None,
                     "stores": [st for st in ins.stores() if __import__("pno.po.canon", fromlist=["x"]).store_city(st) == c]} for c in cities]
-        return {"has_data": True, "years": years, "latest": latest, "prev": prev, "cities": cities, "city": scope, "sections": sections,
+        return {"has_data": True, "period": self._po_period(ins), "years": years, "latest": latest, "prev": prev, "cities": cities, "city": scope, "sections": sections,
                 "matrix": matrix, "change": change, "categories": cats, "best": ranked[:5], "worst": ranked[-5:][::-1],
                 "drops": movers[:5], "gains": movers[-5:][::-1], "overall": overall, "overall_prev": overall_prev,
                 "by_city": by_city, "insights": insights}

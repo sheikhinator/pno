@@ -236,6 +236,7 @@ function go(page, arg = null, opts = {}) {
 }
 window.go = go;
 
+const PERIOD_PAGES = ["review", "talent", "retention", "shifts", "nps"];
 async function render() {
   const view = $("#view");
   if (!view) return;
@@ -247,9 +248,20 @@ async function render() {
   if (cur) cur.classList.add("stale");
   const slow = setTimeout(() => { if (token === S.busy && !same) view.innerHTML = `<div class="page"><div class="loading"><span class="spin"></span>Loading…</div></div>`; }, 260);
   try {
-    const html = await (PAGES[page] || PAGES.home)(arg);
+    if (PERIOD_PAGES.includes(page)) DATA[page] = null;
+    let html = await (PAGES[page] || PAGES.home)(arg);
     if (token !== S.busy) return;
+    const pd = PERIOD_PAGES.includes(page) && DATA[page];
+    if (pd && pd.period) {
+      DATA.period = pd.period;
+      if (!pd.has_data && pd.period.view && pd.period.view.type !== "latest")
+        html = `<div class="ph"><div><h1>${esc(PAGE_TITLE[page] || "")}</h1></div></div><div class="panel"><div class="empty">Nothing in this tab for <b>${esc(pd.period.label)}</b>. Pick another period above, or import data for it.</div></div>`;
+    }
     view.innerHTML = `<div class="page${same ? "" : " enter"}" data-page="${page}">${html}</div>`;
+    if (pd && pd.period) {
+      const pg = view.firstElementChild, ph = pg.querySelector(":scope > .ph");
+      if (ph) ph.insertAdjacentHTML("afterend", periodBar(pd.period)); else pg.insertAdjacentHTML("afterbegin", periodBar(pd.period));
+    }
     if (!same) view.scrollTop = 0;
     S.shownArg = arg;
     const after = AFTER[page]; if (after) after();
@@ -270,7 +282,7 @@ function noData() {
     <div class="logo maf big"><img src="maf-logo.png" alt="Majid Al Futtaim"></div>
     <h2>Welcome to P&amp;O</h2>
     <p>Bring in your reports to see people, attendance and performance in one place: the employee roster, the biometric attendance (MTD),
-    the MTD productivity report and the BO 200-10-05 store net sales report. Everything stays on this PC.</p>
+    the section productivity report (MTD or YTD) and the BO 200-10-05 store net sales report. Everything stays on this PC.</p>
     <div class="row" style="justify-content:center"><button class="btn primary" data-go="import">${ic("import", 16)}Import reports</button>
     <button class="btn" data-act="demo-on">${ic("spark", 16)}Try with demo data</button></div></div></div>`;
 }
@@ -295,7 +307,7 @@ PAGES.home = async () => {
       <p>Data up to ${fmtDate(d.as_of)}${d.complete ? " · complete month" : ` · day ${d.data_days}`}${d.compare ? ` · compared with ${esc((S.months.find(m => m.value === d.compare) || {}).label || d.compare)}` : ""}</p></div>
       ${d.provisional ? `<span class="chip warn">Provisional: early in the month</span>` : ""}</div>
     ${d.warnings.map(w => `<div class="banner warn">${esc(w)}</div>`).join("")}
-    <div class="kpis stagger">${cards}</div>
+    <div class="kpis stagger k5">${cards}</div>
     <div class="grid g32 slide stagger">
       <div class="panel"><div class="phd"><h2>Store league</h2><small>Average score of everyone in the store · click a store to focus</small></div><div id="ch-league"></div></div>
       <div class="panel"><div class="phd"><h2>Score bands</h2><small>Click a band to see the people</small></div><div id="ch-dist"></div>
@@ -490,9 +502,10 @@ AFTER.attendance = () => {
 PAGES.org = async () => {
   if (!S.month) return noData();
   const sts = S.opts.stores || [];
-  const sid = S.scope.store_id || ((sts.find(s => s.format === "HM") || sts[0] || {}).value);
+  let sid = S.scope.store_id || ((sts.find(s => s.format === "HM") || sts[0] || {}).value);
   if (!sid) return `<div class="empty">Import a roster to see the org chart.</div>`;
-  const d = await API.call("org", { month: S.month, store_id: sid });
+  const d = await API.call("org", { month: S.month, store_id: sid, auto: !S.scope.store_id });
+  if (d.store_id) sid = d.store_id;
   const node = (n, depth) => `<li><div class="node ${n.role === "EXT" ? "ext" : ""}" ${n.emp ? `data-person="${n.emp}"` : ""} role="button" tabindex="0">
       ${n.children.length ? `<span class="tg" data-act="tree-toggle">${depth > 1 ? "+" : "–"}</span>` : ""}
       ${n.role === "EXT" ? "" : `<span class="av">${esc(initials(n.name))}</span>`}<span><b>${esc(n.name)}</b><small>${esc(n.designation || "")}${n.children.length ? ` · ${n.children.length} report${n.children.length > 1 ? "s" : ""}` : ""}</small></span>
@@ -500,7 +513,7 @@ PAGES.org = async () => {
   return `<div class="ph"><div><h1>Org chart</h1><p>${esc((S.opts.stores.find(s => s.value == sid) || {}).label || "")} · ${d.people} people · reporting lines from the roster (matched by name within the store first).</p></div>
     <div class="actions"><div class="fsel"><label>Store</label><select data-scope="store_id">${(S.opts.stores || []).map(s => `<option value="${s.value}" ${s.value == sid ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select></div>
     <button class="btn" data-act="tree-all">Expand all</button></div></div>
-    <div class="panel org"><ul class="tree" style="padding-left:0">${d.tree.map(n => node(n, 0)).join("")}</ul></div>`;
+    <div class="panel org">${d.tree.length ? `<ul class="tree" style="padding-left:0">${d.tree.map(n => node(n, 0)).join("")}</ul>` : `<div class="empty">Nobody from this store is in the roster for this month. Pick another store or import its roster.</div>`}</div>`;
 };
 AFTER.org = () => { $$(".page select[data-scope]").forEach(s => s.onchange = () => setScope("store_id", s.value)); };
 
@@ -754,6 +767,24 @@ const CHAT_ACTS = {
 };
 
 /* import */
+function impPeriod(f, r, sess) {
+  const p = r.period || { type: "general" };
+  const a = `data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}"`;
+  const to = p.to || r.month || sess.suggested_month || "";
+  return `<label class="dx-l">Data covers<select class="input" data-opt="period_type" data-imp-pt ${a}>${(f.period_types || []).map(t => `<option value="${t.value}" ${t.value === p.type ? "selected" : ""}>${esc(t.label)}</option>`).join("")}</select></label>
+    <label class="dx-l imp-from" ${p.type === "ytd" ? "" : "hidden"}>From month<input class="input" type="month" data-opt="period_from" ${a} value="${esc(p.from || (to ? to.slice(0, 4) + "-01" : ""))}"></label>
+    <label class="dx-l imp-to" ${p.type === "general" ? "hidden" : ""}><span>${p.type === "ytd" ? "Up to month" : "Month"}</span><input class="input" type="month" data-opt="period_to" ${a} value="${esc(to)}"></label>
+    <small class="imp-why">${p.type === "general" ? "Used for every period (MTD and YTD views)." : esc(p.why || "")}${r.dated && p.type !== "general" ? " Rows have their own dates, so any month or YTD range can be cut from them." : ""}</small>`;
+}
+document.addEventListener("change", e => {
+  const sel = e.target.closest && e.target.closest("[data-imp-pt]");
+  if (!sel) return;
+  const box = sel.closest(".imp-opts"), t = sel.value;
+  box.querySelector(".imp-from").hidden = t !== "ytd";
+  box.querySelector(".imp-to").hidden = t === "general";
+  box.querySelector(".imp-to span").textContent = t === "ytd" ? "Up to month" : "Month";
+  box.querySelector(".imp-why").textContent = t === "general" ? "Used for every period (MTD and YTD views)." : t === "ytd" ? "Year to date: figures add up from the first month to the last." : "Month to date: figures for this one month.";
+});
 PAGES.import = async () => {
   const h = await API.call("imports");
   const sess = S.importSess;
@@ -764,18 +795,19 @@ PAGES.import = async () => {
         <small style="color:var(--muted)">${esc(r.summary)}</small>
         <div class="imp-opts">
           <label class="dx-l">This sheet is<select class="input" data-opt="kind" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}">${(f.kinds || []).map(k => `<option value="${k.value}" ${k.value === r.kind ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select></label>
-          <label class="dx-l">Month it belongs to<input class="input" type="month" data-opt="month" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" value="${esc(r.month || sess.suggested_month)}"></label>
-          <label class="dx-l">${r.kind === "roster" ? "Roster as of" : "Data up to (optional)"}<input class="input" type="date" data-opt="as_of" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" value="${r.kind === "roster" ? (r.as_of || new Date().toISOString().slice(0, 10)) : esc(r.as_of || "")}"></label>
-          <label class="dx-l">Name (optional)<input class="input" data-opt="title" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" placeholder="${esc(r.sheet)}"></label>
-          <label class="dx-l imp-note">What is this sheet about? (optional, helps the AI)<textarea class="input" rows="2" data-opt="note" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" placeholder="e.g. Weekly footfall and conversion by store from the Ops team, week 41"></textarea></label>
+          ${impPeriod(f, r, sess)}
+          <label class="dx-l">${r.kind === "roster" ? "Roster as of" : "Last day (optional)"}<input class="input" type="date" data-opt="as_of" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" value="${r.kind === "roster" ? (r.as_of || new Date().toISOString().slice(0, 10)) : esc(r.as_of || "")}"></label>
+          <details class="imp-more"><summary>Name and description (optional, helps the AI)</summary><div class="imp-more-b">
+          <label class="dx-l">Name<input class="input" data-opt="title" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" placeholder="${esc(r.sheet)}"></label>
+          <label class="dx-l imp-note">What is this sheet about?<textarea class="input" rows="2" data-opt="note" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" placeholder="e.g. Weekly footfall and conversion by store from the Ops team, week 41"></textarea></label></div></details>
         </div>
-        ${r.warnings.map(w => `<small style="color:var(--warn-ink)">⚠ ${esc(w)}</small>`).join("")}
+        ${r.warnings.filter(w => !(/Choose the month/.test(w) && r.period && r.period.to)).map(w => `<small style="color:var(--warn-ink)">⚠ ${esc(w)}</small>`).join("")}
         ${r.preview && r.preview.length ? `<details><summary style="cursor:pointer;color:var(--brand);font-weight:700;font-size:12.5px">Preview</summary><div class="tbl-wrap" style="max-height:220px;margin-top:6px"><table class="t"><thead><tr>${Object.keys(r.preview[0]).filter(k => typeof r.preview[0][k] !== "object").map(k => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>${r.preview.map(p => `<tr>${Object.keys(r.preview[0]).filter(k => typeof r.preview[0][k] !== "object").map(k => `<td>${esc(p[k] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>` : ""}</div>`).join("")}
       ${f.skipped.length ? `<small style="color:var(--muted)">Ignored sheets: ${esc(f.skipped.join(", "))}</small>` : ""}</div>`).join("") + (sess.errors || []).map(e => `<div class="errbox">${esc(e.file)}: ${esc(e.error)}</div>`).join("") : "";
   const kinds = { roster: "Roster", attendance: "Attendance", productivity: "Productivity", sales: "BO sales", leave: "Leave", holiday: "Holiday",
     po_rating: "Ratings", po_role: "Time in role", po_shift: "Shift roster", po_turnover: "Turnover", po_da: "DA", po_nps: "NPS", po_shrink: "Shrinkage", dataset: "Other data" };
   return `<div class="ph"><div><h1>Import data</h1><p>Drop files or paste cells from Excel, one sheet or many. Each sheet is recognised by its columns; you can
-    change what it is, the month it belongs to and describe it before saving. Anything else is kept under Other data with charts and insights.</p></div></div>
+    change what it is, whether it is general data or covers a month (MTD) or year to date (YTD), and describe it before saving. Anything else is kept under Other data with charts and insights.</p></div></div>
     ${S.init.unsure_stores ? `<div class="banner">🏬 ${S.init.unsure_stores} store name${S.init.unsure_stores > 1 ? "s were" : " was"} matched with less certainty. <button class="btn sm" data-go="settings" data-tab="stores">Check store names</button></div>` : ""}
     <div class="drop" id="drop"><div class="ic">${ic("import", 26)}</div><h3>Drop report files here</h3><p style="margin:0;color:var(--muted)">Excel (.xlsx, .xls, .xlsm), CSV or text · as many as you like</p>
       <div class="row" style="justify-content:center"><button class="btn primary" data-act="pick">${ic("file", 16)}Choose files</button><button class="btn" data-act="paste">${ic("paste", 16)}Paste data</button></div>
@@ -783,7 +815,7 @@ PAGES.import = async () => {
     ${sess ? `<div class="panel"><div class="phd"><h2>Ready to import</h2><div class="tools"><button class="btn" data-act="import-cancel">Cancel</button><button class="btn primary" data-act="import-commit" ${sess.files.some(f => f.results.length) ? "" : "disabled"}>Import ${sess.files.reduce((a, f) => a + f.results.length, 0)} table${sess.files.reduce((a, f) => a + f.results.length, 0) === 1 ? "" : "s"}</button></div></div>${preview}</div>` : ""}
     <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Import history</h2><small>Undo removes an import's data; Restore brings it back</small></div><div class="tbl-wrap" style="max-height:520px"><table class="t"><thead><tr><th>When</th><th>Type</th><th>File</th><th>Period</th><th class="n">Rows</th><th>Summary</th><th></th></tr></thead>
     <tbody>${h.rows.map(r => `<tr style="${r.active ? "" : "opacity:.5"}"><td>${esc(r.created_at.replace("T", " ").slice(0, 16))}</td><td><span class="chip">${esc(kinds[r.kind] || r.kind)}</span></td><td>${esc(r.file_name)}<span class="sub">${esc(r.source)}</span></td>
-      <td class="nw">${esc(r.as_of || r.month || "")}</td><td class="n">${r.rows.toLocaleString("en-US")}</td><td>${esc(r.summary)}${r.warnings.length ? `<span class="sub">⚠ ${esc(r.warnings[0])}</span>` : ""}</td>
+      <td class="nw">${r.period_label ? `<span class="chip ${r.period_type === "ytd" ? "gold" : r.period_type === "mtd" ? "info" : ""}">${esc(r.period_label)}</span>` : esc(r.as_of || r.month || "")}</td><td class="n">${r.rows.toLocaleString("en-US")}</td><td>${esc(r.summary)}${r.warnings.length ? `<span class="sub">⚠ ${esc(r.warnings[0])}</span>` : ""}</td>
       <td class="n">${r.active ? `<button class="btn sm" data-act="undo" data-id="${r.id}">${ic("undo", 13)}Undo</button>` : `<button class="btn sm" data-act="redo" data-id="${r.id}">Restore</button>`}</td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">Nothing imported yet.</div></td></tr>`}</tbody></table></div></div>`;
 };
 AFTER.import = () => {
@@ -1225,6 +1257,36 @@ const poEmpty = () => `<div class="panel"><div class="hero"><div class="logo" st
   Birth dates, phone numbers, e-mails and marital status are never read.</p>
   <div class="row" style="justify-content:center"><button class="btn primary" data-go="import">${ic("import", 16)}Import the workbook</button></div></div></div>`;
 
+/* period bar: which period the P&O screens show (latest, one month MTD, or a YTD range) and what each tab adds */
+const PTYPE = { general: ["General", ""], mtd: ["MTD", "info"], ytd: ["YTD", "gold"] };
+function periodBar(p) {
+  if (!p || !p.months) return "";
+  const v = p.view || { type: "latest" };
+  const opt = (sel) => p.months.map(m => `<option value="${m.value}" ${m.value === sel ? "selected" : ""}>${esc(m.label)}</option>`).join("");
+  const last = p.default_to || (p.months.length ? p.months[p.months.length - 1].value : "");
+  const picks = v.type === "mtd" ? `<label class="pv-l">Month<select class="input sm" data-pv="to">${opt(v.to || last)}</select></label>`
+    : v.type === "ytd" ? `<label class="pv-l">From<select class="input sm" data-pv="from">${opt(v.from)}</select></label><label class="pv-l">To<select class="input sm" data-pv="to">${opt(v.to || last)}</select></label>` : "";
+  const cov = (p.coverage || []).map(c => `<tr><td>${esc(c.name)}</td><td>${c.type ? `<span class="chip ${PTYPE[c.type] ? PTYPE[c.type][1] : ""}">${esc(PTYPE[c.type] ? PTYPE[c.type][0] : c.type)}</span>` : ""} ${esc(c.label)}</td><td class="n">${c.rows ? c.rows.toLocaleString("en-US") : "—"}</td><td>${c.note ? `<small style="color:var(--warn-ink)">${esc(c.note.split(": ").slice(1).join(": "))}</small>` : ""}</td></tr>`).join("");
+  return `<div class="pbar"><span class="pbar-t">${ic("shifts", 15)}Period</span>
+      <div class="seg sm">${[["latest", "Latest"], ["mtd", "Month (MTD)"], ["ytd", "Year to date (YTD)"]].map(([k, l]) => `<button data-act="pv-type" data-t="${k}" aria-pressed="${v.type === k}" ${k !== "latest" && !p.months.length ? "disabled" : ""}>${l}</button>`).join("")}</div>
+      ${picks}<span class="spacer"></span>
+      <details class="pcov"><summary>${esc(p.label)}${p.notes && p.notes.length ? ` <span class="chip warn" title="Tabs without data for exactly this period use the closest one">${p.notes.length} tab${p.notes.length > 1 ? "s" : ""} use nearest period</span>` : ""}</summary>
+        <div class="pcov-box"><p>General data (employee master, time in role, ratings) counts for every period. Dated data (turnover, shift roster) is cut to the period. Summary tabs use the file whose period matches; if none does, the closest is used and marked.</p>
+        <table class="t"><thead><tr><th>Data</th><th>Covers</th><th class="n">Rows</th><th></th></tr></thead><tbody>${cov}</tbody></table></div></details></div>`;
+}
+ACT["pv-type"] = b => setView({ type: b.dataset.t });
+async function setView(patch) {
+  const cur = (DATA.period && DATA.period.view) || { type: "latest" };
+  const v = { ...cur, ...patch };
+  const p = DATA.period || {};
+  const last = p.default_to || (p.months && p.months.length ? p.months[p.months.length - 1].value : null);
+  if (v.type !== "latest") v.to = v.to || last;
+  if (v.type === "ytd" && (!v.from || patch.to && !patch.from && !cur.from)) v.from = (p.ytd_from || {})[v.to] || (v.to ? v.to.slice(0, 4) + "-01" : null);
+  if (v.type === "ytd" && v.from && v.to && v.from > v.to) [v.from, v.to] = [v.to, v.from];
+  DATA.period = await API.call("po_view", v);
+  render();
+}
+document.addEventListener("change", e => { const t = e.target.closest && e.target.closest("[data-pv]"); if (t) setView({ [t.dataset.pv]: t.value }); });
 PAGES.review = async () => {
   const d = DATA.review = await API.call("po_review", { metric: S.po.metric });
   if (!d.has_data) return poEmpty();
@@ -1238,15 +1300,15 @@ PAGES.review = async () => {
     <div class="ph slide"><div><h1>Business review · Country</h1><p>${h.stores} stores · ${h.leaders} section leaders · data as of ${fmtDate(h.as_of)}</p></div>
       <div class="row"><button class="btn" data-act="export" data-pack="po">${ic("export", 16)}Export P&amp;O pack</button></div></div>
     <div class="kpis stagger po-kpis">
-      ${kpi("Sales MTD", poMoney(h.sales), `${pct(h.sales_vs_budget_pct, 1)} of budget`, "stores")}
+      ${kpi("Sales · " + (d.period.sales_label || "latest"), poMoney(h.sales), `${pct(h.sales_vs_budget_pct, 1)} of budget`, "stores")}
       ${kpi("Growth vs last year", poSigned(h.growth_pct), "All stores")}
       ${kpi("Productivity vs target", poSigned(h.productivity_vs_target_pct), "Average across stores")}
       ${kpi("Stores on track", `${h.stores_on_track}<small>/${h.stores}</small>`, `${h.stores_at_risk} at risk`)}
-      ${kpi("Leavers · 12 months", h.leavers_12m ?? "—", `${pct(h.voluntary_pct)} voluntary`, "retention")}
+      ${kpi("Leavers · " + d.period.leaver_window, h.leavers_12m ?? "—", `${pct(h.voluntary_pct)} voluntary`, "retention")}
       ${kpi("Open alerts", d.alerts.length, `${high} high priority`)}
     </div>
     <div class="panel flush slide"><div class="phd" style="padding:14px 16px 0"><h2>Store league table</h2><small>Status combines sales vs budget, productivity vs target and shrinkage</small></div>
-      <div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th>Status</th><th class="n">Sales</th><th class="n">vs budget</th><th class="n">Growth</th><th class="n">Prod. vs target</th><th class="n">Shrink vs bud.</th><th class="n">OOS</th><th class="n">Margin</th><th class="n">NPS</th><th class="n">Leavers 12m</th><th class="n">DA</th><th class="n">Leader index</th></tr></thead>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th>Status</th><th class="n">Sales</th><th class="n">vs budget</th><th class="n">Growth</th><th class="n">Prod. vs target</th><th class="n">Shrink vs bud.</th><th class="n">OOS</th><th class="n">Margin</th><th class="n">NPS</th><th class="n">Leavers</th><th class="n">DA</th><th class="n">Leader index</th></tr></thead>
       <tbody>${d.stores.map(c => `<tr class="click" data-act="po-store" data-store="${esc(c.store)}"><td><b>${esc(c.store)}</b><span class="sub">${esc(c.format || "")}</span></td><td>${poStatus(c.status)}</td>
         <td class="n">${poMoney(c.sales)}</td>${poCell(c.sales_vs_budget_pct, 100, 92, true, v => v.toFixed(0) + "%")}${poCell(c.growth_pct, 5, 0, true, v => poSigned(v))}
         ${poCell(c.productivity_vs_target_pct, 0, -10, true, v => poSigned(v, 0))}${poCell(c.shrink_variance_avg, 0, -1, true, v => poSigned(v, 1, " pp"))}
@@ -1282,7 +1344,7 @@ PAGES.talent = async () => {
       <div class="panel flush"><div class="row" style="padding:12px 12px 0;gap:8px"><input class="input" id="po-q" placeholder="Search leader or employee number" value="${esc(S.po.q)}" style="flex:1">
         <select class="input" data-act-change="po-store-filter" id="po-store"><option value="">All stores</option>${d.stores.map(s => `<option ${s === S.po.store ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
         <div class="tbl-wrap" style="max-height:calc(100vh - 300px)"><table class="t"><thead><tr><th>#</th><th>Leader</th><th>Leads</th><th class="n">Index</th><th class="n">Rating</th><th class="n">In role</th></tr></thead><tbody>
-        ${d.leaders.map(l => `<tr class="click ${l.key === S.po.leader ? "po-sel" : ""}" data-act="po-leader" data-key="${esc(l.key)}"><td>${l.rank ?? "—"}</td><td><b>${esc(l.name)}</b><span class="sub">${esc(l.role || "")} · ${esc(l.store)}</span></td>
+        ${d.leaders.map(l => `<tr class="click ${l.key === S.po.leader ? "po-sel" : ""}" data-act="po-leader" data-key="${esc(l.key)}"><td>${l.rank ?? "—"}</td><td><b>${esc(l.name)}</b><span class="sub">${esc(l.role || "Role not on file")}${l.system_role ? ` <span class="chip" title="Title in the HR system">system: ${esc(l.system_role)}</span>` : ""} · ${esc(l.store === "—" ? "Store not on file" : l.store)}</span></td>
           <td>${esc(l.leads)}</td><td class="n">${poIndex(l.score)}</td><td class="n">${l.rating == null ? "—" : l.rating}</td><td class="n">${esc(l.in_role)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">No leader matches.</td></tr>`}
         </tbody></table></div></div>
       <div class="panel po-profile" id="po-profile"><div class="loading"><span class="spin"></span>Loading…</div></div></div>`;
@@ -1322,12 +1384,12 @@ PAGES.retention = async () => {
   if (!d.has_data) return poEmpty();
   const types = Object.fromEntries(d.by_type);
   const kpi = (l, v, s) => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
-  return `<div class="ph"><div><h1>Turnover &amp; retention</h1><p>Last 12 months to ${fmtDate(d.as_of)} · by requested date</p></div></div>
-    <div class="kpis po-kpis4">${kpi("Leavers · 12 months", d.total, `${d.all_time} on file`)}${kpi("Voluntary", pct(d.voluntary_pct), `${types.Resignation || 0} resignations`)}
+  return `<div class="ph"><div><h1>Turnover &amp; retention</h1><p>${esc(d.window === "last 12 months" ? "Last 12 months to " + fmtDate(d.as_of) : d.window)} · by requested date</p></div></div>
+    <div class="kpis po-kpis4">${kpi("Leavers · " + d.window, d.total, `${d.all_time} on file`)}${kpi("Voluntary", pct(d.voluntary_pct), `${types.Resignation || 0} resignations`)}
       ${kpi("Terminations", types.Termination || 0, `${types.Absconding || 0} absconded`)}${kpi("Top reason", `<span class="txt">${esc(d.by_reason.length ? d.by_reason[0][0] : "—")}</span>`, d.by_reason.length ? d.by_reason[0][1] + " leavers" : "")}</div>
     <div class="panel"><div class="phd"><h2>Leavers per month</h2><small>Last 24 months</small></div><div id="ch-po-monthly"></div></div>
-    <div class="grid g2"><div class="panel"><div class="phd"><h2>Why people leave</h2><small>last 12 months</small></div><div id="ch-po-reasons"></div></div>
-      <div class="panel"><div class="phd"><h2>Leavers by store</h2><small>last 12 months</small></div><div id="ch-po-stores"></div></div></div>
+    <div class="grid g2"><div class="panel"><div class="phd"><h2>Why people leave</h2><small>${esc(d.window)}</small></div><div id="ch-po-reasons"></div></div>
+      <div class="panel"><div class="phd"><h2>Leavers by store</h2><small>${esc(d.window)}</small></div><div id="ch-po-stores"></div></div></div>
     <div class="grid g2"><div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Hotspots</h2><small>store × section</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th>Section</th><th class="n">Leavers</th></tr></thead>
       <tbody>${d.hotspots.map(([s, sec, n]) => `<tr><td><b>${esc(s)}</b></td><td>${esc(sec)}</td>${poCell(n, 3, 6, false, v => v)}</tr>`).join("")}</tbody></table></div></div>
       <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Most recent leavers</h2></div><div class="tbl-wrap" style="max-height:420px"><table class="t"><thead><tr><th>Date</th><th>Name</th><th>Store</th><th>Section</th><th>Type</th><th>Reason</th></tr></thead>
@@ -1393,8 +1455,8 @@ PAGES.data = async () => {
   const cols = v.columns.filter(c => !c.name.startsWith("_"));
   const kpis = [`<div class="kpi"><span class="kpi-l">Rows</span><span class="kpi-v">${v.rows.toLocaleString("en-US")}</span><span class="kpi-s"><span>${v.columns.length} columns</span></span></div>`]
     .concat(v.totals.slice(0, 4).map(t => `<div class="kpi"><span class="kpi-l">${esc(t.name)}</span><span class="kpi-v">${dxNum(t.value, t.type)}</span><span class="kpi-s"><span>${t.agg === "avg" ? "average" : "total"}</span></span></div>`)).join("");
-  return `<div class="ph"><div><h1>${esc(v.title)}</h1><p>${esc(v.description || "From " + (v.file || "imported data"))} · ${v.rows.toLocaleString("en-US")} rows</p></div>
-      <select class="input" id="dx-pick">${list.map(d => opt(String(d.id), (d.ai_title || d.title) + " · " + d.rows + " rows", String(S.dx.id))).join("")}</select></div>
+  return `<div class="ph"><div><h1>${esc(v.title)}${v.period ? ` <span class="chip ${/^YTD/.test(v.period) ? "gold" : /^MTD/.test(v.period) ? "info" : ""}" style="vertical-align:middle;font-size:12px">${esc(v.period === "General" ? "General · every period" : v.period)}</span>` : ""}</h1><p>${esc(v.description || "From " + (v.file || "imported data"))} · ${v.rows.toLocaleString("en-US")} rows</p></div>
+      <select class="input" id="dx-pick">${list.map(d => opt(String(d.id), (d.ai_title || d.title) + (d.period ? " · " + d.period : "") + " · " + d.rows + " rows", String(S.dx.id))).join("")}</select></div>
     <div class="kpis po-kpis4 dx-kpis">${kpis}</div>
     <div class="panel"><div class="phd"><h2>Explore</h2><div class="row" style="gap:8px">
         <label class="dx-l">Group by<select class="input" id="dx-group">${opt("", "Nothing (all rows)", v.group || "")}${groups.map(c => opt(c.name, c.label, v.group)).join("")}</select></label>
@@ -1454,7 +1516,7 @@ PAGES.nps = async () => {
     <div class="kpis po-kpis4">${kpi(`NPS ${d.latest}`, npsTxt(d.overall), d.city || "All cities", "t-" + npsTone(d.overall))}
       ${kpi("Change vs last year", delta == null ? "—" : npsTxt(delta), d.prev ? `vs ${d.prev}: ${npsTxt(d.overall_prev)}` : "one year only")}
       ${kpi("Best category", d.best.length ? esc(d.best[0].category) : "—", d.best.length ? npsTxt(d.best[0].nps) : "", "txt")}
-      ${kpi("Needs work", d.worst.length ? esc(d.worst[0].category) : "—", d.worst.length ? npsTxt(d.worst[0].nps) : "", "txt")}</div>
+      ${kpi("Needs work", d.worst.length ? `<span class="clamp3" title="${esc(d.worst[0].category)}">${esc(d.worst[0].category)}</span>` : "—", d.worst.length ? npsTxt(d.worst[0].nps) : "", "txt")}</div>
     <div class="panel"><div class="phd"><h2>What it says</h2></div><div class="dx-ins">${d.insights.map(i => `<p>${md(i)}</p>`).join("")}</div></div>
     <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>City × section · ${d.latest}</h2><small>green ≥ +50 · amber +20 to +49 · red below +20 · small number = change vs ${d.prev || "last year"}</small></div>
       <div class="tbl-wrap"><table class="t po-heat"><thead><tr><th>City</th>${d.sections.map(s => `<th class="n">${esc(s.replace("Fruits & Vegetables", "F&V").replace("Light Household", "LHH").replace("Heavy Household", "HHH"))}</th>`).join("")}</tr></thead>

@@ -27,7 +27,10 @@ CREATE TABLE IF NOT EXISTS imports (
     warnings TEXT,                      -- JSON list
     source TEXT NOT NULL DEFAULT 'file',  -- file | paste | agent | manual
     created_at TEXT NOT NULL,
-    active INTEGER NOT NULL DEFAULT 1
+    active INTEGER NOT NULL DEFAULT 1,
+    period_type TEXT,                   -- general | mtd | ytd (what period the figures cover)
+    period_from TEXT,                   -- YYYY-MM first month covered (YTD), = period_to for MTD
+    period_to TEXT                      -- YYYY-MM last month covered
 );
 CREATE INDEX IF NOT EXISTS imports_kind ON imports(kind, active);
 

@@ -272,7 +272,7 @@ def _build(db: Database, month: str) -> MonthModel:
             sales[sid][r["code"]] = dict(r)
     prod: dict[int, dict[str, dict]] = defaultdict(dict)
     for r in db.q("""SELECT p.* FROM productivity p JOIN imports i ON i.id=p.import_id AND i.active=1
-                     WHERE p.month=? ORDER BY p.import_id""", (month,)):
+                     WHERE p.month=? ORDER BY COALESCE(i.period_type, 'mtd')='mtd', p.import_id""", (month,)):   # MTD files win over YTD
         prod[r["store_id"]][r["row_code"]] = dict(r)
 
     as_of_dates = [d for d in [att_as_of, *sales_asof.values()] if d]

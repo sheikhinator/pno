@@ -23,7 +23,7 @@ METRICS: list[tuple[str, tuple[str, ...], str, bool]] = [
     ("shrink_variance_avg", ("shrink", "wastage", "loss"), "Shrinkage vs budget", True),
     ("oos_pct", ("oos", "out of stock", "availability"), "Out of stock", False),
     ("margin_pct", ("margin", "profit"), "Net margin", True),
-    ("leavers_12m", ("turnover", "leaver", "attrition", "resign", "left"), "Leavers (12 months)", False),
+    ("leavers_12m", ("turnover", "leaver", "attrition", "resign", "left"), "Leavers", False),
     ("da_cases", ("disciplin", " da ", "warning"), "Disciplinary cases", False),
     ("nps", ("nps", "customer score", "satisfaction"), "NPS", True),
     ("sales", ("sales", "revenue", "turnover in pkr"), "Sales", True),
@@ -164,7 +164,7 @@ class PoAnalyst:
             lines.append(f"Best against budget: <b>{escape(ranked[0]['store'])}</b> ({pct(ranked[0]['sales_vs_budget_pct'], digits=0)}). "
                          f"Furthest behind: <b>{escape(ranked[-1]['store'])}</b> ({pct(ranked[-1]['sales_vs_budget_pct'], digits=0)}).")
         if h["leavers_12m"] is not None:
-            lines.append(f"{h['leavers_12m']} people left in the last 12 months ({pct(h['voluntary_pct'], digits=0)} voluntary); {number(h['da_cases'])} disciplinary cases are on record.")
+            lines.append(f"{h['leavers_12m']} people left ({self.i.leaver_window}) ({pct(h['voluntary_pct'], digits=0)} voluntary); {number(h['da_cases'])} disciplinary cases are on record.")
         if leaders:
             lines.append(f"Strongest leader on the leader index: <b>{escape(leader_name(leaders[0]))}</b> ({escape(leaders[0].store)}, {escape(leaders[0].section_text)}, {score_text(leaders[0].score)}).")
         alerts = self.i.alerts(4)
@@ -173,7 +173,7 @@ class PoAnalyst:
                     ("Growth vs LY", pct(h["growth_pct"], True), "all stores", lvl(h["growth_pct"], 5, 0)),
                     ("Productivity vs target", pct(h["productivity_vs_target_pct"], True), "average", lvl(h["productivity_vs_target_pct"], 0, -10)),
                     ("Stores on track", f"{h['stores_on_track']}/{h['stores']}", f"{h['stores_at_risk']} at risk", "good" if not h["stores_at_risk"] else "warn"),
-                    ("Leavers 12m", number(h["leavers_12m"]), f"{pct(h['voluntary_pct'], digits=0)} voluntary", "")])
+                    ("Leavers", number(h["leavers_12m"]), f"{pct(h['voluntary_pct'], digits=0)} voluntary", "")])
         self._chart("hbar", "Sales vs budget by store (%)", [c["store"] for c in ranked], [c["sales_vs_budget_pct"] for c in ranked], "% of budget", "pct0", 100)
         out = _h(f"Country brief · data as of {h['as_of']:%d %b %Y}") + _li(lines)
         if alerts:
@@ -191,7 +191,7 @@ class PoAnalyst:
             f"Productivity {number(card['productivity'])} vs target {number(card['productivity_target'])} "
             f"({_c(pct(card['productivity_vs_target_pct'], True, 0), tone(card['productivity_vs_target_pct'], 0, -10))})",
             f"Shrinkage: average {pp(card['shrink_variance_avg'])} vs budget" + (f"; worst section {escape(card['shrink_worst_section'])} ({pp(card['shrink_worst_variance'])})" if card.get("shrink_worst_section") else ""),
-            f"People: {card['leaders']} leaders · avg rating {number(card['avg_rating'], 2)} · {number(card['leavers_12m'])} leavers in 12 months · {number(card['da_cases'])} DA cases",
+            f"People: {card['leaders']} leaders · avg rating {number(card['avg_rating'], 2)} · {number(card['leavers_12m'])} leavers ({self.i.leaver_window}) · {number(card['da_cases'])} DA cases",
         ]
         if card.get("nps") is not None:
             lines.append(f"Customer NPS ({escape(card['city'])}): {number(card['nps'], 0)}")
@@ -222,7 +222,7 @@ class PoAnalyst:
             ("Status", "status", None), ("Sales", "sales", money), ("vs budget", "sales_vs_budget_pct", lambda v: pct(v, digits=0)),
             ("Growth vs LY", "growth_pct", lambda v: pct(v, True)), ("Productivity vs target", "productivity_vs_target_pct", lambda v: pct(v, True, 0)),
             ("Shrinkage vs budget", "shrink_variance_avg", pp), ("Out of stock", "oos_pct", pct), ("Margin", "margin_pct", pct),
-            ("Leavers 12m", "leavers_12m", number), ("DA cases", "da_cases", number), ("Avg rating", "avg_rating", lambda v: number(v, 2)),
+            ("Leavers", "leavers_12m", number), ("DA cases", "da_cases", number), ("Avg rating", "avg_rating", lambda v: number(v, 2)),
             ("Leader index", "avg_leader_score", score_text),
         ]
         metrics = [("vs budget %", "sales_vs_budget_pct"), ("Growth %", "growth_pct"), ("Prod. vs target %", "productivity_vs_target_pct"), ("OOS %", "oos_pct")]
@@ -327,14 +327,14 @@ class PoAnalyst:
             reasons: dict[str, int] = {}
             for r in rows:
                 reasons[r["reason"]] = reasons.get(r["reason"], 0) + 1
-            items = [f"{len(rows)} leavers in the last 12 months"] + [f"{escape(k)}: {v}" for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])[:5]]
+            items = [f"{len(rows)} leavers ({self.i.leaver_window})"] + [f"{escape(k)}: {v}" for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])[:5]]
             return _h(f"Turnover · {store_name}") + _li(items)
         self._kpis([("Leavers 12m", str(t["total"]), f"{t['all_time']} on file", "warn"), ("Voluntary", pct(t["voluntary_pct"], digits=0), "resignations", ""),
                     ("Top hotspot", t["hotspots"][0][0] if t["hotspots"] else "—", f"{t['hotspots'][0][1]}: {t['hotspots'][0][2]}" if t["hotspots"] else "", "bad")])
-        self._chart("donut", "Why people leave (last 12 months)", [r for r, _ in t["by_reason"][:7]], [n for _, n in t["by_reason"][:7]], "leavers", "int")
-        self._chart("hbar", "Leavers by store (last 12 months)", [s_ for s_, _ in t["by_store"][:12]], [n for _, n in t["by_store"][:12]], "Leavers", "int")
+        self._chart("donut", f"Why people leave ({self.i.leaver_window})", [r for r, _ in t["by_reason"][:7]], [n for _, n in t["by_reason"][:7]], "leavers", "int")
+        self._chart("hbar", f"Leavers by store ({self.i.leaver_window})", [s_ for s_, _ in t["by_store"][:12]], [n for _, n in t["by_store"][:12]], "Leavers", "int")
         lines = [
-            f"<b>{t['total']}</b> leavers in the last 12 months ({pct(t['voluntary_pct'], digits=0)} voluntary).",
+            f"<b>{t['total']}</b> leavers ({self.i.leaver_window}, {pct(t['voluntary_pct'], digits=0)} voluntary).",
             "Top reasons: " + ", ".join(f"{escape(r)} ({n})" for r, n in t["by_reason"][:4]),
             "Hotspots: " + "; ".join(f"<b>{escape(s)}</b> {escape(sec)} ({n})" for s, sec, n in t["hotspots"][:4]),
         ]

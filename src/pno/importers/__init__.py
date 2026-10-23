@@ -12,6 +12,7 @@ from ..reader import Workbook, from_text, open_bytes, open_file
 from ..stores import StoreResolver
 from ..util import month_bounds
 from ..po import store as po_store
+from .. import period
 from . import attendance, generic, leave, po_tabs, productivity, roster, sales
 from .base import KIND_LABEL, ParseResult
 
@@ -78,12 +79,18 @@ CHOOSABLE = ["roster", "attendance", "productivity", "sales", "leave", "po_ratin
              "po_da", "po_nps", "po_shrink", "dataset"]
 
 
+def guess_period(analysis: dict, res: ParseResult) -> dict:
+    return period.guess(res.kind, res.rows, f"{analysis['file']} {res.sheet}", res.month, res.as_of)
+
+
 def describe(analysis: dict) -> dict:
     """What the import screen shows before saving."""
     return {"kinds": [{"value": k, "label": KIND_LABEL[k]} for k in CHOOSABLE],
+        "period_types": [{"value": k, "label": v} for k, v in period.TYPES.items()],
         "file": analysis["file"], "skipped": analysis["skipped"], "warnings": analysis["warnings"],
         "results": [{"kind": r.kind, "label": KIND_LABEL[r.kind], "sheet": r.sheet, "rows": len(r.rows), "month": r.month,
                      "as_of": r.as_of, "summary": r.summary, "warnings": r.warnings, "needs": r.needs,
+                     "period": guess_period(analysis, r), "dated": r.kind in period.DATED_KINDS,
                      "confidence": round(r.confidence, 2), "preview": r.preview} for r in analysis["results"]],
     }
 
@@ -124,7 +131,12 @@ def _commit_one(db: Database, res: ParseResult, analysis: dict, opt: dict, sourc
     if res.kind == "dataset" and (opt.get("title") or opt.get("note")):
         res.extra = {**res.extra, **({"title": opt["title"].strip()[:80]} if opt.get("title") else {}),
                      **({"user_description": opt["note"].strip()[:600]} if opt.get("note") else {})}
-    month = opt.get("month") or res.month
+    guessed = (analysis.get("period_hint") or {}).get((res.sheet, res.kind)) or guess_period(analysis, res)
+    ptype, pfrom, pto = period.clean(opt.get("period_type"), opt.get("period_from"), opt.get("period_to") or opt.get("month"), guessed)
+    if res.kind == "dataset":
+        res.extra = {**res.extra, "period_type": ptype, "period_from": pfrom, "period_to": pto}
+    known_month = bool(opt.get("period_to") or opt.get("month") or guessed.get("sure") or guessed.get("lined"))
+    month = opt.get("month") or (pto if ptype != "general" and known_month and (opt.get("period_to") or not res.month) else None) or res.month
     as_of = opt.get("as_of") or res.as_of
     if res.kind == "roster" and not as_of:
         as_of = date.today().isoformat()
@@ -149,11 +161,11 @@ def _commit_one(db: Database, res: ParseResult, analysis: dict, opt: dict, sourc
     resolver = StoreResolver(db, source=res.kind)
     with db.tx():
         cur = db.conn.execute(
-            "INSERT INTO imports(kind, file_name, file_hash, month, as_of, rows, summary, warnings, source, created_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO imports(kind, file_name, file_hash, month, as_of, rows, summary, warnings, source, created_at, "
+            "period_type, period_from, period_to) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (res.kind, analysis["file"], analysis["hash"], month, as_of, len(res.rows),
              (f"{opt['note'].strip()[:200]} · " if opt.get("note") else "") + f"{res.summary} [{res.sheet}]",
-             json.dumps(res.warnings), source, now()))
+             json.dumps(res.warnings), source, now(), ptype, pfrom, pto))
         iid = cur.lastrowid
         if dup and opt.get("replace"):
             db.conn.execute("UPDATE imports SET active=0 WHERE id=?", (dup[0],))
@@ -229,7 +241,7 @@ def _commit_one(db: Database, res: ParseResult, analysis: dict, opt: dict, sourc
         db.rebuild_attendance()
     db.log("import", f"{res.kind} {analysis['file']} [{res.sheet}] -> #{iid}")
     return {"sheet": res.sheet, "kind": res.kind, "status": "ok", "import_id": iid, "rows": len(res.rows),
-            "summary": res.summary, "unsure_stores": resolver.unsure}
+            "summary": res.summary, "unsure_stores": resolver.unsure, "period": period.label(ptype, pfrom, pto)}
 
 
 def undo(db: Database, import_id: int) -> dict:

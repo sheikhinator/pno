@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from . import canon
+from ..period import default_for_kind
 
 
 class PoStore:
@@ -15,7 +16,8 @@ class PoStore:
         self.db = db
 
     def records(self, kind: str | None = None) -> list[dict]:
-        sql = ("SELECT r.kind, r.payload, i.id AS iid, i.month, i.file_name, i.summary FROM po_records r "
+        sql = ("SELECT r.kind, r.payload, i.id AS iid, i.month, i.file_name, i.summary, i.kind AS ikind, i.period_type, "
+               "i.period_from, i.period_to, i.as_of FROM po_records r "
                "JOIN imports i ON i.id = r.import_id WHERE i.active = 1")
         params: list[Any] = []
         if kind:
@@ -26,7 +28,11 @@ class PoStore:
             rec = json.loads(row["payload"])
             summary = row["summary"] or ""
             sheet = summary[summary.rfind("[") + 1:-1] if summary.endswith("]") else ""
-            rec.update(_kind=row["kind"], _period=f"{row['month'] or ''}#{row['iid']:09d}", _source=row["file_name"], _sheet=sheet)
+            ptype = row["period_type"] or default_for_kind(row["kind"] if row["ikind"].startswith("po_") else row["ikind"])
+            pto = row["period_to"] or (row["month"] if ptype != "general" else None) or ((row["as_of"] or "")[:7] or None)
+            pfrom = row["period_from"] or (pto if ptype == "mtd" else (f"{pto[:4]}-01" if pto else None))
+            rec.update(_kind=row["kind"], _period=f"{row['month'] or ''}#{row['iid']:09d}", _source=row["file_name"], _sheet=sheet,
+                       _iid=row["iid"], _ptype=ptype, _pfrom=pfrom, _pto=pto)
             out.append(rec)
         return out
 
@@ -53,6 +59,7 @@ def sales_records(rows: list[dict]) -> list[dict]:
             "margin_after_waste_pct": r.get("margin_net"), "oos_pct": r.get("oos"), "customers": r.get("customers"),
             "customers_growth_pct": r.get("cust_growth"), "basket": r.get("avg_basket"), "asp": r.get("asp"),
             "avg_stock": r.get("avg_stock"), "period_to": r.get("as_of"), "period_from": r.get("d_from"),
+            "period": (r.get("period") or "").upper(),
         })
     return out
 

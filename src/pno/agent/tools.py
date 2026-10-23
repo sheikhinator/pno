@@ -76,8 +76,15 @@ TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: s
               "shrinkage and stock days vs budget, out of stock, NPS), section leaders and their P&O index, talent grid, bench strength "
               "(acting, new in role, not in HR system, low rating), performance ratings, time in role, turnover (leavers, reasons, hotspots), "
               "disciplinary cases and shift-roster coverage. Pass the question in plain English, for example 'weakest leaders in Lucky One', "
-              "'turnover hotspots', 'compare Fortress and Emporium', 'brief me for the country review', 'which roles are at risk'.",
-              "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}})
+              "'turnover hotspots', 'compare Fortress and Emporium', 'brief me for the country review', 'which roles are at risk'. "
+              "By default it uses the period shown on screen; set period to 'mtd' (one month) or 'ytd' (from–to months, YYYY-MM) "
+              "when the user asks about a specific month or year to date. General data (employee master, time in role, ratings) "
+              "always applies; the answer says which period each figure covers.",
+              "parameters": {"type": "object", "properties": {"question": {"type": "string"},
+                             "period": {"type": "string", "enum": ["screen", "latest", "mtd", "ytd"]},
+                             "from_month": {"type": "string", "description": "YYYY-MM, YTD start (default January)"},
+                             "to_month": {"type": "string", "description": "YYYY-MM, the month (MTD) or YTD end"}},
+                             "required": ["question"]}})
 TOOLS.insert(1, {"name": "datasets", "description": "Other tables the user imported that are not standard P&O reports (KPI sheets, "
               "training lists, surveys…). Without 'title' lists them; with 'title' returns that table's columns, grouped totals and "
               "computed insights. Optional group_by and measure are column names.",
@@ -186,10 +193,15 @@ class Toolbox:
                 "grouped_by": v["group"], "measure": v["measure"], "aggregation": v["agg"], "groups": v["series"][:30],
                 "trend": v["trend"][-24:], "insights": v["insights"]}
 
-    def t_po_review(self, question: str = "", **kw) -> dict:
+    def t_po_review(self, question: str = "", period: str = "screen", from_month: str = "", to_month: str = "", **kw) -> dict:
         from ..po import privacy
         from ..po.analyst import PoAnalyst, to_markdown
         ins = self.svc.api._po()
+        if period in ("latest", "mtd", "ytd"):
+            from ..po.insights import Insights
+            from ..po.store import PoStore
+            ins = Insights(PoStore(self.svc.db), weights=self.svc.db.get_setting("po_weights", None),
+                           view={"type": period, "from": from_month or None, "to": to_month or None})
         if ins.empty:
             return {"answer": "The P&O workbook has not been imported yet."}
         privacy.set_demo_mode(self.anon or self.svc.api._hide())
@@ -199,7 +211,9 @@ class Toolbox:
         finally:
             privacy.set_demo_mode(self.svc.api._hide())
         self.blocks.extend(an.blocks[:3])
-        return {"answer": to_markdown(html), "note": "Key figures and a chart for this are already shown under your answer."}
+        return {"answer": to_markdown(html), "period": ins.view_label,
+                "data_periods": {k: v for k, v in sorted(ins.periods.items())}, "period_notes": ins.notes,
+                "note": "Key figures and a chart for this are already shown under your answer. Say which period the figures cover."}
 
     def t_overview(self, month=None, **kw) -> dict:
         sc = self._scope(kw)

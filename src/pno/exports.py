@@ -289,19 +289,19 @@ def _pack_po(db, mm, rep, scope, emp, store_id, hide):
     from .po.insights import Insights
 
     privacy.set_demo_mode(hide)
-    ins = Insights(PoStore(db), weights=db.get_setting("po_weights", None))
+    ins = Insights(PoStore(db), weights=db.get_setting("po_weights", None), view=db.get_setting("po_view", None))
     if ins.empty:
         raise ValueError("Import the P&O workbook first (Import screen) to build the P&O review pack.")
     h = ins.headline()
-    rep["subtitle"] = f"Country P&O review · data as of {h['as_of']:%d %B %Y}"
+    rep["subtitle"] = f"Country P&O review · {ins.view_label} · data as of {h['as_of']:%d %B %Y}"
     rep["sources"] = sorted({f"{k.replace('po_', '').title()}: {v}" for k, v in ins.sources.items()})
     pct = lambda v, d=1: None if v is None else round(v, d)  # noqa: E731
     rep["sections"].append({"type": "kpis", "items": [
-        {"label": "Sales MTD", "value": _f(h["sales"], "money"), "sub": f"{_f(h['sales_vs_budget_pct'], 'pct')} of budget"},
+        {"label": "Sales · " + (ins.periods.get("po_sales") or "latest"), "value": _f(h["sales"], "money"), "sub": f"{_f(h['sales_vs_budget_pct'], 'pct')} of budget"},
         {"label": "Growth vs last year", "value": _f(h["growth_pct"], "signed") + "%", "sub": "All stores"},
         {"label": "Productivity vs target", "value": _f(h["productivity_vs_target_pct"], "signed") + "%", "sub": "Average across stores"},
         {"label": "Stores on track", "value": f"{h['stores_on_track']} / {h['stores']}", "sub": f"{h['stores_at_risk']} at risk"},
-        {"label": "Leavers · 12 months", "value": _f(h["leavers_12m"], "int"), "sub": f"{_f(h['voluntary_pct'], 'pct0')} voluntary"},
+        {"label": "Leavers · " + ins.leaver_window, "value": _f(h["leavers_12m"], "int"), "sub": f"{_f(h['voluntary_pct'], 'pct0')} voluntary"},
         {"label": "Disciplinary cases", "value": _f(h["da_cases"], "int"), "sub": "DA tab"}]})
     alerts = ins.alerts(12)
     if alerts:
@@ -312,7 +312,7 @@ def _pack_po(db, mm, rep, scope, emp, store_id, hide):
         ("Store", "store", ""), ("Status", "status", ""), ("Sales", "sales", "money"), ("vs budget", "sales_vs_budget_pct", "pct0"),
         ("Growth", "growth_pct", "signed"), ("Prod. vs target", "productivity_vs_target_pct", "signed"),
         ("Shrink vs bud. (pp)", "shrink_variance_avg", "signed"), ("OOS", "oos_pct", "pct"), ("Margin", "margin_pct", "pct"),
-        ("Leavers 12m", "leavers_12m", "int"), ("DA", "da_cases", "int"), ("Leader index /10", "avg_leader_10", "score")], "rows": [{**c, "avg_leader_10": None if c["avg_leader_score"] is None else c["avg_leader_score"] / 10} for c in cards]})
+        ("Leavers", "leavers_12m", "int"), ("DA", "da_cases", "int"), ("Leader index /10", "avg_leader_10", "score")], "rows": [{**c, "avg_leader_10": None if c["avg_leader_score"] is None else c["avg_leader_score"] / 10} for c in cards]})
     rep["sections"].append({"type": "chart", "kind": "hbar", "title": "Sales vs budget by store (%)",
                             "labels": [c["store"] for c in cards], "series": [{"name": "% of budget", "values": [pct(c["sales_vs_budget_pct"], 0) for c in cards]}]})
     for title, metric in (("Sales vs budget by section (%)", "sales_vs_budget"), ("Shrinkage vs budget by section (pp)", "shrink_variance"),
@@ -344,9 +344,9 @@ def _pack_po(db, mm, rep, scope, emp, store_id, hide):
         t = ins.turnover_summary()
         rep["sections"].append({"type": "chart", "kind": "line", "title": "Leavers per month", "labels": [m for m, _ in t["monthly"]],
                                 "series": [{"name": "Leavers", "values": [n for _, n in t["monthly"]]}]})
-        rep["sections"].append({"type": "chart", "kind": "hbar", "title": "Why people leave · last 12 months",
+        rep["sections"].append({"type": "chart", "kind": "hbar", "title": "Why people leave · " + ins.leaver_window,
                                 "labels": [r for r, _ in t["by_reason"][:10]], "series": [{"name": "Leavers", "values": [n for _, n in t["by_reason"][:10]]}]})
-        rep["sections"].append({"type": "table", "title": "Turnover hotspots · last 12 months", "columns": [
+        rep["sections"].append({"type": "table", "title": "Turnover hotspots · " + ins.leaver_window, "columns": [
             ("Store", "store", ""), ("Section", "section", ""), ("Leavers", "n", "int")],
             "rows": [{"store": s, "section": sec, "n": n} for s, sec, n in t["hotspots"]]})
     nps_rows = [r for r in ins.rows("po_nps") if r.get("nps") is not None and r.get("year")]

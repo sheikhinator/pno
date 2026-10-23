@@ -39,6 +39,108 @@ PACK_LABELS = {
 DEPARTMENT_SECTIONS = {"Consumer Goods", "Fresh Food", "Non Food", "Overall", "Other Sections"}
 
 
+DATED = {"po_turnover", "po_shift"}
+SHORT = {"general": "General", "mtd": "MTD", "ytd": "YTD"}
+_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _ml(ym: str | None) -> str:
+    return f"{_MON[int(ym[5:7]) - 1]} {ym[:4]}" if ym and len(ym) >= 7 else "—"
+
+
+def view_label(v: dict[str, Any]) -> str:
+    if v["type"] == "latest":
+        return "Latest data"
+    if v["type"] == "mtd":
+        return f"MTD {_ml(v['to'])}"
+    if v["from"][:4] == v["to"][:4]:
+        return f"YTD {_MON[int(v['from'][5:7]) - 1]}–{_ml(v['to'])}"
+    return f"{_ml(v['from'])} – {_ml(v['to'])}"
+
+
+def _info(i: dict[str, Any]) -> dict[str, Any]:
+    if i["type"] == "mtd":
+        lab = f"MTD {_ml(i['to'])}"
+    elif i["from"] and i["from"] != i["to"]:
+        lab = view_label({"type": "ytd", "from": i["from"], "to": i["to"]})
+    else:
+        lab = f"YTD {_ml(i['to'])}"
+    return {"type": i["type"], "from": i["from"], "to": i["to"], "label": lab}
+
+
+def _split_imports(kind: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rows grouped by import; a sales report holding both MTD and YTD lines counts as two."""
+    out: dict[tuple, dict[str, Any]] = {}
+    for r in rows:
+        ptype, pfrom, pto = r.get("_ptype") or "mtd", r.get("_pfrom"), r.get("_pto")
+        line_period = str(r.get("period") or "").upper() if kind == "po_sales" else ""
+        if line_period in ("MTD", "YTD") and ptype != "general":
+            if line_period == "MTD":
+                ptype, pfrom = "mtd", pto
+            else:
+                ptype = "ytd"
+                pfrom = str(r.get("period_from") or "")[:7] or (pfrom if pfrom and pfrom != pto else f"{(pto or '')[:4]}-01")
+        key = (r.get("_iid"), ptype)
+        g = out.setdefault(key, {"iid": r.get("_iid") or 0, "type": ptype, "from": pfrom, "to": pto, "rows": []})
+        g["rows"].append(r)
+    return list(out.values())
+
+
+def _month_add(ym: str, n: int) -> str:
+    y, m = divmod(int(ym[:4]) * 12 + int(ym[5:7]) - 1 + n, 12)
+    return f"{y:04d}-{m + 1:02d}"
+
+
+def available_periods(by_kind: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    """Months and period types the imported tabs can be read for (a continuous run of months, newest last)."""
+    ends: set[str] = set()
+    starts: set[str] = set()
+    types: set[str] = set()
+    ytd_from: dict[str, str] = {}
+    dated: set[str] = set()
+    for kind, rows in by_kind.items():
+        for i in _split_imports(kind, rows):
+            if i["type"] == "general":
+                continue
+            types.add(i["type"])
+            if kind in DATED:
+                dated.update(str(r.get("date") or "")[:7] for r in i["rows"] if len(str(r.get("date") or "")) >= 7)
+                continue
+            if i["to"]:
+                ends.add(i["to"])
+            if i["from"]:
+                starts.add(i["from"])
+            if i["type"] == "ytd" and i["to"] and i["from"]:
+                ytd_from[i["to"]] = min(ytd_from.get(i["to"], i["from"]), i["from"])
+    last = max(ends | dated) if (ends or dated) else None
+    if not last:
+        return {"months": [], "types": sorted(types), "ytd_from": ytd_from, "default_to": None}
+    first = min(starts | ends) if ends else min(dated)
+    first = max(first, _month_add(last, -35), f"{_month_add(last, -11)[:4]}-01" if not ends else first)
+    months, m = [], first
+    while m <= last:
+        months.append(m)
+        m = _month_add(m, 1)
+    # the month most summary tabs reach (not a roster planned into next month)
+    default_to = max(ends) if ends else last
+    return {"months": months, "types": sorted(types), "ytd_from": ytd_from, "default_to": default_to}
+
+
+def normalise_view(view: dict[str, Any] | None, available: dict[str, Any]) -> dict[str, Any]:
+    v = dict(view or {})
+    t = v.get("type") if v.get("type") in ("latest", "mtd", "ytd") else "latest"
+    months = available.get("months") or []
+    if t == "latest" or not months:
+        return {"type": "latest", "from": None, "to": None}
+    to = v.get("to") if v.get("to") and len(str(v.get("to"))) == 7 else (available.get("default_to") or months[-1])
+    if t == "mtd":
+        return {"type": "mtd", "from": to, "to": to}
+    frm = v.get("from") if v.get("from") and len(str(v["from"])) == 7 else available.get("ytd_from", {}).get(to) or f"{to[:4]}-01"
+    if frm > to:
+        frm, to = to, frm
+    return {"type": "ytd", "from": frm, "to": to}
+
+
 def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
     return max(low, min(high, value))
 
@@ -93,6 +195,8 @@ class Leader:
     remarks: str = ""
     acting: bool = False
     designation_mismatch: bool = False
+    system_designation: str = ""                       # the title in the HR system when the person works as another
+    whole_store: bool = False
     ratings: list[dict[str, Any]] = field(default_factory=list)
     shifts: Counter = field(default_factory=Counter)
     kpis: dict[str, Any] = field(default_factory=dict)
@@ -116,37 +220,125 @@ class Leader:
 
     @property
     def section_text(self) -> str:
+        if self.whole_store:
+            return "Whole store"
         return " & ".join(self.sections) if self.sections else "—"
 
 
 class Insights:
     """Loads the latest imported month of every P&O tab once, then answers questions."""
 
-    def __init__(self, store: Any, weights: dict[str, float] | None = None, as_of: date | None = None):
+    def __init__(self, store: Any, weights: dict[str, float] | None = None, as_of: date | None = None,
+                 view: dict[str, Any] | None = None):
         self.weights = dict(DEFAULT_WEIGHTS)
         if weights:
             self.weights.update({k: float(v) for k, v in weights.items() if k in DEFAULT_WEIGHTS})
         self.data: dict[str, list[dict[str, Any]]] = {}
         self.periods: dict[str, str] = {}
         self.sources: dict[str, str] = {}
+        self.coverage: list[dict[str, Any]] = []       # what each tab contributes to the period on screen
+        self.notes: list[str] = []                      # tabs that had no data for that exact period
+        self._cut: set[str] = set()
+        self._full: dict[str, list[dict[str, Any]]] = {}
         records = store.records() if store is not None else []
         by_kind: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for record in records:
             kind = str(record.get("_kind", ""))
             if kind.startswith("po_"):
                 by_kind[kind].append(record)
+        self.available = available_periods(by_kind)
+        self.view = normalise_view(view, self.available)
         for kind, rows in by_kind.items():
-            latest = max(str(r.get("_period")) for r in rows)
-            self.data[kind] = [r for r in rows if str(r.get("_period")) == latest]
-            self.periods[kind] = latest
-            self.sources[kind] = f"{rows[0].get('_source', '')} · {rows[0].get('_sheet', '')}"
-        self.as_of = as_of or self._infer_as_of()
+            chosen, info = self._select(kind, rows)
+            if not chosen and info.get("cut") and kind == "po_turnover":
+                self._cut.add(kind)                     # the file covers the period: nobody left in it is a real 0
+                self.periods[kind] = info["label"]
+            if not chosen:
+                if info.get("note"):
+                    self.notes.append(info["note"])
+                self.coverage.append({"kind": kind, **info, "rows": 0})
+                continue
+            self.data[kind] = chosen
+            self.periods[kind] = info["label"]
+            self.sources[kind] = f"{chosen[0].get('_source', '')} · {chosen[0].get('_sheet', '')} · {info['label']}"
+            self.coverage.append({"kind": kind, **info, "rows": len(chosen)})
+            if info.get("note"):
+                self.notes.append(info["note"])
+        self.as_of = as_of or self._view_as_of() or self._infer_as_of()
         self._leaders: list[Leader] | None = None
+
+    # ---------------------------------------------------------- periods --
+
+    def _select(self, kind: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """The rows of one tab that answer the period on screen.
+
+        General tabs (employee master, time in role, ratings) count for every period: the latest one is used.
+        Dated tabs (turnover, shift roster) are cut to the period's months from their own dates.
+        Summary tabs (sales, productivity, shrinkage, NPS, DA) use the import whose period matches; when none does, the
+        closest one is used and a note says so, so a YTD figure is never passed off as a month's."""
+        name = PACK_LABELS.get(kind, kind)
+        imports = _split_imports(kind, rows)
+        general = [i for i in imports if i["type"] == "general"]
+        timed = [i for i in imports if i["type"] != "general"]
+        v = self.view
+        if general and not timed:
+            pick = max(general, key=lambda i: i["iid"])
+            return pick["rows"], {"type": "general", "label": "every period", "from": None, "to": None}
+        if not timed:
+            return [], {"type": "", "label": "", "from": None, "to": None}
+        if v["type"] == "latest":
+            pick = max(timed, key=lambda i: (i["to"] or "", i["type"] == "ytd", i["iid"]))
+            return pick["rows"], _info(pick)
+        vf, vt = v["from"], v["to"]
+        if kind in DATED:
+            overlap = [i for i in timed if (i["from"] or "") <= vt and (i["to"] or "9999") >= vf]
+            if not overlap:
+                return [], {"type": v["type"], "label": "", "from": vf, "to": vt,
+                            "note": f"{name}: nothing dated between {_ml(vf)} and {_ml(vt)}."}
+            pick = max(overlap, key=lambda i: ((i["to"] or "") >= vt and (i["from"] or "") <= vf, i["iid"]))
+            self._full[kind] = pick["rows"]                # whole file, for trends that show the months around the period
+            date_key = "date"
+            kept = [r for r in pick["rows"] if vf <= str(r.get(date_key) or "")[:7] <= vt]
+            undated = [r for r in pick["rows"] if not r.get(date_key)]
+            kept += undated
+            info = {"type": v["type"], "from": vf, "to": vt, "label": f"{view_label(v)} · cut from dated rows", "cut": True}
+            if (pick["from"] or "") > vf or (pick["to"] or "") < vt:
+                info["note"] = f"{name}: the file only covers {_ml(pick['from'])}–{_ml(pick['to'])}."
+            return kept, info
+        exact = [i for i in timed if i["type"] == v["type"] and i["to"] == vt]
+        if exact:
+            pick = max(exact, key=lambda i: (i["from"] == vf, i["iid"]))
+            return pick["rows"], _info(pick)
+        before = [i for i in timed if (i["to"] or "") <= vt]
+        pool = before or timed
+        pick = max(pool, key=lambda i: (i["type"] == v["type"], i["to"] or "", i["iid"]))
+        info = _info(pick)
+        info["note"] = f"{name}: no {SHORT[v['type']]} data for {_ml(vt)}; showing {info['label']}."
+        return pick["rows"], info
+
+    def _view_as_of(self) -> date | None:
+        if self.view["type"] == "latest" or not self.view.get("to"):
+            return None
+        y, m = int(self.view["to"][:4]), int(self.view["to"][5:7])
+        end = (date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1))
+        dated = self._infer_as_of()
+        return min(end, max(dated, date(y, m, 1))) if dated else min(end, date.today())
+
+    @property
+    def leaver_window(self) -> str:
+        return view_label(self.view) if self.view["type"] != "latest" else "last 12 months"
+
+    @property
+    def view_label(self) -> str:
+        if self.view["type"] == "latest":
+            timed = {c["label"] for c in self.coverage if c.get("type") not in ("general", "") and c.get("label")}
+            return "Latest data" + (f" ({', '.join(sorted(timed))})" if 0 < len(timed) <= 2 else "")
+        return view_label(self.view)
 
     # ---------------------------------------------------------- basics --
 
     def has(self, kind: str) -> bool:
-        return bool(self.data.get(kind))
+        return bool(self.data.get(kind)) or kind in self._cut
 
     @property
     def empty(self) -> bool:
@@ -280,6 +472,8 @@ class Insights:
 
     def leavers(self, store: str | None = None, section: str | None = None, months: int = 12) -> list[dict[str, Any]]:
         start = self.as_of - timedelta(days=round(months * 30.44))
+        if self.view["type"] != "latest":                  # the period on screen decides the window
+            start = date(int(self.view["from"][:4]), int(self.view["from"][5:7]), 1)
         out = []
         for r in self.rows("po_turnover"):
             d = _parse(r.get("date"))
@@ -422,11 +616,17 @@ class Insights:
         master = {r["employee_id"]: r for r in self.rows("po_master")}
         for r in self.rows("po_role"):
             key = key_for(r.get("employee_id", ""), r["employee_name"])
+            system = canon.text(r.get("designation"))
+            if system.startswith("#"):
+                system = ""
+            working = r.get("working_as") or canon.working_role(r.get("remarks", ""), system)
             people[key] = Leader(
                 key=key, employee_id=r.get("employee_id", ""), name=r["employee_name"], store=r["store"],
-                designation=canon.text(r.get("designation")), sections=list(r.get("sections_led") or []),
+                designation=working or system, sections=list(r.get("sections_led") or []),
                 role_since=_parse(r.get("role_since")), remarks=r.get("remarks", ""),
-                acting=bool(r.get("acting")), designation_mismatch=bool(r.get("designation_mismatch")),
+                acting=bool(r.get("acting")) or bool(working and not canon.is_leader(system)),
+                designation_mismatch=bool(r.get("designation_mismatch")) or bool(working and system),
+                system_designation=system if working else "",
             )
         for r in self.rows("po_master"):
             if not canon.is_leader(r.get("designation")):
@@ -444,6 +644,26 @@ class Insights:
                 people[key] = Leader(key=key, employee_id=key, name=r["employee_name"], store=r["store"],
                                      designation=r.get("designation", ""),
                                      sections=[section] if section in canon.DEPARTMENT_OF and section not in {"Management", "Services"} else [])
+        # people the role tab could not place (new joiners not in the system yet): find them by name elsewhere
+        by_name = {}
+        for kind in ("po_master", "po_shift"):
+            for r in self.rows(kind):
+                by_name.setdefault(canon.name_key(r.get("employee_name", "")), r)
+        for leader in people.values():
+            if leader.store and leader.employee_id:
+                continue
+            hit = by_name.get(canon.name_key(leader.name))
+            if hit:
+                leader.store = leader.store or hit.get("store", "")
+                if not leader.employee_id and hit.get("employee_id"):
+                    leader.employee_id = hit["employee_id"]
+                if not leader.sections and hit.get("section") in canon.DEPARTMENT_OF and hit["section"] not in {"Management", "Services"}:
+                    leader.sections = [hit["section"]]
+        # store managers and deputies run the whole store: measured on the three departments together
+        for leader in people.values():
+            if not leader.sections and canon.role_rank(leader.designation) >= canon.STORE_LEVEL:
+                leader.sections = ["Consumer Goods", "Fresh Food", "Non Food"]
+                leader.whole_store = True
         # enrich
         latest_month = None
         shift_dates = [r["date"][:7] for r in self.rows("po_shift") if r.get("date")]
@@ -590,7 +810,7 @@ class Insights:
 
     def turnover_summary(self, months: int = 12) -> dict[str, Any]:
         rows = self.leavers(months=months)
-        all_rows = self.rows("po_turnover")
+        all_rows = self._full.get("po_turnover") or self.rows("po_turnover")
         by_store = Counter(r["store"] for r in rows)
         by_section = Counter(r["section"] for r in rows)
         by_reason = Counter(r["reason"] or "Not stated" for r in rows)
@@ -612,7 +832,7 @@ class Insights:
             heads = self.headcount(store_name)
             rate[store_name] = (100 * count / heads) if heads else None
         return {
-            "months": months, "total": len(rows), "all_time": len(all_rows),
+            "months": months, "total": len(rows), "all_time": len(all_rows), "window": self.leaver_window,
             "voluntary_pct": _pct(voluntary, len(rows)) if rows else None,
             "by_store": by_store.most_common(), "by_section": by_section.most_common(),
             "by_reason": by_reason.most_common(), "by_type": by_type.most_common(),
@@ -697,7 +917,7 @@ class Insights:
         if self.has("po_turnover"):
             for store_name, section, n in self.turnover_summary()["hotspots"]:
                 if n >= 4:
-                    add("High" if n >= 8 else "Medium", "Turnover", store_name, f"{n} leavers in {section} in the last 12 months", n * 3)
+                    add("High" if n >= 8 else "Medium", "Turnover", store_name, f"{n} leavers in {section} ({self.leaver_window})", n * 3)
         for flag in self.bench():
             if flag["severity"] == "High":
                 leader = flag["leader"]

@@ -93,7 +93,7 @@ def parse(sheet: Sheet, file_name: str = "") -> ParseResult:
 
 def month_from_text(s: str) -> str | None:
     n = norm(s)
-    m = re.search(rf"\b({MONTHS})[A-Z]*\s*(20\d{{2}}|\d{{2}})\b", n)
+    m = re.search(rf"\b({MONTHS})[A-Z]*\s*(20\d{{2}}|[1-4]\d)\b", n)     # "Aug 26", "August 2026"; not "August 01_…"
     if m:
         d = parse_date(f"1-{m.group(1)}-{m.group(2)}")
         return f"{d.year:04d}-{d.month:02d}" if d else None

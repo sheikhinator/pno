@@ -27,7 +27,7 @@ _STORES: list[tuple[str, str, str, tuple[str, ...]]] = [
     ("ISL WTC", "Islamabad", "Hypermarket", (r"\bwtc\b",)),
     ("ISL D12 (DIZ Markaz)", "Islamabad", "Supermarket", (r"\bd12\b", r"diz\s*markaz", r"\bp06\b", r"\bp61\b")),
     ("LAH Askari 10", "Lahore", "Supermarket", (r"askari",)),
-    ("LAH DHA Rahbar", "Lahore", "Supermarket", (r"rahbar",)),
+    ("LAH DHA Rahbar", "Lahore", "Supermarket", (r"rahbar", r"\bdha\s*-?\s*(phase)?\s*-?\s*(11|xi)\b")),
     ("LAH DHA Phase 7", "Lahore", "Supermarket", (r"dha\s*(phase)?\s*7\b",)),
     ("LAH Paragon City", "Lahore", "Supermarket", (r"paragon", r"high\s*street")),
     ("LAH Avenue Mall", "Lahore", "Supermarket", (r"avenue",)),
@@ -241,9 +241,25 @@ def name_key(value: Any) -> str:
 
 
 ROLE_RANK = {
-    "store manager": 6, "deputy manager": 5, "department head": 4, "c.c.o manager": 4,
-    "section manager": 3, "team leader": 2, "supervisor": 1,
+    "store manager": 6, "deputy manager": 5, "deputy store manager": 5, "assistant store manager": 5, "store in-charge": 5,
+    "store incharge": 5, "department head": 4, "c.c.o manager": 4, "section manager": 3, "team leader": 2, "supervisor": 1,
 }
+STORE_LEVEL = 5
+_WORKING_AS = re.compile(r"(?:working|acting|leading|promoted|performing)\b[^.;]*?\bas\s+(?:a\s+|an\s+)?(store manager|deputy (?:store )?manager|"
+                         r"assistant store manager|store in-?charge|department head|section manager|team leader|supervisor)", re.I)
+
+
+def working_role(remarks: Any, designation: Any) -> str:
+    """The role someone actually does, from remarks like 'Working as Team Leader DPH but in system he is sales person' or
+    'Leading HHH since 02-Jun-25' (leading a section without a title = team leader). '' when the system title is right."""
+    r = text(remarks)
+    m = _WORKING_AS.search(r)
+    if m:
+        title = m.group(1).title().replace("In-Charge", "In-charge").replace("Incharge", "In-charge")
+        return "" if title.casefold() == text(designation).casefold() else title
+    if not is_leader(designation) and re.match(r"\s*leading\b", r, re.I):
+        return "Team Leader"
+    return ""
 
 
 def role_rank(designation: Any) -> int:
