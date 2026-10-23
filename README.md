@@ -1,4 +1,4 @@
-# PNO · People & Performance
+# P&O · People & Organisation
 
 A fast Windows desktop app for HR. It turns the daily BO and HR reports into one clear, fair score out of 10 for every
 store employee and manager, with attendance, sales, productivity, stock and waste in one place. Everything runs and
@@ -59,7 +59,19 @@ an adjustable P&O index, talent grid and bench strength) · **Turnover** · **Sh
 as *"Who are the weakest leaders in Lucky One?"*, *"Compare Fortress and Emporium"* or *"Which roles are at risk?"* from the
 same data, and Export has a **P&O Review Pack** (PDF, PowerPoint, Excel). *Hide names* applies to all of it.
 
-## Any other data: the Data explorer (new in 1.2)
+## New in 1.3
+
+- Renamed **P&O · People & Organisation** with the Majid Al Futtaim logo (app, installer, exports).
+- Simpler menu (Overview · Business review · Stores · People · Leaders & talent · Attendance; Insights; Tools), filters only on
+  the screens that use them (Format, Section and Compare under *More filters*), and a **Back** button (also Alt+← and the
+  mouse back button).
+- **Customer NPS** screen: city × section heatmap with change vs last year, every category, biggest gains and drops.
+- Import options per sheet: say what the sheet is, the month it belongs to, the date it runs to, a name and a short
+  description that the AI uses to understand it. Repeated header rows, total rows and duplicate rows are cleaned out.
+- **Ask P&O AI** works like a modern AI chat: saved chat history, attach or paste files, answers with headline figure cards,
+  tables, bar / line / donut charts, coloured gains and losses, callouts and recommended actions; copy and retry.
+
+## Any other data (new in 1.2)
 
 Import or paste **any** table, not just the reports above: a KPI sheet, a training list, a survey, a checklist. PNO finds the
 header row, works out what each column is (stores, sections, people, dates, actual, budget, target, last year…) from the

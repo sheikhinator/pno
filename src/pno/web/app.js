@@ -1,4 +1,4 @@
-/* PNO · People & Performance — the screens. Talks to Python through the Qt bridge (desktop) or HTTP (development). */
+/* P&O · People & Organisation — the screens. Talks to Python through the Qt bridge (desktop) or HTTP (development). */
 (function () {
 "use strict";
 const { esc, fmtv } = Charts;
@@ -71,13 +71,19 @@ const ICON = {
   retention: '<path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M11 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/>',
   shifts: '<rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7 13h2M11 13h2M15 13h2M7 17h2M11 17h2"/>',
   data: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6M4 11.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
+  nps: '<path d="M12 21s-7-4.4-9.3-9A5.2 5.2 0 0 1 12 6.6 5.2 5.2 0 0 1 21.3 12C19 16.6 12 21 12 21z"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
 };
 const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[n] || ""}</svg>`;
-const NAV = [["home", "Home", "home"], ["people", "People", "people"], ["performance", "Performance", "perf"], ["stores", "Stores", "stores"],
-  ["attendance", "Attendance", "att"], ["org", "Org chart", "org"], ["review", "P&O review", "review"], ["talent", "Leaders & talent", "talent"],
-  ["retention", "Turnover", "retention"], ["shifts", "Shift roster", "shifts"], ["data", "Data explorer", "data"], ["ask", "Ask PNO", "ask"], ["import", "Import", "import"], ["settings", "Settings", "settings"]];
-const NAV_GROUP = { review: "P&amp;O review", data: "Tools" };
+const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
+  ["people", "People", "people"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
+  ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
+  ["ask", "Ask P&O AI", "ask"], ["import", "Import data", "import"], ["settings", "Settings", "settings"]];
+const NAV_GROUP = { retention: "Insights", ask: "Tools" };
+const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
+const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
+  talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
+  data: "Other data", ask: "Ask P&O AI", import: "Import data", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -112,7 +118,7 @@ const req = (extra = {}) => ({ month: S.month, scope: S.scope, ...extra });
 /* ---------------------------------------------------------------- shell */
 function sideHtml() {
   return `
-    <div class="brand"><div class="logo">PNO</div><div><b>PNO</b><small>People &amp; Performance</small></div></div>
+    <div class="brand"><div class="logo maf"><img src="maf-mark.png" alt="Majid Al Futtaim"></div><div><b>P&amp;O</b><small>People &amp; Organisation</small></div></div>
     <nav class="nav" id="nav">${NAV.map(([k, l, i]) => (NAV_GROUP[k] ? `<div class="nav-label">${NAV_GROUP[k]}</div>` : "") +
       `<button data-go="${k}" ${S.page === k || (S.page === "store" && k === "stores") ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "settings" && S.init && S.init.unsure_stores ? `<span class="badge">${S.init.unsure_stores}</span>` : ""}</button>`).join("")}</nav>
     <div class="side-foot">
@@ -147,22 +153,25 @@ function topbar() {
   if (S.scope.store_id) crumbs.push(["store_id", (lbl(o.stores, S.scope.store_id) || {}).label || "Store"]);
   if (S.scope.dept) crumbs.push(["dept", (lbl(o.depts, S.scope.dept) || {}).label || S.scope.dept]);
   if (S.scope.section) crumbs.push(["section", S.scope.section]);
+  const filters = FILTER_PAGES.has(S.page);
+  const back = (S.hist || []).length ? `<button class="btn back" data-act="back" title="Back (Alt+←)">${ic("back", 16)}Back</button>` : "";
   $("#top").innerHTML = `
     <div class="top-row">
-      <div class="crumbs">${crumbs.map((c, i) => i === 0 ? `<button data-act="scope-clear">🇵🇰 Pakistan</button>` : `<span class="sep">›</span>${i === crumbs.length - 1 ? `<span>${esc(c[1])}</span>` : `<button data-act="scope-up" data-key="${c[0]}">${esc(c[1])}</button>`}`).join("")}</div>
+      ${back}
+      ${filters ? "" : `<div class="crumbs"><span class="ptitle">${esc(PAGE_TITLE[S.page] || "")}</span></div>`}
+      <div class="crumbs" ${filters ? "" : 'style="display:none"'}>${crumbs.map((c, i) => i === 0 ? `<button data-act="scope-clear">🇵🇰 Pakistan</button>` : `<span class="sep">›</span>${i === crumbs.length - 1 ? `<span>${esc(c[1])}</span>` : `<button data-act="scope-up" data-key="${c[0]}">${esc(c[1])}</button>`}`).join("")}</div>
       <div class="spacer"></div>
       <div class="search hide-present">${ic("search", 16)}<input id="q" placeholder="Search people or stores  (Ctrl+K)" autocomplete="off"><div id="sugg"></div></div>
-      <button class="btn" data-act="export">${ic("export", 16)}Export</button>
-      <button class="btn gold hide-present" data-act="present">${ic("play", 14)}Present</button>
+      ${["ask", "import", "settings", "data"].includes(S.page) ? "" : `<button class="btn" data-act="export">${ic("export", 16)}Export</button>
+      <button class="btn gold hide-present" data-act="present">${ic("play", 14)}Present</button>`}
     </div>
-    <div class="top-row filters">
-      <div class="fsel"><label>Country</label><span class="fixed">Pakistan</span></div>
-      ${sel("city", "City", o.cities, "All cities")}${sel("format", "Format", o.formats, "All formats")}
-      ${sel("store_id", "Store", o.stores, "All stores")}${sel("dept", "Dept", o.depts, "All departments")}
-      ${sel("section", "Section", o.sections, "All sections")}
+    <div class="top-row filters" ${filters ? "" : 'style="display:none"'}>
+      ${sel("city", "City", o.cities, "All cities")}${sel("store_id", "Store", o.stores, "All stores")}${sel("dept", "Dept", o.depts, "All departments")}
+      <span class="${S.moreFilters ? "" : "more-off"}" style="display:contents">${sel("format", "Format", o.formats, "All formats")}${sel("section", "Section", o.sections, "All sections")}</span>
+      <button class="btn sm ghost" data-act="more-filters">${S.moreFilters ? "Fewer filters" : "More filters"}</button>
       <div class="spacer"></div>
       <div class="fsel"><label>Month</label><select id="month">${months.map(m => `<option value="${m.value}" ${m.value === S.month ? "selected" : ""}>${esc(m.label)}</option>`).join("") || "<option>No data yet</option>"}</select></div>
-      <div class="fsel"><label>Compare</label><select id="compare"><option value="">Previous month</option>${months.filter(m => m.value !== S.month).map(m => `<option value="${m.value}" ${m.value === S.compare ? "selected" : ""}>${esc(m.label)}</option>`).join("")}</select></div>
+      <div class="fsel ${S.moreFilters ? "" : "more-off"}"><label>Compare</label><select id="compare"><option value="">Previous month</option>${months.filter(m => m.value !== S.month).map(m => `<option value="${m.value}" ${m.value === S.compare ? "selected" : ""}>${esc(m.label)}</option>`).join("")}</select></div>
     </div>`;
   $$("select[data-scope]").forEach(s => s.onchange = () => setScope(s.dataset.scope, s.value));
   const ms = $("#month"); if (ms) ms.onchange = () => { S.month = ms.value; S.compare = null; refreshOptions().then(render); };
@@ -216,8 +225,10 @@ function wireSearch() {
 }
 
 /* ---------------------------------------------------------------- routing */
-function go(page, arg = null) {
+function go(page, arg = null, opts = {}) {
+  if (!opts.back && S.page && (S.page !== page || S.arg !== arg)) { S.hist = (S.hist || []).concat([[S.page, S.arg]]).slice(-30); }
   S.page = page; S.arg = arg;
+  topbar();
   $$("#nav button").forEach(b => b.toggleAttribute("aria-current", b.dataset.go === (page === "store" ? "stores" : page)));
   $$("#nav button[aria-current]").forEach(b => b.setAttribute("aria-current", "page"));
   store.set("page", page === "store" ? "stores" : page);
@@ -256,8 +267,8 @@ let DATA = {};
 
 function noData() {
   return `<div class="panel"><div class="hero">
-    <div class="logo" style="width:64px;height:64px;font-size:22px;border-radius:18px">PNO</div>
-    <h2>Welcome to PNO</h2>
+    <div class="logo maf big"><img src="maf-logo.png" alt="Majid Al Futtaim"></div>
+    <h2>Welcome to P&amp;O</h2>
     <p>Bring in your reports to see people, attendance and performance in one place: the employee roster, the biometric attendance (MTD),
     the MTD productivity report and the BO 200-10-05 store net sales report. Everything stays on this PC.</p>
     <div class="row" style="justify-content:center"><button class="btn primary" data-go="import">${ic("import", 16)}Import reports</button>
@@ -335,7 +346,7 @@ PAGES.people = async () => {
   const th = (k, l, n) => `<th class="sort ${n ? "n" : ""}" data-act="sort" data-key="${k}">${l}${P.sort === k ? (P.desc ? " ↓" : " ↑") : ""}</th>`;
   const flagName = { long_absence: "Absent 7+ days in a row", fixes: "Has punches to fix", managers: "Reporting line to confirm", new_joiners: "New joiners" }[P.flag];
   return `<div class="ph"><div><h1>People</h1><p>${d.total.toLocaleString("en-US")} people · ${esc(S.months.find(m => m.value === d.month)?.label || "")}. Click anyone to open their profile.</p></div>
-      <div class="actions"><span id="cmpbtn">${compareBtn()}</span><button class="btn" data-act="export" data-pack="people">${ic("export", 16)}Export list</button></div></div>
+      <div class="actions"><span id="cmpbtn">${compareBtn()}</span><button class="btn" data-go="performance">${ic("perf", 16)}Rankings by role</button><button class="btn" data-go="org">${ic("org", 16)}Org chart</button><button class="btn" data-act="export" data-pack="people">${ic("export", 16)}Export list</button></div></div>
     <div class="panel"><div class="row">
       <div class="search" style="flex:1 1 260px;max-width:none">${ic("search", 16)}<input id="pq" placeholder="Name, employee number, designation or store" value="${esc(P.q)}"></div>
       <div class="seg">${ROLES.map(([k, l]) => `<button data-act="role" data-role="${k}" aria-pressed="${P.role === k}">${l}<span class="c">${k === "" ? total : k === "MANAGERS" ? total - (counts.STAFF || 0) : counts[k] || 0}</span></button>`).join("")}</div></div>
@@ -493,48 +504,145 @@ PAGES.org = async () => {
 };
 AFTER.org = () => { $$(".page select[data-scope]").forEach(s => s.onchange = () => setScope("store_id", s.value)); };
 
-/* ask */
-const SUGGEST = ["How are we doing this month?", "Top 10 section managers", "Who was absent the most?", "Which stores are below budget?",
-  "Show missing punches", "Compare store managers", "Show the trend for the last months"];
-PAGES.ask = async () => {
+/* ask: a Claude-style analyst chat */
+const SUGGEST = [
+  ["📊", "Brief me for the country review", "Headline numbers, best and worst stores, priorities"],
+  ["🏬", "Which stores need attention and why?", "Ranked alerts from every report"],
+  ["⭐", "Who are the top 10 section leaders?", "Leader index with strengths and gaps"],
+  ["🚪", "Where is turnover highest and why?", "Hotspots, reasons, voluntary vs terminations"],
+  ["💬", "How is customer NPS changing?", "Best and worst categories, movers"],
+  ["🧭", "Compare Fortress and Emporium", "Side by side on every measure"]];
+const chatStore = { list() { return store.get("chats", []); }, save(list) { store.set("chats", list.slice(0, 25)); } };
+function saveChat() {
+  if (!S.chat.length || S.chat.some(m => m.pending)) return;
+  const list = chatStore.list().filter(c => c.id !== S.chatId);
+  S.chatId = S.chatId || ("c" + Date.now());
+  const first = S.chat.find(m => m.role === "user");
+  list.unshift({ id: S.chatId, title: (first && first.content || "Chat").slice(0, 60), at: Date.now(), msgs: S.chat.map(m => ({ ...m, blocks: (m.blocks || []).slice(0, 8) })) });
+  chatStore.save(list);
+}
+const hello = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
+function composerHtml(big) {
   const st = S.init.ai;
-  return `<div class="chat"><div class="msgs" id="msgs">${S.chat.length ? S.chat.map(renderMsg).join("") : `<div class="hero"><div class="logo" style="width:58px;height:58px;font-size:20px;border-radius:17px">AI</div>
-      <h2>Ask PNO</h2><p>Ask anything about your people, stores and attendance. I answer from the imported data with tables and charts.
-      You can also drop a file here (e.g. a leave list) or tell me about leave and holidays; I prepare the change and you confirm it.</p>
-      <span class="chip ${st.active === "basic" ? "" : "good"}">${esc(st.label)}</span><div class="sugs">${SUGGEST.map(s => `<button data-act="ask-sugg">${esc(s)}</button>`).join("")}</div></div>`}</div>
-    <div><div class="att" id="att">${attChips()}</div>
-    <div class="composer"><button class="btn ghost sm" data-act="ask-attach" title="Attach a file">${ic("attach", 18)}</button>
-      <textarea id="askq" rows="1" placeholder="Ask about people, stores, attendance… or 'Khadija was on sick leave 12–14 Sept'"></textarea>
-      <button class="btn primary" data-act="ask-send">${ic("send", 16)}</button></div>
-    <div class="row" style="justify-content:space-between;margin-top:6px;font-size:11.5px;color:var(--muted)"><span>${esc(st.label)} · answers use the month and filters on screen</span><span id="ask-clear-wrap" ${S.chat.length ? "" : "hidden"}><button class="btn sm ghost" data-act="ask-clear">New chat</button></span></div></div></div>`;
+  return `<div class="cbox ${big ? "big" : ""}" id="cbox">
+      <div class="att" id="att">${attChips()}</div>
+      <textarea id="askq" rows="${big ? 3 : 1}" placeholder="Ask anything about your stores, people, sales, turnover, NPS… or drop a file"></textarea>
+      <div class="cbar"><button class="cbtn" data-act="ask-attach" title="Attach files">${ic("attach", 18)}</button>
+        <button class="cbtn" data-act="ask-paste" title="Paste a table">${ic("paste", 17)}</button>
+        <button class="cmodel" data-go="settings" data-tab="ai" title="AI settings"><span class="dot ${st.active === "basic" ? "off" : ""}"></span>${esc(st.label)}</button>
+        <span class="spacer"></span><button class="csend" data-act="ask-send" title="Send (Enter)">${ic("send", 17)}</button></div></div>`;
+}
+PAGES.ask = async () => {
+  const chats = chatStore.list();
+  const head = `<div class="chat-head"><button class="btn sm ghost" data-act="ask-clear">${ic("spark", 14)}New chat</button>
+    <div class="menu-wrap"><button class="btn sm ghost" data-act="ask-hist">History ▾</button><div class="cmenu" id="cmenu" hidden>${chats.length ? chats.map(c => `<button data-act="ask-open" data-id="${c.id}"><b>${esc(c.title)}</b><small>${new Date(c.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small></button>`).join("") : `<div class="empty" style="padding:12px">No saved chats yet</div>`}</div></div></div>`;
+  if (!S.chat.length) return `<div class="chat2 empty-chat">${head}<div class="welcome"><div class="logo maf big"><img src="maf-logo.png" alt="Majid Al Futtaim"></div>
+      <h1>${hello()}</h1><p>I'm your P&amp;O analyst. I read everything imported into P&amp;O and answer with numbers, charts and recommendations.</p>
+      ${composerHtml(true)}
+      <div class="scards">${SUGGEST.map(([e, q, d]) => `<button class="scard" data-act="ask-sugg" data-q="${esc(q)}"><span class="se">${e}</span><b>${esc(q)}</b><small>${esc(d)}</small></button>`).join("")}</div></div></div>`;
+  return `<div class="chat2">${head}<div class="msgs2" id="msgs">${S.chat.map(renderMsg).join("")}</div><div class="cfoot">${composerHtml(false)}
+    <small>Answers come from your imported data · the AI can make mistakes, check important numbers</small></div></div>`;
 };
 AFTER.ask = () => {
   const ta = $("#askq");
   if (!ta) return;
-  ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(160, ta.scrollHeight) + "px"; };
+  const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(220, ta.scrollHeight) + "px"; };
+  ta.oninput = grow;
   ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(ta.value); } };
   ta.focus();
-  drawBlocks();
-  const m = $("#msgs"); m.scrollTop = m.scrollHeight;
-};
-function md(s) {
-  const lines = esc(s || "").split("\n");
-  let out = "", list = false;
-  for (const l of lines) {
-    const t = l.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<i>$2</i>").replace(/_(.+?)_/g, "<i>$1</i>").replace(/`(.+?)`/g, "<code>$1</code>");
-    if (/^\s*[-•*]\s+/.test(l)) { if (!list) { out += "<ul>"; list = true; } out += "<li>" + t.replace(/^\s*[-•*]\s+/, "") + "</li>"; }
-    else { if (list) { out += "</ul>"; list = false; } if (t.trim()) out += /^#{1,3}\s/.test(l) ? `<p><b>${t.replace(/^#+\s/, "")}</b></p>` : `<p>${t}</p>`; }
+  const box = $("#cbox");
+  if (box && !window.qt) {
+    box.addEventListener("dragover", e => { e.preventDefault(); box.classList.add("over"); });
+    box.addEventListener("dragleave", () => box.classList.remove("over"));
+    box.addEventListener("drop", async e => { e.preventDefault(); box.classList.remove("over"); for (const f of e.dataTransfer.files) S.attachUp = (S.attachUp || []).concat([f]); toast("Attached " + e.dataTransfer.files.length + " file(s)"); $("#att").innerHTML = attChips(); });
   }
-  return out + (list ? "</ul>" : "");
+  drawBlocks();
+  const m = $("#msgs"); if (m) m.scrollTop = m.scrollHeight;
+};
+
+/* markdown → rich HTML: headings, lists, tables, callouts, code, coloured +/- figures, and ```chart / ```kpis blocks */
+function inline(t) {
+  return t.replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*\w])\*(?!\s)(.+?)\*(?!\*)/g, "$1<i>$2</i>").replace(/(^|\s)_(\S.*?\S|\S)_(?=\s|$|[.,;:])/g, "$1<i>$2</i>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(>])([+−-]\s?\d[\d,.]*\s?(%|pp|pts)?)(?=[\s),.;<]|$)/g, (m, a, n) => `${a}<span class="${/^[+]/.test(n) ? "pos" : "neg"}">${n}</span>`);
+}
+function md(src) {
+  const lines = String(src || "").replace(/\r/g, "").split("\n");
+  let out = "", i = 0;
+  const fenced = [];
+  while (i < lines.length) {
+    let l = lines[i];
+    const fence = l.match(/^```\s*(\w+)?/);
+    if (fence) {
+      const lang = (fence[1] || "").toLowerCase(), body = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i])) body.push(lines[i++]);
+      i++;
+      if (["chart", "kpis", "kpi"].includes(lang)) { try { fenced.push(JSON.parse(body.join("\n"))); out += `<div class="mblock" data-f="${fenced.length - 1}"></div>`; continue; } catch (e) { /* show as code */ } }
+      out += `<pre class="code"><code>${esc(body.join("\n"))}</code></pre>`;
+      continue;
+    }
+    if (/^\s*\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) {
+      const row = x => x.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+      const head = row(l); i += 2; const body = [];
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) body.push(row(lines[i++]));
+      const num = c => /^[+−-]?[\d,.]+\s?(%|M|bn|K|pp|pts)?$/.test(c.replace(/\*\*/g, ""));
+      out += `<div class="mtable"><table><thead><tr>${head.map(h => `<th>${inline(esc(h))}</th>`).join("")}</tr></thead><tbody>${body.map(r => `<tr>${r.map(c => `<td class="${num(c) ? "n" : ""}">${inline(esc(c))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+      continue;
+    }
+    if (/^\s*>/.test(l)) {
+      const q = []; while (i < lines.length && /^\s*>/.test(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, ""));
+      const txt = q.join(" "), kind = /^(⚠|\*\*(risk|warning|watch|concern))/i.test(txt) ? "warn" : /^(✅|\*\*(good|win|strength))/i.test(txt) ? "good" : "info";
+      out += `<div class="callout ${kind}">${inline(esc(txt))}</div>`;
+      continue;
+    }
+    if (/^\s*([-*•]|\d+[.)])\s+/.test(l)) {
+      const ordered = /^\s*\d+[.)]/.test(l);
+      out += ordered ? "<ol>" : "<ul>";
+      while (i < lines.length && /^\s*([-*•]|\d+[.)])\s+/.test(lines[i])) {
+        const sub = /^\s{2,}/.test(lines[i]);
+        out += `<li class="${sub ? "sub" : ""}">${inline(esc(lines[i].replace(/^\s*([-*•]|\d+[.)])\s+/, "")))}</li>`;
+        i++;
+      }
+      out += ordered ? "</ol>" : "</ul>";
+      continue;
+    }
+    if (/^\s*(---|\*\*\*)\s*$/.test(l)) { out += "<hr>"; i++; continue; }
+    const h = l.match(/^(#{1,4})\s+(.*)$/);
+    if (h) { out += `<h${Math.min(4, h[1].length + 1)}>${inline(esc(h[2]))}</h${Math.min(4, h[1].length + 1)}>`; i++; continue; }
+    if (l.trim()) {
+      const para = [l]; i++;
+      while (i < lines.length && lines[i].trim() && !/^(#{1,4}\s|\s*[-*•]\s|\s*\d+[.)]\s|\s*>|```|\s*\|)/.test(lines[i])) para.push(lines[i++]);
+      out += `<p>${inline(esc(para.join(" ")))}</p>`;
+    } else i++;
+  }
+  md.last = fenced;
+  return out;
+}
+function kpiCards(items) {
+  return `<div class="mkpis">${(items || []).slice(0, 6).map(k => `<div class="mkpi ${esc(k.tone || "")}"><span>${esc(k.label || "")}</span><b>${esc(String(k.value ?? "—"))}</b>${k.sub ? `<small>${esc(k.sub)}</small>` : ""}</div>`).join("")}</div>`;
+}
+function blockHtml(b, i, j) {
+  if (b.type === "kpis") return kpiCards(b.items);
+  if (b.type === "table") return `<div class="mtable"><div class="mt">${esc(b.title || "")}</div><table><thead><tr>${b.columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${b.rows.slice(0, 60).map(r => `<tr>${b.columns.map(c => `<td class="${typeof r[c] === "number" ? "n" : ""}">${esc(r[c] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  return `<div class="mchartbox"><div class="mt">${esc(b.title || "")}</div><div class="mchart" data-m="${i}" data-b="${j}"></div></div>`;
 }
 function renderMsg(m, i) {
-  if (m.role === "user") return `<div class="msg u">${esc(m.content)}${m.files ? `<div style="font-size:11px;opacity:.8;margin-top:4px">📎 ${esc(m.files.join(", "))}</div>` : ""}</div>`;
-  if (m.pending) return `<div class="msg a"><span class="typing"><i></i><i></i><i></i></span></div>`;
-  const blocks = (m.blocks || []).map((b, j) => b.type === "table" ? `<div><b style="font-size:13px">${esc(b.title || "")}</b><div class="tbl-wrap" style="max-height:340px;border:1px solid var(--line);margin-top:6px"><table class="t"><thead><tr>${b.columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${b.rows.map(r => `<tr>${b.columns.map(c => `<td>${esc(r[c] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>`
-    : `<div><b style="font-size:13px">${esc(b.title || "")}</b><div class="mchart" data-m="${i}" data-b="${j}"></div></div>`).join("");
+  if (m.role === "user") return `<div class="umsg"><div class="ub">${esc(m.content)}${m.files ? `<div class="uf">📎 ${esc(m.files.join(", "))}</div>` : ""}</div></div>`;
+  if (m.pending) return `<div class="amsg"><div class="aav"><img src="maf-mark.png" alt=""></div><div class="abody"><div class="thinking"><span class="typing"><i></i><i></i><i></i></span><span id="think-t">Reading your data…</span></div></div></div>`;
+  let body = md(m.content);
+  const fenced = md.last || [];
+  m.fenced = fenced;
+  const kpiBlocks = (m.blocks || []).map((b, j) => b.type === "kpis" ? blockHtml(b, i, j) : "").join("");
+  const blocks = (m.blocks || []).map((b, j) => b.type === "kpis" ? "" : blockHtml(b, i, j)).join("");
   const acts = (m.actions || []).map(a => `<div class="action"><b>${esc(a.title)}</b><ul>${a.items.slice(0, 12).map(it => `<li>${esc(actionLine(a.kind, it))}</li>`).join("")}${a.items.length > 12 ? `<li>…and ${a.items.length - 12} more</li>` : ""}</ul>
     ${a.done ? `<span class="chip ${a.done === "ok" ? "good" : ""}">${a.done === "ok" ? "Saved" : "Cancelled"}</span>` : `<div class="row"><button class="btn primary sm" data-act="confirm" data-id="${a.id}" data-m="${i}">Confirm</button><button class="btn sm" data-act="cancel" data-id="${a.id}" data-m="${i}">Cancel</button></div>`}</div>`).join("");
-  return `<div class="msg a">${md(m.content)}${blocks}${acts}<div class="meta"><span>${esc(m.engine_label || "")}</span>${m.seconds != null ? `<span>${m.seconds}s</span>` : ""}</div></div>`;
+  const cut = body.indexOf("</p>") > -1 && body.indexOf("</p>") < 600 ? body.indexOf("</p>") + 4 : body.indexOf("<ul>") > -1 && body.indexOf("<ul>") < 400 ? body.indexOf("<ul>") : 0;
+  const lead = kpiBlocks && cut ? body.slice(0, cut) : "", rest = kpiBlocks && cut ? body.slice(cut) : body;
+  return `<div class="amsg"><div class="aav"><img src="maf-mark.png" alt=""></div><div class="abody">${lead ? `<div class="md">${lead}</div>` : ""}${kpiBlocks}<div class="md">${rest}</div>${blocks}${acts}
+    <div class="ameta"><button class="mbtn" data-act="msg-copy" data-m="${i}" title="Copy">⧉ Copy</button><button class="mbtn" data-act="msg-retry" data-m="${i}" title="Ask again">↻ Retry</button>
+    <span>${esc(m.engine_label || "")}${m.seconds != null ? ` · ${m.seconds}s` : ""}</span></div></div></div>`;
 }
 function actionLine(kind, it) {
   if (kind === "leave") return `${it.name} (${it.emp}): ${it.type}, ${fmtDate(it.from)} – ${fmtDate(it.to)}`;
@@ -543,62 +651,113 @@ function actionLine(kind, it) {
   if (kind === "import") return `${it.file}: ${(it.tables || []).join(", ")}`;
   return JSON.stringify(it);
 }
+function drawChartSpec(el, b) {
+  const s0 = (b.series || [])[0] || {};
+  const fmt = b.fmt || "num";
+  if (b.kind === "donut" || b.kind === "pie") Charts.donut(el, { labels: b.labels, values: s0.values || [], fmt, center: b.center || s0.name });
+  else if (b.kind === "hbar") Charts.hbar(el, { labels: b.labels, values: s0.values || [], name: s0.name, fmt, ref: b.ref,
+    colors: b.colors || (s0.values || []).map((v, k) => b.tone === "signed" ? (v >= 0 ? "var(--good)" : "var(--bad)") : Charts.PAL[0]) });
+  else if (b.kind === "line") Charts.line(el, { labels: b.labels, series: b.series, height: 220, area: (b.series || []).length === 1, fmt, ref: b.ref });
+  else Charts.columns(el, { labels: b.labels, series: b.series, height: 220, fmt });
+}
 function drawBlocks() {
   $$(".mchart").forEach(el => {
     const b = S.chat[+el.dataset.m].blocks[+el.dataset.b];
     if (!b || el.dataset.drawn) return;
-    el.dataset.drawn = 1;
-    if (b.kind === "hbar") Charts.hbar(el, { labels: b.labels, values: (b.series[0] || {}).values || [], name: (b.series[0] || {}).name });
-    else if (b.kind === "line") Charts.line(el, { labels: b.labels, series: b.series, height: 200 });
-    else Charts.columns(el, { labels: b.labels, series: b.series, height: 200, fmt: "num" });
+    el.dataset.drawn = 1; drawChartSpec(el, b);
+  });
+  $$(".amsg").forEach((am, idx) => {
+    const msgIdx = S.chat.filter(m => m.role !== "user").length ? null : null;
+    am.querySelectorAll(".mblock").forEach(el => {
+      if (el.dataset.drawn) return;
+      const host = el.closest(".amsg"), all = $$(".amsg"), k = all.indexOf(host);
+      const msg = S.chat.filter(m => m.role !== "user")[k];
+      const spec = msg && msg.fenced && msg.fenced[+el.dataset.f];
+      if (!spec) return;
+      el.dataset.drawn = 1;
+      if (Array.isArray(spec) || spec.items) el.innerHTML = kpiCards(Array.isArray(spec) ? spec : spec.items);
+      else { el.innerHTML = `<div class="mchartbox"><div class="mt">${esc(spec.title || "")}</div><div class="mc"></div></div>`; drawChartSpec(el.querySelector(".mc"), spec); }
+    });
   });
 }
 function drawChat() {
   const m = $("#msgs");
   if (!m || S.page !== "ask") return render();
   m.innerHTML = S.chat.map(renderMsg).join("");
-  $("#att").innerHTML = attChips();
+  const att = $("#att"); if (att) att.innerHTML = attChips();
   drawBlocks();
   m.scrollTop = m.scrollHeight;
-  const clr = $("#ask-clear-wrap"); if (clr) clr.hidden = !S.chat.length;
 }
-const attChips = () => S.attach.map((p, i) => `<span class="chip gold">${ic("file", 12)}${esc(p.split(/[\\/]/).pop())}<button class="btn sm ghost" data-act="att-rm" data-i="${i}" style="padding:0 3px">✕</button></span>`).join("");
+const attChips = () => S.attach.map((p, i) => `<span class="achip">${ic("file", 13)}${esc(p.split(/[\\/]/).pop())}<button data-act="att-rm" data-i="${i}">✕</button></span>`).join("")
+  + (S.attachUp || []).map((f, i) => `<span class="achip">${ic("file", 13)}${esc(f.name)}<button data-act="attup-rm" data-i="${i}">✕</button></span>`).join("");
+const THINK = ["Reading your data…", "Working out the numbers…", "Comparing stores and sections…", "Writing it up…"];
 async function ask(text) {
   text = (text || "").trim();
-  if (!text && !S.attach.length) return;
+  if (!text && !S.attach.length && !(S.attachUp || []).length) return;
+  if (S.asking) return;
+  S.asking = true;
+  if (S.attachUp && S.attachUp.length) {            // browser: upload dropped files, then import them as part of the chat
+    const files = [];
+    for (const f of S.attachUp) { const buf = new Uint8Array(await f.arrayBuffer()); let bin = ""; for (let k = 0; k < buf.length; k += 32768) bin += String.fromCharCode.apply(null, buf.subarray(k, k + 32768)); files.push({ name: f.name, b64: btoa(bin) }); }
+    try { const r = await API.call("agent_upload", { files }); S.attach.push(...(r.paths || [])); } catch (e) { fail(e); }
+    S.attachUp = [];
+  }
   const files = S.attach.slice();
+  const wasEmpty = !S.chat.length;
   S.chat.push({ role: "user", content: text || "(file)", files: files.length ? files.map(f => f.split(/[\\/]/).pop()) : null });
   S.chat.push({ role: "assistant", pending: true });
   S.attach = [];
-  const ta = $("#askq"); if (ta) { ta.value = ""; ta.style.height = "auto"; }
-  drawChat();
+  const ta0 = $("#askq"); if (ta0) { ta0.value = ""; ta0.style.height = "auto"; }
+  if (wasEmpty) await render(); else drawChat();
+  let k = 0; const tick = setInterval(() => { const t = $("#think-t"); if (t) t.textContent = THINK[Math.min(++k, THINK.length - 1)]; }, 1600);
   try {
     const hist = S.chat.filter(m => !m.pending && m.content).slice(-10, -1).map(m => ({ role: m.role, content: m.content }));
     const r = await API.call("agent_ask", { question: text, history: hist, month: S.month, scope: S.scope, attachments: files });
-    S.chat[S.chat.length - 1] = { role: "assistant", content: r.answer, blocks: r.blocks, actions: r.actions, engine_label: r.engine_label, seconds: r.seconds };
+    S.chat[S.chat.length - 1] = { role: "assistant", content: r.answer, blocks: r.blocks, actions: r.actions, engine_label: r.engine_label, seconds: r.seconds, q: text };
   } catch (e) {
-    S.chat[S.chat.length - 1] = { role: "assistant", content: "Sorry: " + (e.message || e), blocks: [], actions: [] };
+    S.chat[S.chat.length - 1] = { role: "assistant", content: "Sorry, something went wrong: " + (e.message || e), blocks: [], actions: [], q: text };
   }
+  clearInterval(tick);
+  S.asking = false;
+  saveChat();
   if (S.page === "ask") drawChat();
 }
+const CHAT_ACTS = {
+  "ask-hist": () => { const m = $("#cmenu"); if (m) m.hidden = !m.hidden; },
+  "ask-open": b => { const c = chatStore.list().find(x => x.id === b.dataset.id); if (c) { S.chat = c.msgs; S.chatId = c.id; render(); } },
+  "ask-paste": () => {
+    const m = modal(`<h3>Paste a table for the AI</h3><p style="color:var(--muted);margin:0 0 10px">Copy cells from Excel and paste them here. The AI reads it with your question.</p><textarea class="input" id="cp-t" rows="10" style="width:100%;font-family:monospace;font-size:12px"></textarea>
+      <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="cp-go">Add to message</button></div>`);
+    $("#cp-go", m).onclick = async () => { const t = $("#cp-t", m).value; if (!t.trim()) return; closeModal(); const r = await call("agent_upload", { files: [{ name: "Pasted table.txt", b64: btoa(unescape(encodeURIComponent(t))) }] }); S.attach.push(...(r.paths || [])); const a = $("#att"); if (a) a.innerHTML = attChips(); };
+  },
+  "attup-rm": b => { S.attachUp.splice(+b.dataset.i, 1); $("#att").innerHTML = attChips(); },
+  "msg-copy": b => { const m = S.chat[+b.dataset.m]; try { navigator.clipboard.writeText(m.content || ""); toast("Copied"); } catch (e) { toast("Copy is not available here", { err: true }); } },
+  "msg-retry": b => { const m = S.chat[+b.dataset.m]; if (m && m.q != null) ask(m.q); },
+};
 
 /* import */
 PAGES.import = async () => {
   const h = await API.call("imports");
   const sess = S.importSess;
-  const kindIcon = { roster: "👥", attendance: "🕘", productivity: "📈", sales: "🧾", leave: "🏖️" };
+  const kindIcon = { roster: "👥", attendance: "🕘", productivity: "📈", sales: "🧾", leave: "🏖️", po_rating: "⭐", po_role: "🪪", po_shift: "🗓️", po_turnover: "🚪", po_da: "⚖️", po_nps: "💬", po_shrink: "📦", dataset: "📊" };
   const preview = sess ? sess.files.map((f, fi) => `<div class="fcard"><div class="kind">${ic("file", 18)}<b>${esc(f.file)}</b>${f.results.length ? "" : `<span class="chip bad">Not recognised</span>`}</div>
       ${f.results.map(r => `<div style="display:flex;flex-direction:column;gap:6px;padding-left:4px;border-left:3px solid var(--gold-2);padding:4px 10px">
         <div class="row"><b>${kindIcon[r.kind] || ""} ${esc(r.label)}</b><span class="chip">${esc(r.sheet)}</span><span class="chip good">${r.rows.toLocaleString("en-US")} rows</span>${r.month ? `<span class="chip info">${esc(r.month)}</span>` : ""}</div>
         <small style="color:var(--muted)">${esc(r.summary)}</small>
-        ${r.needs.includes("month") ? `<div class="row"><label class="field" style="flex-direction:row;align-items:center;gap:8px"><label>Month</label><input class="input" type="month" data-opt="month" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" value="${esc(sess.suggested_month)}"></label></div>` : ""}
-        ${r.needs.includes("as_of") && r.kind === "roster" ? `<div class="row"><label class="field" style="flex-direction:row;align-items:center;gap:8px"><label>Roster as of</label><input class="input" type="date" data-opt="as_of" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" value="${new Date().toISOString().slice(0, 10)}"></label></div>` : ""}
+        <div class="imp-opts">
+          <label class="dx-l">This sheet is<select class="input" data-opt="kind" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}">${(f.kinds || []).map(k => `<option value="${k.value}" ${k.value === r.kind ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select></label>
+          <label class="dx-l">Month it belongs to<input class="input" type="month" data-opt="month" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" value="${esc(r.month || sess.suggested_month)}"></label>
+          <label class="dx-l">${r.kind === "roster" ? "Roster as of" : "Data up to (optional)"}<input class="input" type="date" data-opt="as_of" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" value="${r.kind === "roster" ? (r.as_of || new Date().toISOString().slice(0, 10)) : esc(r.as_of || "")}"></label>
+          <label class="dx-l">Name (optional)<input class="input" data-opt="title" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" placeholder="${esc(r.sheet)}"></label>
+          <label class="dx-l imp-note">What is this sheet about? (optional, helps the AI)<textarea class="input" rows="2" data-opt="note" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" placeholder="e.g. Weekly footfall and conversion by store from the Ops team, week 41"></textarea></label>
+        </div>
         ${r.warnings.map(w => `<small style="color:var(--warn-ink)">⚠ ${esc(w)}</small>`).join("")}
         ${r.preview && r.preview.length ? `<details><summary style="cursor:pointer;color:var(--brand);font-weight:700;font-size:12.5px">Preview</summary><div class="tbl-wrap" style="max-height:220px;margin-top:6px"><table class="t"><thead><tr>${Object.keys(r.preview[0]).filter(k => typeof r.preview[0][k] !== "object").map(k => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>${r.preview.map(p => `<tr>${Object.keys(r.preview[0]).filter(k => typeof r.preview[0][k] !== "object").map(k => `<td>${esc(p[k] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>` : ""}</div>`).join("")}
       ${f.skipped.length ? `<small style="color:var(--muted)">Ignored sheets: ${esc(f.skipped.join(", "))}</small>` : ""}</div>`).join("") + (sess.errors || []).map(e => `<div class="errbox">${esc(e.file)}: ${esc(e.error)}</div>`).join("") : "";
-  const kinds = { roster: "Roster", attendance: "Attendance", productivity: "Productivity", sales: "BO sales", leave: "Leave", holiday: "Holiday" };
-  return `<div class="ph"><div><h1>Import</h1><p>Drop the reports as they come from the systems. PNO recognises the employee roster, the biometric attendance (MTD),
-    the MTD productivity report, the BO 200-10-05 store net sales and leave registers. The daily MTD files simply replace yesterday's.</p></div></div>
+  const kinds = { roster: "Roster", attendance: "Attendance", productivity: "Productivity", sales: "BO sales", leave: "Leave", holiday: "Holiday",
+    po_rating: "Ratings", po_role: "Time in role", po_shift: "Shift roster", po_turnover: "Turnover", po_da: "DA", po_nps: "NPS", po_shrink: "Shrinkage", dataset: "Other data" };
+  return `<div class="ph"><div><h1>Import data</h1><p>Drop files or paste cells from Excel, one sheet or many. Each sheet is recognised by its columns; you can
+    change what it is, the month it belongs to and describe it before saving. Anything else is kept under Other data with charts and insights.</p></div></div>
     ${S.init.unsure_stores ? `<div class="banner">🏬 ${S.init.unsure_stores} store name${S.init.unsure_stores > 1 ? "s were" : " was"} matched with less certainty. <button class="btn sm" data-go="settings" data-tab="stores">Check store names</button></div>` : ""}
     <div class="drop" id="drop"><div class="ic">${ic("import", 26)}</div><h3>Drop report files here</h3><p style="margin:0;color:var(--muted)">Excel (.xlsx, .xls, .xlsm), CSV or text · as many as you like</p>
       <div class="row" style="justify-content:center"><button class="btn primary" data-act="pick">${ic("file", 16)}Choose files</button><button class="btn" data-act="paste">${ic("paste", 16)}Paste data</button></div>
@@ -676,7 +835,7 @@ SETTINGS.ai = async () => {
       <div class="row"><input class="input" id="groq-key" type="password" placeholder="${s.key_masked ? "Saved: " + esc(s.key_masked) : "gsk_…"}" style="flex:1;min-width:240px">
       <select class="input" id="groq-model">${s.models.map(m => `<option ${m === s.model ? "selected" : ""}>${esc(m)}</option>`).join("")}</select>
       <button class="btn primary" data-act="groq-save">Save</button><button class="btn" data-act="groq-test">Test</button>${s.key_masked ? `<button class="btn danger" data-act="groq-clear">Remove key</button>` : ""}</div>
-      <div class="setting"><div><b>Send employee codes instead of names</b><small>Groq then never sees names; PNO puts the names back on your screen.</small></div><label class="switch"><input type="checkbox" id="anon" ${s.anonymise ? "checked" : ""}><span></span></label></div>
+      <div class="setting"><div><b>Send employee codes instead of names</b><small>Groq then never sees names; P&O puts the names back on your screen.</small></div><label class="switch"><input type="checkbox" id="anon" ${s.anonymise ? "checked" : ""}><span></span></label></div>
       <small style="color:var(--muted)">With Groq, each question and the figures needed to answer it are sent to Groq's servers. Files you drop into the chat stay on this PC (only column names and 5 sample rows are shown to the AI to work out unknown layouts).</small></div>
     <div class="panel"><div class="phd"><h2>Offline AI</h2><small>${esc(o.model_name)} · about ${o.model_gb} GB · runs on this PC, no internet after setup</small></div>
       <div class="setting"><div><b>Runtime</b><small>${o.runtime ? "Installed" : "Not installed (included in the Windows package)"}</small></div>${o.runtime ? '<span class="chip good">Ready</span>' : `<button class="btn" data-act="offline-install" data-what="runtime">Install</button>`}</div>
@@ -688,7 +847,7 @@ SETTINGS.stores = async () => {
   const s = await API.call("store_list");
   const unsure = s.aliases.filter(a => !a.confirmed);
   const opt = sel => s.stores.map(st => `<option value="${st.id}" ${st.id === sel ? "selected" : ""}>${esc(st.name)} · ${esc(st.format_label || "")} · ${esc(st.city_label || "")}</option>`).join("");
-  return `${unsure.length ? `<div class="banner">Please confirm ${unsure.length} store name${unsure.length > 1 ? "s" : ""} PNO matched with less certainty.</div>` : ""}
+  return `${unsure.length ? `<div class="banner">Please confirm ${unsure.length} store name${unsure.length > 1 ? "s" : ""} P&O matched with less certainty.</div>` : ""}
     <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>How each report names the stores</h2><small>Change the store if a name was linked to the wrong one</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Name in the report</th><th>From</th><th>Linked to store</th><th></th></tr></thead><tbody>
     ${s.aliases.map(a => `<tr><td><b>${esc(a.raw)}</b></td><td>${esc(a.source)}</td><td><select class="input" data-alias="${esc(a.alias)}">${opt(a.store_id)}</select></td><td class="n">${a.confirmed ? '<span class="chip good">Confirmed</span>' : `<button class="btn sm primary" data-act="alias-ok" data-alias="${esc(a.alias)}" data-store="${a.store_id}">Confirm</button>`} <button class="btn sm ghost" data-act="alias-new" data-alias="${esc(a.alias)}" title="Make this a separate store">Separate</button></td></tr>`).join("")}</tbody></table></div></div>
     <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Stores</h2><small>Head-office units use Saturday + Sunday as weekly offs</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th>Format</th><th>City</th><th>Code</th><th class="n">Head office</th></tr></thead><tbody>
@@ -705,7 +864,7 @@ SETTINGS.holidays = async () => {
   const y = (S.month || new Date().toISOString()).slice(0, 4);
   const s = await API.call("holidays", {});
   return `<div class="panel"><div class="phd"><h2>Gazetted holidays</h2><button class="btn" data-act="hol-defaults" data-year="${y}">Add fixed national holidays for ${y}</button></div>
-    <small style="color:var(--muted)">Eid, Muharram and other moon-dependent holidays change every year: add them here (or ask PNO: "Add 21 March 2027 as Eid holiday").</small>
+    <small style="color:var(--muted)">Eid, Muharram and other moon-dependent holidays change every year: add them here (or ask P&O AI: "Add 21 March 2027 as Eid holiday").</small>
     <div class="row"><input class="input" type="date" id="hol-day"><input class="input" id="hol-name" placeholder="Holiday name" style="flex:1"><button class="btn primary" data-act="hol-add">Add holiday</button></div>
     <div class="tbl-wrap"><table class="t"><thead><tr><th>Date</th><th>Holiday</th><th></th></tr></thead><tbody>${s.rows.map(h => `<tr><td>${fmtDate(h.day)}</td><td>${esc(h.name)}</td><td class="n"><button class="btn sm ghost danger" data-act="hol-del" data-day="${h.day}">Remove</button></td></tr>`).join("") || `<tr><td colspan="3"><div class="empty">No holidays yet.</div></td></tr>`}</tbody></table></div></div>`;
 };
@@ -714,7 +873,7 @@ SETTINGS.leave = async () => {
   return `<div class="panel"><div class="phd"><h2>Add leave</h2><small>Booked leave is not counted as absence</small></div>
     <div class="row"><input class="input" id="lv-emp" placeholder="Employee number" style="width:170px"><input class="input" type="date" id="lv-from"><input class="input" type="date" id="lv-to">
     <select class="input" id="lv-type">${["Annual Leave", "Sick Leave", "Casual Leave", "Maternity Leave", "Hajj / Umrah", "Compensatory", "Unpaid Leave", "Other"].map(x => `<option>${x}</option>`).join("")}</select>
-    <button class="btn primary" data-act="lv-add">Add leave</button></div><small style="color:var(--muted)">Import a leave register on the Import screen, or drop it into Ask PNO in any layout.</small></div>
+    <button class="btn primary" data-act="lv-add">Add leave</button></div><small style="color:var(--muted)">Import a leave register on the Import screen, or drop it into Ask P&O AI in any layout.</small></div>
     <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Leave in ${esc((S.months.find(m => m.value === S.month) || {}).label || "this month")}</h2><small>${s.rows.length} records</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Person</th><th>Store</th><th>Type</th><th>From</th><th>To</th><th>Source</th><th></th></tr></thead><tbody>
     ${s.rows.map(l => `<tr><td><b>${esc(l.name)}</b><span class="sub">${esc(l.emp_no)}</span></td><td>${esc(l.store)}</td><td>${esc(l.type)}</td><td>${fmtDate(l.d_from)}</td><td>${fmtDate(l.d_to)}</td><td>${esc(l.source || "file")}</td><td class="n"><button class="btn sm ghost danger" data-act="lv-del" data-id="${l.id}">Remove</button></td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">No leave recorded for this month.</div></td></tr>`}</tbody></table></div></div>`;
 };
@@ -725,7 +884,7 @@ SETTINGS.data = async () => {
     <div class="setting"><div><b>Database</b><small>${esc(s.db_path)}</small></div></div>
     <div class="setting"><div><b>Back up</b><small>Save a copy of everything (keep it secure: it contains staff data)</small></div><button class="btn" data-act="backup">Back up…</button></div>
     <div class="setting"><div><b>Restore</b><small>Replace the data with a backup (the current data is kept as a safety copy)</small></div><button class="btn danger" data-act="restore">Restore…</button></div>
-    <div class="setting"><div><b>Demo data</b><small>Explore PNO with fictional people and stores, in a separate database</small></div>${S.init.demo ? `<button class="btn" data-act="demo-off">Leave demo</button>` : `<button class="btn" data-act="demo-on">Try demo data</button>`}</div></div>
+    <div class="setting"><div><b>Demo data</b><small>Explore P&O with fictional people and stores, in a separate database</small></div>${S.init.demo ? `<button class="btn" data-act="demo-off">Leave demo</button>` : `<button class="btn" data-act="demo-on">Try demo data</button>`}</div></div>
     <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Activity log</h2></div><div class="tbl-wrap" style="max-height:400px"><table class="t"><thead><tr><th>When</th><th>What</th><th>Details</th></tr></thead><tbody>${a.rows.map(r => `<tr><td>${esc(r.ts.replace("T", " "))}</td><td>${esc(r.action)}</td><td>${esc(r.detail || "")}</td></tr>`).join("")}</tbody></table></div></div>`;
 };
 SETTINGS.look = async () => {
@@ -826,7 +985,7 @@ function drawSheet() {
   } else {
     body = `<div class="panel"><div class="phd"><h2>Leave</h2></div><div class="row"><input class="input" type="date" id="pl-from"><input class="input" type="date" id="pl-to"><select class="input" id="pl-type">${["Annual Leave", "Sick Leave", "Casual Leave", "Maternity Leave", "Hajj / Umrah", "Compensatory", "Unpaid Leave", "Other"].map(x => `<option>${x}</option>`).join("")}</select><button class="btn primary" data-act="pl-add">Add</button></div>
       ${p.leaves.map(l => `<div class="row" style="justify-content:space-between;border-bottom:1px solid var(--line-2);padding:6px 0"><span><b>${esc(l.type)}</b> · ${fmtDate(l.d_from)} – ${fmtDate(l.d_to)}</span><button class="btn sm ghost danger" data-act="pl-del" data-id="${l.id}">Remove</button></div>`).join("") || `<small style="color:var(--muted)">No leave recorded.</small>`}</div>
-      <div class="panel"><div class="phd"><h2>Notes</h2></div><div class="row"><input class="input" id="pn-text" placeholder="Add a note (visible only in PNO)" style="flex:1"><button class="btn primary" data-act="pn-add">Add</button></div>
+      <div class="panel"><div class="phd"><h2>Notes</h2></div><div class="row"><input class="input" id="pn-text" placeholder="Add a note (visible only in P&O)" style="flex:1"><button class="btn primary" data-act="pn-add">Add</button></div>
       ${p.notes.map(n => `<div class="row" style="justify-content:space-between;border-bottom:1px solid var(--line-2);padding:6px 0"><span>${esc(n.text)} <small style="color:var(--muted)">· ${esc(n.created_at.slice(0, 10))}</small></span><button class="btn sm ghost danger" data-act="pn-del" data-id="${n.id}">Remove</button></div>`).join("") || `<small style="color:var(--muted)">No notes.</small>`}</div>`;
   }
   const head = `<div class="sheet-head">${S.sheetStack && S.sheetStack.length ? `<button class="close back" data-act="sheet-back" aria-label="Back" title="Back">${ic("back", 16)}</button>` : ""}<span class="av lg">${esc(initials(p.name))}</span><div style="flex:1;min-width:0"><h2>${esc(p.name)}</h2>
@@ -898,6 +1057,8 @@ function openExport(o = {}) {
 
 /* ---------------------------------------------------------------- actions */
 const ACT = {
+  back: () => { const h = (S.hist || []).pop(); if (h) { closeSheet(); go(h[0], h[1], { back: true }); } },
+  "more-filters": () => { S.moreFilters = !S.moreFilters; topbar(); },
   "scope-clear": async () => { S.scope = {}; store.set("scope", S.scope); await refreshOptions(); render(); },
   "scope-up": async b => { const order = ["city", "format", "store_id", "dept", "section"]; for (const k of order.slice(order.indexOf(b.dataset.key) + 1)) delete S.scope[k]; store.set("scope", S.scope); await refreshOptions(); render(); },
   export: b => openExport({ pack: b.dataset.pack, emp: b.dataset.emp, store: b.dataset.store ? +b.dataset.store : null }),
@@ -914,7 +1075,7 @@ const ACT = {
   "att-tab": b => { S.attTab = b.dataset.tab; render(); },
   "tree-toggle": (b, e) => { e.stopPropagation(); const ul = b.closest("li").querySelector(":scope > ul"); if (ul) { ul.hidden = !ul.hidden; b.textContent = ul.hidden ? "+" : "–"; } },
   "tree-all": () => { $$(".tree ul").forEach(u => u.hidden = false); $$(".tree .tg").forEach(t => t.textContent = "–"); },
-  "ask-sugg": b => ask(b.textContent), "ask-send": () => ask($("#askq").value), "ask-clear": () => { S.chat = []; render(); },
+  "ask-sugg": b => ask(b.dataset.q || b.textContent), "ask-send": () => ask($("#askq").value), "ask-clear": () => { saveChat(); S.chat = []; S.chatId = null; render(); },
   "ask-attach": async () => { if (window.qt) { const r = await call("agent_attach"); if (r.paths && r.paths.length) { S.attach.push(...r.paths); drawChat(); } } else toast("Drag a file onto this window to attach it."); },
   "att-rm": b => { S.attach.splice(+b.dataset.i, 1); drawChat(); },
   confirm: async b => { const r = await call("agent_confirm", { action_id: b.dataset.id, approve: true }); markAction(b, "ok"); toast(r.message); await afterDataChange(false); },
@@ -929,7 +1090,7 @@ const ACT = {
   "import-cancel": () => { S.importSess = null; render(); },
   "import-commit": async b => {
     const opts = {};
-    $$("[data-opt]").forEach(i => { (opts[i.dataset.file] = opts[i.dataset.file] || {})[i.dataset.sheet] = { ...((opts[i.dataset.file] || {})[i.dataset.sheet] || {}), [i.dataset.opt]: i.value }; });
+    $$("[data-opt]").forEach(i => { if (!String(i.value || "").trim()) return; (opts[i.dataset.file] = opts[i.dataset.file] || {})[i.dataset.sheet] = { ...((opts[i.dataset.file] || {})[i.dataset.sheet] || {}), [i.dataset.opt]: i.value }; });
     b.disabled = true; b.innerHTML = `<span class="spin" style="width:14px;height:14px"></span> Importing…`;
     try {
       const r = await API.call("import_commit", { token: S.importSess.token, options: opts });
@@ -964,7 +1125,7 @@ const ACT = {
   "lv-add": async () => { await call("leave_add", { emp: $("#lv-emp").value.trim(), d_from: $("#lv-from").value, d_to: $("#lv-to").value || $("#lv-from").value, type: $("#lv-type").value }); toast("Leave added"); render(); },
   "lv-del": async b => { await call("leave_delete", { leave_id: +b.dataset.id }); render(); },
   backup: async () => { const r = await call("backup"); if (!r.cancelled) toast("Backup saved: " + r.path, { ms: 7000 }); },
-  restore: async () => { if (!confirm("Replace all PNO data with the backup? The current data is kept as a safety copy.")) return; const r = await call("restore"); if (!r.cancelled) { toast("Backup restored"); await afterDataChange(true); } },
+  restore: async () => { if (!confirm("Replace all P&O data with the backup? The current data is kept as a safety copy.")) return; const r = await call("restore"); if (!r.cancelled) { toast("Backup restored"); await afterDataChange(true); } },
   "demo-on": async () => { toast("Loading demo data…"); S.init = await call("demo", { on: true }); S.scope = {}; await boot(true); toast("Demo data: fictional people and stores"); },
   "demo-off": async () => { S.init = await call("demo", { on: false }); S.scope = {}; await boot(true); toast("Back to your data"); },
   theme: async b => { await call("settings_save", { theme: b.dataset.theme }); applyTheme(b.dataset.theme); render(); },
@@ -1037,7 +1198,7 @@ PAGES.review = async () => {
   const heat = d.heat.sections.length ? `<div class="tbl-wrap"><table class="t po-heat"><thead><tr><th>Store</th>${d.heat.sections.map(s => `<th class="n">${esc(s.replace("Fruits & Vegetables", "F&V").replace("Light Household", "LHH").replace("Heavy Household", "HHH"))}</th>`).join("")}</tr></thead>
     <tbody>${d.heat.stores.map((st, i) => `<tr><td><b>${esc(st)}</b></td>${d.heat.values[i].map(v => poCell(v, good, bad, higher, f)).join("")}</tr>`).join("")}</tbody></table></div>` : `<div class="empty">No data for this measure.</div>`;
   return `
-    <div class="ph slide"><div><h1>P&amp;O review · Country</h1><p>${h.stores} stores · ${h.leaders} section leaders · data as of ${fmtDate(h.as_of)}</p></div>
+    <div class="ph slide"><div><h1>Business review · Country</h1><p>${h.stores} stores · ${h.leaders} section leaders · data as of ${fmtDate(h.as_of)}</p></div>
       <div class="row"><button class="btn" data-act="export" data-pack="po">${ic("export", 16)}Export P&amp;O pack</button></div></div>
     <div class="kpis stagger po-kpis">
       ${kpi("Sales MTD", poMoney(h.sales), `${pct(h.sales_vs_budget_pct, 1)} of budget`, "stores")}
@@ -1126,7 +1287,7 @@ PAGES.retention = async () => {
   const kpi = (l, v, s) => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
   return `<div class="ph"><div><h1>Turnover &amp; retention</h1><p>Last 12 months to ${fmtDate(d.as_of)} · by requested date</p></div></div>
     <div class="kpis po-kpis4">${kpi("Leavers · 12 months", d.total, `${d.all_time} on file`)}${kpi("Voluntary", pct(d.voluntary_pct), `${types.Resignation || 0} resignations`)}
-      ${kpi("Terminations", types.Termination || 0, `${types.Absconding || 0} absconded`)}${kpi("Top reason", esc(d.by_reason.length ? d.by_reason[0][0] : "—"), d.by_reason.length ? d.by_reason[0][1] + " leavers" : "")}</div>
+      ${kpi("Terminations", types.Termination || 0, `${types.Absconding || 0} absconded`)}${kpi("Top reason", `<span class="txt">${esc(d.by_reason.length ? d.by_reason[0][0] : "—")}</span>`, d.by_reason.length ? d.by_reason[0][1] + " leavers" : "")}</div>
     <div class="panel"><div class="phd"><h2>Leavers per month</h2><small>Last 24 months</small></div><div id="ch-po-monthly"></div></div>
     <div class="grid g2"><div class="panel"><div class="phd"><h2>Why people leave</h2><small>last 12 months</small></div><div id="ch-po-reasons"></div></div>
       <div class="panel"><div class="phd"><h2>Leavers by store</h2><small>last 12 months</small></div><div id="ch-po-stores"></div></div></div>
@@ -1182,9 +1343,9 @@ S.dx = { id: null, group: null, measure: null, agg: null, q: "" };
 const dxNum = (v, type) => v == null ? "—" : type === "percent" ? (+v).toFixed(1) + "%" : Math.abs(v) >= 1e9 ? (v / 1e9).toFixed(2) + " bn" : Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + " M" : (+v).toLocaleString("en-US", { maximumFractionDigits: 2 });
 PAGES.data = async () => {
   const list = (await API.call("datasets", {})).datasets;
-  if (!list.length) return `<div class="ph"><div><h1>Data explorer</h1><p>Any table PNO does not already know lands here, charted and explained.</p></div></div>
+  if (!list.length) return `<div class="ph"><div><h1>Other data</h1><p>Any table P&O does not already know lands here, charted and explained.</p></div></div>
     <div class="panel"><div class="hero"><div class="logo" style="width:64px;height:64px;font-size:20px;border-radius:18px">DATA</div><h2>No other data yet</h2>
-    <p>Import or paste any table (a KPI sheet, a training list, a survey, a store checklist…). PNO finds the header, understands the columns
+    <p>Import or paste any table (a KPI sheet, a training list, a survey, a store checklist…). P&O finds the header, understands the columns
     (stores, sections, people, actual, budget, dates) and shows charts and insights here. Known reports still go to their own screens.</p>
     <div class="row" style="justify-content:center"><button class="btn primary" data-go="import">${ic("import", 16)}Import or paste data</button></div></div></div>`;
   if (!S.dx.id || !list.some(d => d.id === S.dx.id)) S.dx = { id: list[0].id, group: null, measure: null, agg: null, q: "" };
@@ -1240,6 +1401,40 @@ ACT["dx-ai"] = async b => {
   } catch (e) { box.innerHTML = ""; } finally { b.disabled = false; }
 };
 
+/* ---------------------------------------------------------------- Customer NPS */
+S.nps = { city: "" };
+const npsTone = v => v == null ? "none" : v >= 50 ? "good" : v >= 20 ? "warn" : "bad";
+const npsTxt = v => v == null ? "—" : (v > 0 ? "+" : "") + Math.round(v);
+PAGES.nps = async () => {
+  const d = DATA.nps = await API.call("po_nps", { city: S.nps.city });
+  if (!d.has_data) return `<div class="panel"><div class="hero"><h2>No NPS data yet</h2><p>Import the NPS sheet (Details · Section · Product Influence · NPS). It is recognised automatically.</p>
+    <div class="row" style="justify-content:center"><button class="btn primary" data-go="import">${ic("import", 16)}Import data</button></div></div></div>`;
+  const kpi = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${s}</span></span></div>`;
+  const delta = d.overall != null && d.overall_prev != null ? d.overall - d.overall_prev : null;
+  const list = (items, key) => items.length ? items.map(c => `<div class="nps-row"><span>${esc(c.category)}<small>${esc(c.section)}</small></span><b class="t-${npsTone(c.nps)}">${key === "change" ? npsTxt(c.change) : npsTxt(c.nps)}</b></div>`).join("") : `<div class="empty">—</div>`;
+  return `<div class="ph"><div><h1>Customer NPS</h1><p>Net Promoter Score by city, section and product · ${d.latest}${d.prev ? ` vs ${d.prev}` : ""} · −100 to +100</p></div>
+      <div class="seg"><button data-act="nps-city" data-city="" aria-pressed="${!d.city}">All cities</button>${d.cities.map(c => `<button data-act="nps-city" data-city="${esc(c)}" aria-pressed="${d.city === c}">${esc(c)}</button>`).join("")}</div></div>
+    <div class="kpis po-kpis4">${kpi(`NPS ${d.latest}`, npsTxt(d.overall), d.city || "All cities", "t-" + npsTone(d.overall))}
+      ${kpi("Change vs last year", delta == null ? "—" : npsTxt(delta), d.prev ? `vs ${d.prev}: ${npsTxt(d.overall_prev)}` : "one year only")}
+      ${kpi("Best category", d.best.length ? esc(d.best[0].category) : "—", d.best.length ? npsTxt(d.best[0].nps) : "", "txt")}
+      ${kpi("Needs work", d.worst.length ? esc(d.worst[0].category) : "—", d.worst.length ? npsTxt(d.worst[0].nps) : "", "txt")}</div>
+    <div class="panel"><div class="phd"><h2>What it says</h2></div><div class="dx-ins">${d.insights.map(i => `<p>${md(i)}</p>`).join("")}</div></div>
+    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>City × section · ${d.latest}</h2><small>green ≥ +50 · amber +20 to +49 · red below +20 · small number = change vs ${d.prev || "last year"}</small></div>
+      <div class="tbl-wrap"><table class="t po-heat"><thead><tr><th>City</th>${d.sections.map(s => `<th class="n">${esc(s.replace("Fruits & Vegetables", "F&V").replace("Light Household", "LHH").replace("Heavy Household", "HHH"))}</th>`).join("")}</tr></thead>
+      <tbody>${d.cities.map((c, i) => `<tr><td><b>${esc(c)}</b></td>${d.matrix[i].map((v, j) => `<td class="n po-h ${npsTone(v)}">${npsTxt(v)}${d.change[i][j] != null ? `<span class="sub">${npsTxt(d.change[i][j])}</span>` : ""}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>
+    <div class="grid g2"><div class="panel"><div class="phd"><h2>Every category · ${d.latest}</h2></div><div id="ch-nps"></div></div>
+      <div class="panel"><div class="phd"><h2>Moved most since ${d.prev || "last year"}</h2></div><div class="grid g2" style="gap:12px">
+        <div><small class="nps-h">Biggest gains</small>${list(d.gains, "change")}</div><div><small class="nps-h">Biggest drops</small>${list(d.drops, "change")}</div></div></div></div>`;
+};
+AFTER.nps = () => {
+  const d = DATA.nps; if (!d || !d.has_data || !$("#ch-nps")) return;
+  const c = d.categories.filter(x => x.nps != null).sort((a, b) => b.nps - a.nps);
+  Charts.hbar($("#ch-nps"), { labels: c.map(x => x.category.replace(/\s*\(.*\)$/, "")), values: c.map(x => x.nps), name: "NPS", fmt: "int",
+    colors: c.map(x => `var(--${x.nps >= 50 ? "good" : x.nps >= 20 ? "warn" : "bad"})`) });
+};
+ACT["nps-city"] = b => { S.nps.city = b.dataset.city; render(); };
+
+Object.assign(ACT, CHAT_ACTS);
 document.addEventListener("click", e => {
   const g = e.target.closest("[data-go]");
   if (g && !e.target.closest("[data-act]")) { if (g.dataset.tab) S.setTab = g.dataset.tab; closeSheet(); return go(g.dataset.go); }
@@ -1253,6 +1448,7 @@ document.addEventListener("click", e => {
   if (p && !e.target.closest("input")) { e.preventDefault(); openPerson(p.dataset.person); }
 });
 document.addEventListener("keydown", e => {
+  if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); ACT.back(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); const q = $("#q"); if (q) q.focus(); }
   if (e.key === "Escape") { if ($(".modal")) closeModal(); else if ($(".sheet")) closeSheet(); else if (document.body.classList.contains("present")) document.body.classList.remove("present"); }
   if (document.body.classList.contains("present") && ["ArrowDown", "PageDown", "ArrowRight", " "].includes(e.key)) { e.preventDefault(); presentStep(1); }
@@ -1260,6 +1456,7 @@ document.addEventListener("keydown", e => {
 });
 window.addEventListener("resize", () => { clearTimeout(S.rz); S.rz = setTimeout(() => { const f = AFTER[S.page]; if (f && !["ask", "import", "settings", "people", "org"].includes(S.page)) f(); }, 200); });
 document.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("mouseup", e => { if (e.button === 3) { e.preventDefault(); ACT.back(); } });
 document.addEventListener("drop", e => { e.preventDefault(); if (!window.qt && e.dataTransfer && e.dataTransfer.files.length && !e.target.closest("#drop")) { if (S.page !== "import") go("import"); uploadFiles(e.dataTransfer.files); } });
 
 function applyTheme(t) { if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; }
@@ -1277,5 +1474,5 @@ async function boot(keepPage) {
   if (S.init.notice) toast(S.init.notice, { ms: 15000 });
   window.PNO_ready = true;
 }
-boot(false).catch(e => { $("#app").innerHTML = `<div class="errbox" style="margin:40px">PNO could not start: ${esc(e.message || e)}</div>`; });
+boot(false).catch(e => { $("#app").innerHTML = `<div class="errbox" style="margin:40px">P&O could not start: ${esc(e.message || e)}</div>`; });
 })();

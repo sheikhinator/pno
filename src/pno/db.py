@@ -205,14 +205,14 @@ class Database:
                 side = Path(str(self.path) + ext)
                 if side.exists():
                     side.replace(Path(str(moved) + ext))
-            self.notice = (f"A database from an earlier version of PNO was found and kept as '{moved.name}' in "
-                           f"{moved.parent}. PNO started with a fresh database: please import your reports again.")
+            self.notice = (f"A database from an earlier version of P&O was found and kept as '{moved.name}' in "
+                           f"{moved.parent}. P&O started with a fresh database: please import your reports again.")
             self.conn = self._open()
         self._add_missing_columns()
         self.conn.executescript(SCHEMA)
         v = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if v > SCHEMA_VERSION:
-            raise RuntimeError("This database was made by a newer version of PNO. Please update PNO.")
+            raise RuntimeError("This database was made by a newer version of P&O. Please update P&O.")
         self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self.conn.execute(f"PRAGMA application_id = {APP_ID}")
         self.version = 0          # bumped on every write; caches use it
@@ -354,7 +354,7 @@ class Database:
                 raise ValueError("The backup file is damaged.")
             names = {r[0] for r in test.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             if not {"imports", "roster", "attendance", "sales"} <= names:
-                raise ValueError("This file is not a PNO backup.")
+                raise ValueError("This file is not a P&O backup.")
             with self.lock:
                 self.backup(self.path.with_name(f"pno-before-restore-{datetime.now():%Y%m%d-%H%M%S}.sqlite3"))
                 test.backup(self.conn)

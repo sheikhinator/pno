@@ -22,7 +22,7 @@ def datasets(db) -> list[dict]:
         meta = json.loads(r["payload"])
         out.append({"id": r["id"], "title": meta.get("title") or r["file_name"], "file": r["file_name"], "rows": r["rows"],
                     "columns": len(meta.get("columns", [])), "created": r["created_at"], "ai_title": meta.get("ai_title"),
-                    "description": meta.get("ai_description", "")})
+                    "description": meta.get("user_description") or meta.get("ai_description", "")})
     return out
 
 
@@ -131,7 +131,7 @@ def view(db, import_id: int, group: str | None = None, measure: str | None = Non
             totals.append({"name": c["name"], "value": _agg(vals, how), "agg": how, "type": c["type"]})
     return {
         "id": import_id, "title": meta.get("ai_title") or meta.get("title"), "file": meta.get("file"),
-        "description": meta.get("ai_description", ""), "rows": len(rows), "columns": cols, "group": group, "measure": measure,
+        "description": meta.get("user_description") or meta.get("ai_description", ""), "rows": len(rows), "columns": cols, "group": group, "measure": measure,
         "agg": agg, "date": date_col, "series": series[:40], "series_count": len(series), "trend": trend[-60:],
         "totals": totals, "insights": insights(cols, rows, group, measure, agg, series, trend),
         "table": rows[:1000], "warnings": meta.get("warnings", []), "ai_insights": meta.get("ai_insights"),
@@ -220,6 +220,6 @@ def insights(cols: list[dict], rows: list[dict], group: str | None, measure: str
 def summary_for_ai(v: dict) -> str:
     """A compact description of a dataset (no raw rows beyond a few) for the AI to write insights from."""
     cols = [{k: c.get(k) for k in ("name", "type", "role", "distinct", "sample")} for c in v["columns"]]
-    return json.dumps({"title": v["title"], "rows": v["rows"], "columns": cols, "grouped_by": v["group"], "measure": v["measure"],
+    return json.dumps({"title": v["title"], "user_says_it_is": v.get("description", ""), "rows": v["rows"], "columns": cols, "grouped_by": v["group"], "measure": v["measure"],
                        "aggregation": v["agg"], "groups": v["series"][:25], "trend": v["trend"][-24:], "totals": v["totals"],
                        "computed_insights": v["insights"], "sample_rows": v["table"][:5]}, default=str)[:12000]

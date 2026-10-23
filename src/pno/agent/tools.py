@@ -50,9 +50,13 @@ TOOLS: list[dict] = [
      "parameters": {"type": "object", "properties": {"store": {"type": "string"}, "city": {"type": "string"}, "dept": {"type": "string"}}}},
     {"name": "sql", "description": "Run one read-only SQL SELECT for questions the other tools cannot answer. " + SQL_HELP,
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "month": {"type": "string"}}, "required": ["query"]}},
-    {"name": "chart", "description": "Show a chart under the answer. Use for comparisons and trends.",
+    {"name": "kpis", "description": "Show 3-5 headline figures as cards at the top of the answer.",
+     "parameters": {"type": "object", "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {
+         "label": {"type": "string"}, "value": {"type": "string"}, "sub": {"type": "string"},
+         "tone": {"type": "string", "enum": ["good", "warn", "bad", ""]}}, "required": ["label", "value"]}}}, "required": ["items"]}},
+    {"name": "chart", "description": "Show a chart under the answer: hbar for rankings, line for trends, donut for shares of a whole, bar for grouped comparisons.",
      "parameters": {"type": "object", "properties": {
-         "kind": {"type": "string", "enum": ["bar", "hbar", "line"]}, "title": {"type": "string"},
+         "kind": {"type": "string", "enum": ["bar", "hbar", "line", "donut"]}, "title": {"type": "string"},
          "labels": {"type": "array", "items": {"type": "string"}},
          "series": {"type": "array", "items": {"type": "object", "properties": {
              "name": {"type": "string"}, "values": {"type": "array", "items": {"type": "number"}}}}}},
@@ -74,7 +78,7 @@ TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: s
               "disciplinary cases and shift-roster coverage. Pass the question in plain English, for example 'weakest leaders in Lucky One', "
               "'turnover hotspots', 'compare Fortress and Emporium', 'brief me for the country review', 'which roles are at risk'.",
               "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}})
-TOOLS.insert(1, {"name": "datasets", "description": "Other tables the user imported that are not standard PNO reports (KPI sheets, "
+TOOLS.insert(1, {"name": "datasets", "description": "Other tables the user imported that are not standard P&O reports (KPI sheets, "
               "training lists, surveys…). Without 'title' lists them; with 'title' returns that table's columns, grouped totals and "
               "computed insights. Optional group_by and measure are column names.",
               "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "group_by": {"type": "string"},
@@ -186,14 +190,16 @@ class Toolbox:
         from ..po import privacy
         from ..po.analyst import PoAnalyst, to_markdown
         ins = self.svc.api._po()
+        if ins.empty:
+            return {"answer": "The P&O workbook has not been imported yet."}
         privacy.set_demo_mode(self.anon or self.svc.api._hide())
         try:
-            html = PoAnalyst(ins).answer(question or "brief me for the country review")
+            an = PoAnalyst(ins)
+            html = an.answer(question or "brief me for the country review") or an.country_brief()
         finally:
             privacy.set_demo_mode(self.svc.api._hide())
-        if not html:
-            html = PoAnalyst(ins).country_brief() if not ins.empty else None
-        return {"answer": to_markdown(html) if html else "The P&O workbook has not been imported yet."}
+        self.blocks.extend(an.blocks[:3])
+        return {"answer": to_markdown(html), "note": "Key figures and a chart for this are already shown under your answer."}
 
     def t_overview(self, month=None, **kw) -> dict:
         sc = self._scope(kw)
@@ -282,7 +288,14 @@ class Toolbox:
         finally:
             con.close()
 
-    def t_chart(self, kind, title, labels, series) -> dict:
+    def t_kpis(self, items, **kw) -> dict:
+        clean = [{"label": str(k.get("label", ""))[:40], "value": str(k.get("value", ""))[:24], "sub": str(k.get("sub", "") or "")[:60],
+                  "tone": k.get("tone") if k.get("tone") in ("good", "warn", "bad") else ""} for k in (items or [])[:6] if isinstance(k, dict)]
+        if clean:
+            self.blocks.insert(0, {"type": "kpis", "items": clean})
+        return {"ok": True, "shown": len(clean)}
+
+    def t_chart(self, kind, title, labels, series, **kw) -> dict:
         labels = [str(x) for x in labels][:40]
         clean = []
         for s in series[:4]:
@@ -293,7 +306,7 @@ class Toolbox:
                 except (TypeError, ValueError):
                     vals.append(None)
             clean.append({"name": str(s.get("name", "")), "values": vals})
-        self.blocks.append({"type": "chart", "kind": kind if kind in ("bar", "hbar", "line") else "bar", "title": str(title),
+        self.blocks.append({"type": "chart", "kind": kind if kind in ("bar", "hbar", "line", "donut") else "bar", "title": str(title),
                             "labels": labels, "series": clean})
         return {"shown": True}
 

@@ -116,6 +116,7 @@ def test_click_everything(app):
         # ---------------------------------------------------------------- filters, month, compare
         page.select_option("select[data-scope=city]", "LAH")
         settle()
+        page.locator("[data-act=more-filters]").click()
         page.select_option("select[data-scope=format]", "HM")
         settle()
         page.locator("select[data-scope=store_id]").select_option(index=1)
@@ -222,15 +223,15 @@ def test_click_everything(app):
         # ---------------------------------------------------------------- ask
         go("ask")
         page.locator("[data-act=ask-sugg]").first.click()
-        page.wait_for_selector(".msg.a .meta", timeout=30000)
+        page.wait_for_selector(".amsg .ameta", timeout=30000)
         settle()
-        person = page.evaluate("Object.values(document.querySelectorAll('.msg.a table td')).map(t=>t.textContent)[1]") or ""
+        person = page.evaluate("Object.values(document.querySelectorAll('.amsg td')).map(t=>t.textContent)[1]") or ""
         page.fill("#askq", "Top 5 section managers")
         page.keyboard.press("Enter")
-        page.wait_for_function("document.querySelectorAll('.msg.a .meta').length >= 2", timeout=30000)
+        page.wait_for_function("document.querySelectorAll('.amsg .ameta').length >= 2", timeout=30000)
         page.fill("#askq", "Who was absent the most this month?")
         page.locator("[data-act=ask-send]").click()
-        page.wait_for_function("document.querySelectorAll('.msg.a .meta').length >= 3", timeout=30000)
+        page.wait_for_function("document.querySelectorAll('.amsg .ameta').length >= 3", timeout=30000)
         page.fill("#askq", "Add 23 September 2026 as Eid holiday")
         page.locator("[data-act=ask-send]").click()
         page.wait_for_selector("[data-act=confirm]", timeout=30000)

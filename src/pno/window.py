@@ -22,7 +22,7 @@ from .paths import exports_dir, resource
 FILTERS = {
     "reports": "Reports (*.xlsx *.xlsm *.xls *.csv *.txt *.tsv);;All files (*)",
     "gguf": "AI model (*.gguf)",
-    "backup": "PNO backup (*.sqlite3 *.db);;All files (*)",
+    "backup": "P&O backup (*.sqlite3 *.db);;All files (*)",
     "pdf": "PDF (*.pdf)",
     "pptx": "PowerPoint (*.pptx)",
     "xlsx": "Excel (*.xlsx)",
@@ -84,7 +84,7 @@ class QtHost(Host):
         self.window = window
 
     def pick_files(self, kind: str = "reports") -> list[str]:
-        title = {"reports": "Choose report files", "gguf": "Choose an AI model file", "backup": "Choose a PNO backup"}.get(kind, "Choose files")
+        title = {"reports": "Choose report files", "gguf": "Choose an AI model file", "backup": "Choose a P&O backup"}.get(kind, "Choose files")
         start = str(Path.home() / ("Downloads" if kind != "backup" else "Documents"))
         if kind == "reports":
             paths, _ = QFileDialog.getOpenFileNames(self.window, title, start, FILTERS["reports"])
@@ -167,7 +167,7 @@ class View(QWebEngineView):
 class MainWindow(QMainWindow):
     def __init__(self, db: Database, profile_dir: Path | None = None):
         super().__init__()
-        self.setWindowTitle("PNO · People & Performance")
+        self.setWindowTitle("P&O · People & Organisation")
         icon = resource("assets", "pno.ico")
         if icon.exists():
             self.setWindowIcon(QIcon(str(icon)))

@@ -26,7 +26,7 @@ def test_old_app_database_is_kept_aside_and_imports_work(tmp_path, demo):
     old.close()
 
     db = Database(path)
-    assert "earlier version of PNO" in db.notice
+    assert "earlier version of P&O" in db.notice
     kept = list(tmp_path.glob("pno-previous-version-*.sqlite3"))
     assert len(kept) == 1
     k = sqlite3.connect(kept[0])

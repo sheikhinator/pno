@@ -18,7 +18,7 @@ from .base import KIND_LABEL, ParseResult
 PARSERS = [("sales", sales), ("productivity", productivity), ("attendance", attendance), ("roster", roster), ("leave", leave),
            *po_tabs.PARSERS]
 KIND_LABEL.update(po_tabs.LABELS)
-KIND_LABEL["dataset"] = "Other data (Data explorer)"
+KIND_LABEL["dataset"] = "Other data (charts & insights)"
 PO_MIRROR = {"sales": ("po_sales", po_store.sales_records), "productivity": ("po_productivity", po_store.productivity_records),
              "roster": ("po_master", po_store.master_records)}
 
@@ -58,7 +58,8 @@ def analyze_workbook(wb: Workbook, force_kind: str | None = None) -> dict:
             results.append(res)
         else:
             skipped.append(sh.name)
-    return {"file": wb.name, "hash": wb.file_hash, "results": results, "skipped": skipped, "warnings": wb.warnings}
+    return {"file": wb.name, "hash": wb.file_hash, "results": results, "skipped": skipped, "warnings": wb.warnings,
+            "sheets": {sh.name: sh for sh in wb.sheets}}
 
 
 def analyze_path(path: str | Path) -> dict:
@@ -73,9 +74,13 @@ def analyze_text(text: str, name: str = "Pasted data") -> dict:
     return analyze_workbook(from_text(text, name))
 
 
+CHOOSABLE = ["roster", "attendance", "productivity", "sales", "leave", "po_rating", "po_role", "po_shift", "po_turnover",
+             "po_da", "po_nps", "po_shrink", "dataset"]
+
+
 def describe(analysis: dict) -> dict:
     """What the import screen shows before saving."""
-    return {
+    return {"kinds": [{"value": k, "label": KIND_LABEL[k]} for k in CHOOSABLE],
         "file": analysis["file"], "skipped": analysis["skipped"], "warnings": analysis["warnings"],
         "results": [{"kind": r.kind, "label": KIND_LABEL[r.kind], "sheet": r.sheet, "rows": len(r.rows), "month": r.month,
                      "as_of": r.as_of, "summary": r.summary, "warnings": r.warnings, "needs": r.needs,
@@ -93,7 +98,32 @@ def commit(db: Database, analysis: dict, options: dict | None = None, source: st
     return out
 
 
+def reparse(analysis: dict, res: ParseResult, kind: str) -> ParseResult:
+    """The user said what a sheet is: read it again with that report's reader (or as general data)."""
+    sheet = (analysis.get("sheets") or {}).get(res.sheet)
+    if sheet is None or kind == res.kind:
+        return res
+    if kind == "dataset":
+        new = generic.parse(sheet)
+    else:
+        mod = dict(PARSERS).get(kind)
+        if mod is None:
+            raise ValueError(f"Unknown report type: {kind}")
+        if mod.score(sheet)[0] <= 0:
+            raise ValueError(f"'{res.sheet}' does not have the columns of a {KIND_LABEL.get(kind, kind)}. "
+                             "Choose another type or 'Other data'.")
+        new = mod.parse(sheet, analysis["file"]) if kind == "productivity" else mod.parse(sheet)
+    if not new.rows:
+        raise ValueError(f"No rows could be read from '{res.sheet}' as {KIND_LABEL.get(kind, kind)}.")
+    return new
+
+
 def _commit_one(db: Database, res: ParseResult, analysis: dict, opt: dict, source: str) -> dict:
+    if opt.get("kind") and opt["kind"] != res.kind:
+        res = reparse(analysis, res, opt["kind"])
+    if res.kind == "dataset" and (opt.get("title") or opt.get("note")):
+        res.extra = {**res.extra, **({"title": opt["title"].strip()[:80]} if opt.get("title") else {}),
+                     **({"user_description": opt["note"].strip()[:600]} if opt.get("note") else {})}
     month = opt.get("month") or res.month
     as_of = opt.get("as_of") or res.as_of
     if res.kind == "roster" and not as_of:
@@ -121,7 +151,8 @@ def _commit_one(db: Database, res: ParseResult, analysis: dict, opt: dict, sourc
         cur = db.conn.execute(
             "INSERT INTO imports(kind, file_name, file_hash, month, as_of, rows, summary, warnings, source, created_at) "
             "VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (res.kind, analysis["file"], analysis["hash"], month, as_of, len(res.rows), f"{res.summary} [{res.sheet}]",
+            (res.kind, analysis["file"], analysis["hash"], month, as_of, len(res.rows),
+             (f"{opt['note'].strip()[:200]} · " if opt.get("note") else "") + f"{res.summary} [{res.sheet}]",
              json.dumps(res.warnings), source, now()))
         iid = cur.lastrowid
         if dup and opt.get("replace"):

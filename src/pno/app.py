@@ -170,7 +170,7 @@ def selftest(log_path: str) -> int:
         win = MainWindow(db)
         win.resize(1440, 900)
         win.show()
-        pages = ["home", "people", "performance", "stores", "attendance", "org", "review", "talent", "retention", "shifts",
+        pages = ["home", "review", "stores", "people", "performance", "org", "talent", "attendance", "retention", "nps", "shifts",
                  "data", "ask", "import", "settings"]
         state = {"i": -1, "errors": [], "t0": time.time(), "visited": []}
 
@@ -198,7 +198,7 @@ def selftest(log_path: str) -> int:
             state["i"] += 1
             if state["i"] >= len(pages):
                 return app.exit(0 if not state["errors"] else 1)
-            js(f"document.querySelector('#nav [data-go=\"{pages[state['i']]}\"]').click(); 1",
+            js(f"go('{pages[state['i']]}'); 1",
                lambda _: QTimer.singleShot(600, step))
 
         QTimer.singleShot(500, step)
@@ -255,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
         win.show()
     except Exception as e:
         traceback.print_exc()
-        QMessageBox.critical(None, "PNO could not start", f"{e}\n\nYour data was not changed.")
+        QMessageBox.critical(None, "P&O could not start", f"{e}\n\nYour data was not changed.")
         return 1
     code = app.exec()
     db.close()

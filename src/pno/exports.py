@@ -349,6 +349,17 @@ def _pack_po(db, mm, rep, scope, emp, store_id, hide):
         rep["sections"].append({"type": "table", "title": "Turnover hotspots · last 12 months", "columns": [
             ("Store", "store", ""), ("Section", "section", ""), ("Leavers", "n", "int")],
             "rows": [{"store": s, "section": sec, "n": n} for s, sec, n in t["hotspots"]]})
+    nps_rows = [r for r in ins.rows("po_nps") if r.get("nps") is not None and r.get("year")]
+    if nps_rows:
+        latest = max(r["year"] for r in nps_rows)
+        cats = {}
+        for r in nps_rows:
+            cats.setdefault((r["city"], r["category"], r["section"]), {})[r["year"]] = r["nps"]
+        rep["sections"].append({"type": "table", "title": f"Customer NPS · {latest} (change vs previous year)", "columns": [
+            ("City", "city", ""), ("Section", "section", ""), ("Category", "category", ""), ("NPS", "nps", "int"), ("Change", "chg", "signed")],
+            "rows": sorted(({"city": c, "section": sec, "category": cat, "nps": v.get(latest),
+                             "chg": (v[latest] - v[latest - 1]) if latest in v and (latest - 1) in v else None}
+                            for (c, cat, sec), v in cats.items() if latest in v), key=lambda x: -(x["nps"] or 0))})
     gaps = ins.roster_summary().get("gaps", [])
     if gaps:
         rep["sections"].append({"type": "table", "title": "Roster coverage gaps (all department leaders off)", "columns": [
@@ -356,7 +367,7 @@ def _pack_po(db, mm, rep, scope, emp, store_id, hide):
 
 
 def file_name(rep: dict, fmt: str) -> str:
-    base = re.sub(r"[^\w\- ]+", "", f"PNO {rep['title']} {rep['month_label']}").strip()
+    base = re.sub(r"[^\w\-& ]+", "", f"P&O {rep['title']} {rep['month_label']}").strip()
     if fmt not in ("pdf", "pptx", "xlsx"):
         raise ValueError("Choose PDF, PowerPoint or Excel.")
     return f"{base}.{fmt}"
@@ -385,7 +396,7 @@ def render_xlsx(rep: dict, path: str) -> None:
     ws = wb.add_worksheet("Summary")
     ws.set_column(0, 0, 28)
     ws.set_column(1, 6, 22)
-    ws.write(0, 0, f"PNO · {rep['title']}", title)
+    ws.write(0, 0, f"P&O · {rep['title']}", title)
     ws.write(1, 0, rep.get("subtitle") or f"{rep['scope']} · {rep['month_label']}", sub)
     ws.write(2, 0, f"Generated {rep['generated']} · Confidential – HR" + (" · names hidden" if rep["hide"] else ""), sub)
     r = 4
@@ -498,7 +509,7 @@ def render_pdf(rep: dict, path: str) -> None:
     def esc(s):
         return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    story: list = [Paragraph(f"PNO · {esc(rep['title'])}", st_title),
+    story: list = [Paragraph(f"P&amp;O · {esc(rep['title'])}", st_title),
                    Paragraph(esc(rep.get("subtitle") or f"{rep['scope']} · {rep['month_label']}"), st_sub), Spacer(1, 6 * mm)]
 
     def kpis(items):
@@ -612,7 +623,7 @@ def render_pdf(rep: dict, path: str) -> None:
         canvas.rect(0, page[1] - 9.8 * mm, page[0], 0.8 * mm, stroke=0, fill=1)
         canvas.setFillColor(colors.white)
         canvas.setFont("Helvetica-Bold", 10)
-        canvas.drawString(15 * mm, page[1] - 6 * mm, "PNO  ·  People & Performance")
+        canvas.drawString(15 * mm, page[1] - 6 * mm, "P&O  ·  People & Organisation  ·  Majid Al Futtaim")
         canvas.setFont("Helvetica", 8.5)
         canvas.drawRightString(page[0] - 15 * mm, page[1] - 6 * mm, f"{rep['scope']}  ·  {rep['month_label']}")
         canvas.setFillColor(C(MUTED))
@@ -622,7 +633,7 @@ def render_pdf(rep: dict, path: str) -> None:
         canvas.restoreState()
 
     doc = SimpleDocTemplate(path, pagesize=page, leftMargin=15 * mm, rightMargin=15 * mm, topMargin=16 * mm, bottomMargin=14 * mm,
-                            title=f"PNO {rep['title']}", author="PNO")
+                            title=f"P&O {rep['title']}", author="P&O")
     doc.build(story, onFirstPage=deco, onLaterPages=deco)
 
 
@@ -674,14 +685,14 @@ def render_pptx(rep: dict, path: str) -> None:
         text(sl, Inches(8.5), Inches(0.28), Inches(4.4), Inches(0.5), f"{rep['scope']} · {rep['month_label']}", 11, False, "#F2E8DC", PP_ALIGN.RIGHT)
         if sub:
             text(sl, Inches(0.5), Inches(1.05), Inches(12), Inches(0.4), sub, 12, False, MUTED)
-        text(sl, Inches(0.5), SH - Inches(0.45), Inches(8), Inches(0.3), "PNO · Confidential – HR" + (" · names hidden" if rep["hide"] else ""), 9, False, MUTED)
+        text(sl, Inches(0.5), SH - Inches(0.45), Inches(8), Inches(0.3), "P&O · Confidential – HR" + (" · names hidden" if rep["hide"] else ""), 9, False, MUTED)
         return sl
 
     # title slide
     sl = prs.slides.add_slide(blank)
     box(sl, 0, 0, SW, SH, BROWN)
     box(sl, Inches(0.8), Inches(3.55), Inches(1.4), Inches(0.08), GOLD)
-    text(sl, Inches(0.8), Inches(1.6), Inches(11), Inches(1.0), "PNO · People & Performance", 18, False, "#D7A23A")
+    text(sl, Inches(0.8), Inches(1.6), Inches(11), Inches(1.0), "P&O · People & Organisation", 18, False, "#D7A23A")
     text(sl, Inches(0.8), Inches(2.2), Inches(11.5), Inches(1.3), rep["title"], 40, True, "#FFFFFF")
     text(sl, Inches(0.8), Inches(3.8), Inches(11.5), Inches(0.8), rep.get("subtitle") or f"{rep['scope']} · {rep['month_label']}", 18, False, "#F2E8DC")
     text(sl, Inches(0.8), Inches(6.6), Inches(11.5), Inches(0.5), f"Generated {rep['generated']} · Confidential – HR", 11, False, "#BFAE9C")

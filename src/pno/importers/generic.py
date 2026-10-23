@@ -161,12 +161,23 @@ def parse(sheet: Sheet) -> ParseResult:
     cols = profile(names, raw)
     keep = [j for j, c in enumerate(cols) if c["type"] != "empty"]
     first_text = next((j for j in keep if cols[j]["type"] == "text"), None)
-    totals = 0
+    totals = repeats = dupes = 0
     rows = []
+    header_key = [norm(c) for c in sheet.rows[hi]]
+    seen_rows: set = set()
     for r in raw:
         if first_text is not None and first_text < len(r) and TOTAL_RX.search(norm(r[first_text])):
             totals += 1
             continue
+        if [norm(c) for c in r][:len(header_key)] == header_key[:len(r)] or \
+                sum(1 for a, b in zip([norm(c) for c in r], header_key) if a and a == b) >= max(2, len([h for h in header_key if h]) * 0.6):
+            repeats += 1                          # the header printed again (one block per store): not data
+            continue
+        sig = tuple(clean_text(c) for c in r)
+        if sig in seen_rows:
+            dupes += 1
+            continue
+        seen_rows.add(sig)
         rec = {}
         for j in keep:
             v = r[j] if j < len(r) else None
@@ -190,10 +201,14 @@ def parse(sheet: Sheet) -> ParseResult:
     res.extra = {"columns": cols, "title": sheet.name, "header_row": hi + 1}
     if totals:
         res.warn(f"{totals} total / subtotal row(s) were left out so nothing is counted twice.")
+    if repeats:
+        res.warn(f"{repeats} repeated header row(s) were removed.")
+    if dupes:
+        res.warn(f"{dupes} exact duplicate row(s) were removed.")
     roles = [c["role"] for c in cols if c["role"]]
     measures = [c["name"] for c in cols if c["type"] in ("number", "percent")]
     res.summary = (f"{len(rows):,} rows · {len(cols)} columns" + (f" · understood: {', '.join(sorted(set(roles)))}" if roles else "")
                    + (f" · {len(measures)} numeric" if measures else ""))
-    res.warn("Not one of PNO's standard reports: saved as a dataset for the Data explorer (charts and insights).")
+    res.warn("Not one of P&O's standard reports: kept under Other data with charts and insights.")
     res.preview = rows[:8]
     return res

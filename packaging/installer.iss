@@ -2,7 +2,7 @@
 ; Built by .github/workflows/build.yml:  ISCC /DAppVersion=1.0.0 /DSourceDir=dist\PNO packaging\installer.iss
 
 #ifndef AppVersion
-  #define AppVersion "1.2.0"
+  #define AppVersion "1.3.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\dist\PNO"
@@ -10,12 +10,12 @@
 
 [Setup]
 AppId={{6C1D2B7E-4F0A-4E8B-9C3D-2A7F5B1E9D40}
-AppName=PNO - People & Performance
+AppName=P&O - People & Organisation
 AppVersion={#AppVersion}
-AppVerName=PNO {#AppVersion}
-AppPublisher=PNO
+AppVerName=P&O {#AppVersion}
+AppPublisher=Majid Al Futtaim · P&O
 DefaultDirName={localappdata}\Programs\PNO
-DefaultGroupName=PNO
+DefaultGroupName=P&O
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputBaseFilename=PNO-Setup-{#AppVersion}
@@ -36,9 +36,9 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\PNO"; Filename: "{app}\PNO.exe"
-Name: "{group}\Uninstall PNO"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\PNO"; Filename: "{app}\PNO.exe"; Tasks: desktopicon
+Name: "{group}\P&O"; Filename: "{app}\PNO.exe"
+Name: "{group}\Uninstall P&O"; Filename: "{uninstallexe}"
+Name: "{userdesktop}\P&O"; Filename: "{app}\PNO.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\PNO.exe"; Description: "Open PNO now"; Flags: nowait postinstall skipifsilent

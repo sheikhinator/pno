@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import math
 import threading
 import traceback
@@ -595,7 +596,7 @@ class Api:
         """AI-written insights for a dataset (from computed summaries, not raw files); built-in insights otherwise."""
         from .po import explorer
         v = explorer.view(self.db, int(import_id))
-        prompt = ("You are an HR and retail analyst at Carrefour Pakistan. Below is a table imported into PNO, already summarised. "
+        prompt = ("You are an HR and retail analyst at Carrefour Pakistan. Below is a table imported into P&O, already summarised. "
                   "Write 4-7 short, specific insights a P&O director would act on, as markdown bullets, using only these numbers. "
                   "Then one line starting 'Title:' with a short title for the table and one line starting 'About:' describing "
                   "what the table contains in one sentence." + (f" Focus on: {question}" if question else "") +
@@ -623,7 +624,9 @@ class Api:
                 meta, rows = explorer.load(self.db, iid)
                 cols = [{"name": c["name"], "type": c["type"], "guess": c.get("role", ""), "sample": c.get("sample", [])}
                         for c in meta.get("columns", [])]
-                prompt = ("Columns of a table imported into a retail HR analytics app, with sample values. Reply with JSON only: "
+                note = meta.get("user_description", "")
+                prompt = ("Columns of a table imported into a retail HR analytics app, with sample values." +
+                          (f" The user describes it as: {note}." if note else "") + " Reply with JSON only: "
                           '{"title": short title, "about": one sentence, "roles": {column name: one of store, section, department, '
                           "employee_id, employee_name, designation, manager, city, date, month, actual, budget, target, last_year, "
                           'forecast, count, score, reason, type or ""}}.\n' + json.dumps(cols, default=str)[:6000])
@@ -637,10 +640,67 @@ class Api:
                     r = roles.get(c["name"])
                     if r and not c.get("role"):
                         c["role"] = r
-                self._dataset_meta_save(iid, columns=meta["columns"], ai_title=str(data.get("title") or "")[:80],
+                self._dataset_meta_save(iid, columns=meta["columns"], ai_title=(meta.get("title") if meta.get("user_description") and meta.get("title") else str(data.get("title") or ""))[:80],
                                         ai_description=str(data.get("about") or "")[:300])
             except Exception:  # noqa: BLE001 - labelling is optional
                 continue
+
+    def api_po_nps(self, city: str = "") -> dict:
+        from statistics import mean
+        ins = self._po()
+        rows = [r for r in ins.rows("po_nps") if r.get("nps") is not None and r.get("year")]
+        if not rows:
+            return {"has_data": False}
+        years = sorted({r["year"] for r in rows})
+        latest, prev = years[-1], (years[-2] if len(years) > 1 else None)
+        cities = sorted({r["city"] for r in rows})
+        sections = [s for s in ("Beverages", "DPH", "Grocery", "OPSS", "Bakery", "Butchery", "Fishery", "Deli", "Fruits & Vegetables",
+                                "Light Household", "Heavy Household", "Textile", "Myli") if any(r["section"] == s for r in rows)]
+        sections += sorted({r["section"] for r in rows} - set(sections))
+
+        def avg(items):
+            vals = [r["nps"] for r in items]
+            return round(mean(vals), 1) if vals else None
+
+        def pick(c=None, sec=None, y=None):
+            return [r for r in rows if (c is None or r["city"] == c) and (sec is None or r["section"] == sec) and (y is None or r["year"] == y)]
+
+        matrix = [[avg(pick(c, sec, latest)) for sec in sections] for c in cities]
+        change = [[(lambda a, b: None if a is None or b is None else round(a - b, 1))(avg(pick(c, sec, latest)), avg(pick(c, sec, prev)) if prev else None)
+                   for sec in sections] for c in cities]
+        scope = city if city in cities else ""
+        cats = []
+        for cat in sorted({r["category"] for r in pick(scope or None)}):
+            now_ = avg([r for r in pick(scope or None, None, latest) if r["category"] == cat])
+            before = avg([r for r in pick(scope or None, None, prev) if r["category"] == cat]) if prev else None
+            sec = next((r["section"] for r in rows if r["category"] == cat), "")
+            if now_ is not None or before is not None:
+                cats.append({"category": cat, "section": sec, "nps": now_, "prev": before,
+                             "change": None if now_ is None or before is None else round(now_ - before, 1)})
+        ranked = sorted([c for c in cats if c["nps"] is not None], key=lambda c: -c["nps"])
+        movers = sorted([c for c in cats if c["change"] is not None], key=lambda c: c["change"])
+        overall = avg(pick(scope or None, None, latest))
+        overall_prev = avg(pick(scope or None, None, prev)) if prev else None
+        insights = []
+        if overall is not None:
+            insights.append(f"{'Overall' if not scope else scope} NPS {latest}: **{overall:+.0f}**" +
+                            (f", {overall - overall_prev:+.0f} vs {prev}." if overall_prev is not None else "."))
+        if ranked:
+            insights.append(f"Best: **{ranked[0]['category']}** ({ranked[0]['nps']:+.0f}); weakest: **{ranked[-1]['category']}** ({ranked[-1]['nps']:+.0f}).")
+        if movers:
+            insights.append(f"Biggest drop: **{movers[0]['category']}** ({movers[0]['change']:+.0f}); biggest gain: **{movers[-1]['category']}** ({movers[-1]['change']:+.0f}).")
+        neg = [c["category"] for c in ranked if c["nps"] < 0]
+        if neg:
+            insights.append(f"{len(neg)} categor{'y has' if len(neg) == 1 else 'ies have'} more detractors than promoters: {', '.join(neg[:5])}.")
+        missing = [c for c in cities if not any(r["city"] == c for r in pick(None, None, latest))]
+        if missing:
+            insights.append(f"No {latest} survey yet for: {', '.join(missing)}.")
+        by_city = [{"city": c, "nps": avg(pick(c, None, latest)), "prev": avg(pick(c, None, prev)) if prev else None,
+                    "stores": [st for st in ins.stores() if __import__("pno.po.canon", fromlist=["x"]).store_city(st) == c]} for c in cities]
+        return {"has_data": True, "years": years, "latest": latest, "prev": prev, "cities": cities, "city": scope, "sections": sections,
+                "matrix": matrix, "change": change, "categories": cats, "best": ranked[:5], "worst": ranked[-5:][::-1],
+                "drops": movers[:5], "gains": movers[-5:][::-1], "overall": overall, "overall_prev": overall_prev,
+                "by_city": by_city, "insights": insights}
 
     def api_po_weights(self, weights: dict | None = None, reset: bool = False) -> dict:
         from .po.insights import DEFAULT_WEIGHTS, WEIGHT_LABELS
@@ -658,7 +718,7 @@ class Api:
 
     # ---------------------------------------------------------------- backup / demo
     def api_backup(self) -> dict:
-        path = self.host.save_path(f"PNO backup {date.today():%Y-%m-%d}.sqlite3", "backup")
+        path = self.host.save_path(f"P&O backup {date.today():%Y-%m-%d}.sqlite3", "backup")
         if not path:
             return {"cancelled": True}
         self.db.backup(path)
@@ -702,6 +762,19 @@ class Api:
 
     def api_agent_confirm(self, action_id: str, approve: bool = True) -> dict:
         return self.agent.confirm(action_id, approve)
+
+    def api_agent_upload(self, files: list) -> dict:
+        """Files dropped or pasted into the chat (browser side): kept in the data folder for the assistant to read."""
+        import base64
+        folder = data_dir() / "chat-files"
+        folder.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for f in files[:10]:
+            name = re.sub(r"[^\w.\- ]+", "_", str(f.get("name") or "file"))[:80] or "file"
+            path = folder / f"{uuid.uuid4().hex[:6]}-{name}"
+            path.write_bytes(base64.b64decode(f["b64"]))
+            paths.append(str(path))
+        return {"paths": paths}
 
     def api_agent_attach(self) -> dict:
         paths = self.host.pick_files("reports")

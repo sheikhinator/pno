@@ -59,10 +59,21 @@ def _c(value_text: str, color: str) -> str:
 class PoAnalyst:
     def __init__(self, insights: Insights):
         self.i = insights
+        self.blocks: list[dict] = []          # KPI cards and charts shown with the answer
+
+    def _kpis(self, items: list[tuple[str, str, str, str]]) -> None:
+        self.blocks.append({"type": "kpis", "items": [{"label": l, "value": v, "sub": s, "tone": t} for l, v, s, t in items]})
+
+    def _chart(self, kind: str, title: str, labels: list, values: list, name: str = "", fmt: str = "num", ref=None, tone: str = "") -> None:
+        pairs = [(str(l), float(v)) for l, v in zip(labels, values) if v is not None]
+        if len(pairs) >= 2:
+            self.blocks.append({"type": "chart", "kind": kind, "title": title, "labels": [p[0] for p in pairs][:25],
+                                "series": [{"name": name, "values": [round(p[1], 2) for p in pairs][:25]}], "fmt": fmt, "ref": ref, "tone": tone})
 
     # ---------------------------------------------------------- routing --
 
     def answer(self, question: str) -> str | None:
+        self.blocks = []
         if self.i.empty:
             return None
         q = f" {question.casefold().strip()} "
@@ -79,6 +90,8 @@ class PoAnalyst:
             return self.compare(stores[:3])
         if re.search(r"bench|succession|roles?\b.*\bat risk|acting|\bdoa\b|not in system|new in role", q):
             return self.bench()
+        if re.search(r"\bnps\b|net promoter|customer score|promoter|detractor|satisfaction", q):
+            return self.nps(stores[0] if stores else None)
         if re.search(r"talent|9.?box|nine.?box|stars?\b|high potential", q):
             return self.talent()
         if re.search(r"roster|shift|leave|day off|coverage|evening|morning", q) and not wants_rank:
@@ -155,6 +168,13 @@ class PoAnalyst:
         if leaders:
             lines.append(f"Strongest leader on the leader index: <b>{escape(leader_name(leaders[0]))}</b> ({escape(leaders[0].store)}, {escape(leaders[0].section_text)}, {score_text(leaders[0].score)}).")
         alerts = self.i.alerts(4)
+        lvl = lambda v, g, b: "good" if v is not None and v >= g else ("bad" if v is not None and v <= b else "warn")  # noqa: E731
+        self._kpis([("Sales MTD", money(h["sales"]), f"{pct(h['sales_vs_budget_pct'])} of budget", lvl(h["sales_vs_budget_pct"], 100, 92)),
+                    ("Growth vs LY", pct(h["growth_pct"], True), "all stores", lvl(h["growth_pct"], 5, 0)),
+                    ("Productivity vs target", pct(h["productivity_vs_target_pct"], True), "average", lvl(h["productivity_vs_target_pct"], 0, -10)),
+                    ("Stores on track", f"{h['stores_on_track']}/{h['stores']}", f"{h['stores_at_risk']} at risk", "good" if not h["stores_at_risk"] else "warn"),
+                    ("Leavers 12m", number(h["leavers_12m"]), f"{pct(h['voluntary_pct'], digits=0)} voluntary", "")])
+        self._chart("hbar", "Sales vs budget by store (%)", [c["store"] for c in ranked], [c["sales_vs_budget_pct"] for c in ranked], "% of budget", "pct0", 100)
         out = _h(f"Country brief · data as of {h['as_of']:%d %b %Y}") + _li(lines)
         if alerts:
             out += _h("Top priorities") + _li([f"<b>{escape(a['store'])}</b> · {escape(a['message'])}" for a in alerts])
@@ -176,6 +196,12 @@ class PoAnalyst:
         if card.get("nps") is not None:
             lines.append(f"Customer NPS ({escape(card['city'])}): {number(card['nps'], 0)}")
         leaders = sorted((l for l in self.i.leaders() if l.store == store_name and l.score is not None), key=lambda l: -l.score)
+        self._kpis([("Sales vs budget", pct(card["sales_vs_budget_pct"], digits=0), money(card["sales"]), "good" if (card["sales_vs_budget_pct"] or 0) >= 100 else "bad"),
+                    ("Growth vs LY", pct(card["growth_pct"], True), "", "good" if (card["growth_pct"] or 0) >= 0 else "bad"),
+                    ("Productivity vs target", pct(card["productivity_vs_target_pct"], True, 0), number(card["productivity"]), "good" if (card["productivity_vs_target_pct"] or 0) >= 0 else "bad"),
+                    ("Status", card["status"], f"{card['leaders']} leaders", {"On track": "good", "Watch": "warn", "At risk": "bad"}.get(card["status"], ""))])
+        if leaders:
+            self._chart("hbar", f"{store_name} · leader index (out of 10)", [leader_name(l) for l in leaders[:15]], [l.score / 10 for l in leaders[:15]], "Index", "score")
         out = _h(f"{store_name} · store brief") + _li(lines)
         if leaders:
             out += _h("Leaders by leader index") + _li([
@@ -199,6 +225,9 @@ class PoAnalyst:
             ("Leavers 12m", "leavers_12m", number), ("DA cases", "da_cases", number), ("Avg rating", "avg_rating", lambda v: number(v, 2)),
             ("Leader index", "avg_leader_score", score_text),
         ]
+        metrics = [("vs budget %", "sales_vs_budget_pct"), ("Growth %", "growth_pct"), ("Prod. vs target %", "productivity_vs_target_pct"), ("OOS %", "oos_pct")]
+        self.blocks.append({"type": "chart", "kind": "bar", "title": " vs ".join(stores), "labels": [m for m, _ in metrics], "fmt": "num",
+                            "series": [{"name": st, "values": [round(cards.get(st, {}).get(k) or 0, 1) for _, k in metrics]} for st in stores]})
         head = "<tr><th align='left'></th>" + "".join(f"<th align='left'>{escape(s)}</th>" for s in stores) + "</tr>"
         body = ""
         for label, key, fmt in rows:
@@ -234,6 +263,8 @@ class PoAnalyst:
                "avg_leader_score": score_text, "shrink_variance_avg": pp}.get(key, lambda v: pct(v, key.endswith("growth_pct") or "vs_target" in key))
         items = [f"<b>{escape(c['store'])}</b> — {fmt(c[key])}" for c in cards[:n]]
         title = f"Stores by {label.lower()}{suffix}"
+        self._chart("hbar", title, [c["store"] for c in cards[:n]], [c[key] / (10 if key == "avg_leader_score" else 1) for c in cards[:n]], label,
+                    "pct" if key.endswith("pct") else "num", 100 if key == "sales_vs_budget_pct" else None, "signed" if key in ("growth_pct", "productivity_vs_target_pct", "shrink_variance_avg") else "")
         return _h(title) + "<ol>" + "".join(f"<li>{i}</li>" for i in items) + "</ol>"
 
     def rank_leaders(self, q: str, store_name: str | None) -> str:
@@ -258,6 +289,7 @@ class PoAnalyst:
             items.append(f"<b>{escape(leader_name(l))}</b> ({escape(l.store)}, {escape(l.section_text)}) — index "
                          f"{_c(score_text(l.score), tone(l.score, 70, 45))}{note}")
         title = ("Weakest" if weakest else "Top") + f" {min(n, len(leaders))} leaders{scope} by leader index"
+        self._chart("hbar", title + " (out of 10)", [leader_name(l) for l in leaders[:n]], [l.score / 10 for l in leaders[:n]], "Index", "score")
         return _h(title) + "<ol>" + "".join(f"<li>{i}</li>" for i in items) + "</ol>"
 
     @staticmethod
@@ -277,6 +309,11 @@ class PoAnalyst:
         alerts = [a for a in self.i.alerts() if store_name is None or a["store"] == store_name][:12]
         if not alerts:
             return _h("Nothing flagged") + "<p>No alert rules were triggered for this scope.</p>"
+        per: dict = {}
+        for a in [x for x in self.i.alerts() if store_name is None or x["store"] == store_name]:
+            per[a["store"]] = per.get(a["store"], 0) + (3 if a["severity"] == "High" else 1)
+        top = sorted(per.items(), key=lambda kv: -kv[1])[:12]
+        self._chart("hbar", "Attention points by store (high = 3, other = 1)", [k for k, _ in top], [v for _, v in top], "Points", "int")
         items = [f"<span style='color:{ {'High': BAD, 'Medium': WARN}.get(a['severity'], '#756E68') }'><b>{a['severity']}</b></span> · "
                  f"{escape(a['area'])} · <b>{escape(a['store'])}</b> — {escape(a['message'])}" for a in alerts]
         return _h("What needs attention" + (f" in {store_name}" if store_name else "")) + _li(items)
@@ -292,6 +329,10 @@ class PoAnalyst:
                 reasons[r["reason"]] = reasons.get(r["reason"], 0) + 1
             items = [f"{len(rows)} leavers in the last 12 months"] + [f"{escape(k)}: {v}" for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])[:5]]
             return _h(f"Turnover · {store_name}") + _li(items)
+        self._kpis([("Leavers 12m", str(t["total"]), f"{t['all_time']} on file", "warn"), ("Voluntary", pct(t["voluntary_pct"], digits=0), "resignations", ""),
+                    ("Top hotspot", t["hotspots"][0][0] if t["hotspots"] else "—", f"{t['hotspots'][0][1]}: {t['hotspots'][0][2]}" if t["hotspots"] else "", "bad")])
+        self._chart("donut", "Why people leave (last 12 months)", [r for r, _ in t["by_reason"][:7]], [n for _, n in t["by_reason"][:7]], "leavers", "int")
+        self._chart("hbar", "Leavers by store (last 12 months)", [s_ for s_, _ in t["by_store"][:12]], [n for _, n in t["by_store"][:12]], "Leavers", "int")
         lines = [
             f"<b>{t['total']}</b> leavers in the last 12 months ({pct(t['voluntary_pct'], digits=0)} voluntary).",
             "Top reasons: " + ", ".join(f"{escape(r)} ({n})" for r, n in t["by_reason"][:4]),
@@ -332,7 +373,33 @@ class PoAnalyst:
             return _h("Talent grid") + "<p>Leaders need both an appraisal rating and section results to be placed. Import the Performance Rating tab with full data.</p>"
         items = [f"<b>{escape(name)}</b>: " + ", ".join(escape(leader_name(l)) for l in members[:6]) + (" …" if len(members) > 6 else "")
                  for name, members in sorted(groups.items(), key=lambda kv: -len(kv[1]))]
+        order = sorted(groups.items(), key=lambda kv: -len(kv[1]))
+        self._chart("donut", "Leaders on the talent grid", [k for k, _ in order], [len(v) for _, v in order], "leaders", "int")
         return _h("Talent grid · rating vs results") + _li(items)
+
+    def nps(self, store_name: str | None) -> str:
+        rows = [r for r in self.i.rows("po_nps") if r.get("nps") is not None and r.get("year")]
+        if not rows:
+            return _h("Customer NPS") + "<p>The NPS sheet has not been imported.</p>"
+        city = canon.store_city(store_name) if store_name else ""
+        if city:
+            rows = [r for r in rows if r["city"] == city] or rows
+        latest = max(r["year"] for r in rows)
+        now_ = [r for r in rows if r["year"] == latest]
+        before = {(r["city"], r["category"]): r["nps"] for r in rows if r["year"] == latest - 1}
+        avg = sum(r["nps"] for r in now_) / len(now_)
+        ranked = sorted(now_, key=lambda r: -r["nps"])
+        moves = sorted(((r["nps"] - before[(r["city"], r["category"])], r) for r in now_ if (r["city"], r["category"]) in before), key=lambda t: t[0])
+        self._kpis([(f"Average NPS {latest}", f"{avg:+.0f}", city or "all cities", "good" if avg >= 50 else "warn" if avg >= 20 else "bad"),
+                    ("Best", ranked[0]["category"][:28], f"{ranked[0]['nps']:+.0f}", "good"), ("Weakest", ranked[-1]["category"][:28], f"{ranked[-1]['nps']:+.0f}", "bad")])
+        self._chart("hbar", f"NPS by category · {latest}", [r["category"][:40] for r in ranked], [r["nps"] for r in ranked], "NPS", "int", None, "signed")
+        lines = [f"Average NPS {latest}{' in ' + escape(city) if city else ''}: <b>{avg:+.0f}</b> across {len(now_)} categories.",
+                 "Best: " + ", ".join(f"<b>{escape(r['category'][:40])}</b> ({r['nps']:+.0f})" for r in ranked[:3]),
+                 "Weakest: " + ", ".join(f"<b>{escape(r['category'][:40])}</b> ({r['nps']:+.0f})" for r in ranked[-3:][::-1])]
+        if moves:
+            lines.append(f"Biggest drop vs {latest - 1}: <b>{escape(moves[0][1]['category'][:40])}</b> ({moves[0][0]:+.0f}); "
+                         f"biggest gain: <b>{escape(moves[-1][1]['category'][:40])}</b> ({moves[-1][0]:+.0f}).")
+        return _h("Customer NPS") + _li(lines)
 
     def explain_index(self) -> str:
         weights = self.i.weights

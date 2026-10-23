@@ -36,6 +36,11 @@ def answer(tb: Toolbox, question: str) -> str:
     ds = _dataset_answer(tb, q)
     if ds:
         return ds
+    if re.search(r"\bstores?\b", ql) and re.search(r"\b(rank|top|bottom|best|worst|weakest|highest|lowest|compare|vs|versus|below|above|need|attention)\b", ql) \
+            and re.search(r"sales|budget|growth|productiv|shrink|stock|oos|out of stock|margin|turnover|leaver|nps|attention|risk|index|\bvs\b|compare", ql):
+        po = _po_answer(tb, q)
+        if po:
+            return po
     if not person:                                   # P&O review topics (leaders, turnover, ratings, shrinkage, roster…)
         po = _po_answer(tb, q, only_if_topic=True)
         if po:
@@ -175,7 +180,7 @@ def _dataset_answer(tb: Toolbox, question: str) -> str | None:
             if any(n and len(n) >= 4 and n in q for n in names):
                 v = explorer.view(tb.db, d["id"])
                 return f"**{v['title']}** ({v['rows']:,} rows)\n\n" + "\n".join(f"- {i}" for i in v["insights"]) + \
-                    "\n\nOpen **Data explorer** to regroup it or chart another column."
+                    "\n\nOpen **Other data** to regroup it or chart another column."
     except Exception:
         return None
     return None
@@ -190,7 +195,10 @@ def _po_answer(tb: Toolbox, question: str, only_if_topic: bool = False) -> str |
         ins = tb.svc.api._po()
         if ins.empty:
             return None
-        html = PoAnalyst(ins).answer(question)
+        an = PoAnalyst(ins)
+        html = an.answer(question)
+        if html:
+            tb.blocks.extend(an.blocks[:3])
         return to_markdown(html) if html else None
     except Exception:
         return None

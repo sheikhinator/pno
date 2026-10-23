@@ -109,19 +109,23 @@
     const row = 30, P = { l: Math.min(190, Math.max(90, Math.max(...labels.map(l => String(l).length)) * 6.6 + 10)), r: 56, t: 6, b: 6 };
     const H = P.t + P.b + row * labels.length;
     const max = o.max != null ? o.max : Math.max(1e-9, ...vals.filter(v => v != null));
-    const xw = v => Math.max(0, (W - P.l - P.r) * (v || 0) / max);
+    const min = Math.min(0, ...vals.filter(v => v != null));             // negative values (e.g. NPS) draw left of zero
+    const span = Math.max(1e-9, max - min), x0 = P.l + (W - P.l - P.r) * (-min) / span;
+    const xw = v => Math.max(0, (W - P.l - P.r) * Math.abs(v || 0) / span);
     let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title || "bar chart")}">`;
-    if (o.ref != null && o.ref <= max) s += `<line class="ref-l" x1="${P.l + xw(o.ref)}" x2="${P.l + xw(o.ref)}" y1="0" y2="${H}"/>`;
+    if (min < 0) s += `<line class="ref-l" x1="${x0}" x2="${x0}" y1="0" y2="${H}"/>`;
+    if (o.ref != null && o.ref <= max) s += `<line class="ref-l" x1="${x0 + xw(o.ref)}" x2="${x0 + xw(o.ref)}" y1="0" y2="${H}"/>`;
     labels.forEach((l, i) => {
-      const yy = P.t + i * row, v = vals[i], bh = Math.min(18, row - 10), w = xw(v);
+      const yy = P.t + i * row, v = vals[i], bh = Math.min(18, row - 10), w = xw(v), neg = v != null && v < 0;
       const c = (o.colors && o.colors[i]) || o.color || SER[0];
       s += `<rect class="hit" data-i="${i}" x="0" y="${yy}" width="${W}" height="${row}" rx="6"/>`;
       s += `<text class="ax-lbl" x="${P.l - 10}" y="${yy + row / 2 + 4}" text-anchor="end">${esc(String(l).length > 28 ? String(l).slice(0, 27) + "…" : l)}</text>`;
       if (v != null && w > 0) {
-        const r = Math.min(4, w / 2);
-        s += `<path class="grow" style="transform-origin:${P.l}px 0;animation-delay:${i * 25}ms" d="M${P.l} ${yy + (row - bh) / 2} h${w - r} a${r} ${r} 0 0 1 ${r} ${r} v${bh - 2 * r} a${r} ${r} 0 0 1 -${r} ${r} h-${w - r}Z" fill="${c}" pointer-events="none"/>`;
+        const xs = neg ? x0 - w : x0;
+        s += `<rect class="grow" style="transform-origin:${x0}px 0;animation-delay:${i * 25}ms" x="${xs}" y="${yy + (row - bh) / 2}" width="${w}" height="${bh}" rx="${Math.min(4, w / 2)}" fill="${c}" pointer-events="none"/>`;
       }
-      s += `<text class="val" x="${P.l + w + 7}" y="${yy + row / 2 + 4}" pointer-events="none">${fmtv(v, o.fmt)}</text>`;
+      s += neg ? `<text class="val" x="${x0 - w - 7}" y="${yy + row / 2 + 4}" text-anchor="end" pointer-events="none">${fmtv(v, o.fmt)}</text>`
+        : `<text class="val" x="${x0 + w + 7}" y="${yy + row / 2 + 4}" pointer-events="none">${fmtv(v, o.fmt)}</text>`;
     });
     s += `</svg>`;
     el.innerHTML = `<div class="chart">${s}</div>`;
@@ -183,5 +187,25 @@
     return `<div class="ring" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--line-2)" stroke-width="7"/><circle id="${id}" class="arc" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${col}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C}"/></svg><div class="rv" style="font-size:${size / 3.4}px">${score == null ? "—" : score.toFixed(1)}${label ? `<small>${esc(label)}</small>` : ""}</div></div>`;
   }
 
-  window.Charts = { line, hbar, columns, ring, tip, fmtv, esc };
+  /* ---------------- donut (shares) ---------------- */
+  const PAL = ["#B8860B", "#94481A", "#2E7D4F", "#3B6EA8", "#D9822B", "#7A5C9E", "#5B9A63", "#B3261E", "#8C7B6B", "#2A9D8F"];
+  function donut(el, o) {
+    const labels = o.labels || [], vals = (o.values || []).map(v => Math.max(0, +v || 0));
+    const tot = vals.reduce((a, b) => a + b, 0);
+    if (!labels.length || !tot) { el.innerHTML = `<div class="empty" style="padding:30px">No data yet</div>`; return; }
+    const S = o.size || 190, R = S / 2 - 8, r = R * 0.62, cx = S / 2, cy = S / 2;
+    let a0 = -Math.PI / 2, paths = "";
+    vals.forEach((v, i) => {
+      const a1 = a0 + 2 * Math.PI * v / tot, big = a1 - a0 > Math.PI ? 1 : 0, c = (o.colors && o.colors[i]) || PAL[i % PAL.length];
+      const p = (ang, rad) => `${cx + rad * Math.cos(ang)} ${cy + rad * Math.sin(ang)}`;
+      if (v / tot > 0.9999) paths += `<circle cx="${cx}" cy="${cy}" r="${(R + r) / 2}" fill="none" stroke="${c}" stroke-width="${R - r}"/>`;
+      else paths += `<path class="hit-d" data-i="${i}" d="M${p(a0, R)} A${R} ${R} 0 ${big} 1 ${p(a1, R)} L${p(a1, r)} A${r} ${r} 0 ${big} 0 ${p(a0, r)}Z" fill="${c}"/>`;
+      a0 = a1;
+    });
+    const legend = labels.map((l, i) => `<div class="dl"><i style="background:${(o.colors && o.colors[i]) || PAL[i % PAL.length]}"></i><span>${esc(l)}</span><b>${fmtv(vals[i], o.fmt)}</b><small>${(100 * vals[i] / tot).toFixed(0)}%</small></div>`).join("");
+    el.innerHTML = `<div class="donut"><svg viewBox="0 0 ${S} ${S}" width="${S}" height="${S}">${paths}<text x="${cx}" y="${cy - 2}" text-anchor="middle" class="dv">${fmtv(tot, o.fmt)}</text><text x="${cx}" y="${cy + 16}" text-anchor="middle" class="dlab">${esc(o.center || "total")}</text></svg><div class="dlegend">${legend}</div></div>`;
+    el.querySelectorAll(".hit-d").forEach(pth => { const i = +pth.dataset.i; pth.addEventListener("mousemove", ev => tip(`<b>${esc(labels[i])}</b>${fmtv(vals[i], o.fmt)} · ${(100 * vals[i] / tot).toFixed(1)}%`, ev)); pth.addEventListener("mouseleave", () => tip(null)); });
+  }
+
+  window.Charts = { line, hbar, columns, ring, donut, tip, fmtv, esc, PAL };
 })();

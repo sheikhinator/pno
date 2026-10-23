@@ -51,7 +51,7 @@ def _friendly(status: int, body: str) -> str:
     if status == 401:
         return "The Groq key was not accepted. Check it in Settings → AI."
     if status == 429:
-        return "Groq's free limit was reached for now. PNO will answer with the offline / built-in assistant meanwhile."
+        return "Groq's free limit was reached for now. P&O will answer with the offline / built-in assistant meanwhile."
     if status == 413:
         return "The question needed too much data for this model. Try narrowing it (a store or department)."
     return f"AI service error {status}: {msg}"
