@@ -530,3 +530,13 @@ table.po-shifts th .sub{display:block;font-size:10px;color:var(--muted)}
 .dl i{width:12px;height:12px;border-radius:4px}.dl small{color:var(--muted);text-align:right}
 @media (max-width:900px){.scards{grid-template-columns:1fr 1fr}}
 .kpi-v.txt,.kpi-v .txt{font-size:19px!important;line-height:1.25}
+
+/* AI switcher (chat box) and provider cards */
+.cmodel .caret{font-size:9px;opacity:.7;margin-left:2px}
+.cmenu.up{top:auto;bottom:34px;left:0;right:auto;width:300px}
+.cmenu button[disabled]{opacity:.5;cursor:default}.cmenu button[disabled]:hover{background:none}
+.cmenu button[aria-pressed="true"]{background:var(--card-2)}
+.cmenu .chip{font-size:10px;padding:1px 6px;margin-left:4px}
+.seg .rdot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--none);margin-left:6px;vertical-align:middle}.seg .rdot.on{background:var(--good)}
+.prov.live{border-color:var(--good);box-shadow:0 0 0 1px var(--good) inset}
+.prov h2 .tag{font-weight:600;color:var(--muted);font-size:12px;margin-left:4px}

@@ -522,6 +522,22 @@ function saveChat() {
   chatStore.save(list);
 }
 const hello = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
+const engBtn = () => { const st = S.init.ai; return `<span class="dot ${st.active === "basic" ? "off" : ""}"></span>${esc(st.label)}<span class="caret">▾</span>`; };
+const ENG_DESC = { auto: "Best available, switches by itself if one fails", groq: "Fast cloud AI", gemini: "Google's models", openrouter: "GPT, Claude, Llama, DeepSeek…", offline: "Runs on this PC", basic: "No AI service, always works" };
+function engMenuHtml() {
+  const st = S.init.ai;
+  return st.choices.map(c => `<button data-act="eng-pick" data-mode="${c.id}" ${c.ready ? "" : "disabled"} aria-pressed="${st.mode === c.id}">
+      <b>${st.mode === c.id ? "✓ " : ""}${esc(c.name)}${c.id === "auto" && st.mode === "auto" ? ` <span class="chip good">${esc(st.label)}</span>` : ""}</b>
+      <small>${c.ready ? esc(ENG_DESC[c.id]) : c.id === "offline" ? "Not installed · Settings → AI" : "No key yet · add it in Settings → AI"}</small></button>`).join("")
+    + `<button data-go="settings" data-tab="ai"><b>⚙ AI settings & keys…</b><small>Add Groq, Gemini or OpenRouter keys, pick models</small></button>`;
+}
+async function setEngine(mode) {
+  const st = await API.call("agent_settings", { mode });
+  S.init.ai = { ...S.init.ai, ...st };
+  const b = $("#engbtn"); if (b) b.innerHTML = engBtn();
+  const pill = document.querySelector(".ai-pill"); if (pill) pill.innerHTML = `<span class="dot ${st.active === "basic" ? "off" : ""}"></span><span>${esc(st.label)}</span>`;
+  return st;
+}
 function composerHtml(big) {
   const st = S.init.ai;
   return `<div class="cbox ${big ? "big" : ""}" id="cbox">
@@ -529,7 +545,7 @@ function composerHtml(big) {
       <textarea id="askq" rows="${big ? 3 : 1}" placeholder="Ask anything about your stores, people, sales, turnover, NPS… or drop a file"></textarea>
       <div class="cbar"><button class="cbtn" data-act="ask-attach" title="Attach files">${ic("attach", 18)}</button>
         <button class="cbtn" data-act="ask-paste" title="Paste a table">${ic("paste", 17)}</button>
-        <button class="cmodel" data-go="settings" data-tab="ai" title="AI settings"><span class="dot ${st.active === "basic" ? "off" : ""}"></span>${esc(st.label)}</button>
+        <div class="menu-wrap"><button class="cmodel" data-act="eng-menu" title="Switch AI" id="engbtn">${engBtn()}</button><div class="cmenu up" id="engmenu" hidden></div></div>
         <span class="spacer"></span><button class="csend" data-act="ask-send" title="Send (Enter)">${ic("send", 17)}</button></div></div>`;
 }
 PAGES.ask = async () => {
@@ -724,6 +740,8 @@ async function ask(text) {
 }
 const CHAT_ACTS = {
   "ask-hist": () => { const m = $("#cmenu"); if (m) m.hidden = !m.hidden; },
+  "eng-menu": () => { const m = $("#engmenu"); if (!m) return; m.innerHTML = engMenuHtml(); m.hidden = !m.hidden; },
+  "eng-pick": async b => { const m = $("#engmenu"); if (m) m.hidden = true; const st = await setEngine(b.dataset.mode); toast(`Now answering with ${st.label}`); },
   "ask-open": b => { const c = chatStore.list().find(x => x.id === b.dataset.id); if (c) { S.chat = c.msgs; S.chatId = c.id; render(); } },
   "ask-paste": () => {
     const m = modal(`<h3>Paste a table for the AI</h3><p style="color:var(--muted);margin:0 0 10px">Copy cells from Excel and paste them here. The AI reads it with your question.</p><textarea class="input" id="cp-t" rows="10" style="width:100%;font-family:monospace;font-size:12px"></textarea>
@@ -828,15 +846,24 @@ SETTINGS.ai = async () => {
   const s = await API.call("agent_status");
   const o = s.offline_status;
   const dl = (o.downloads || []).filter(j => j.status === "running");
+  const mode = s.choices.map(c => `<button data-act="ai-mode" data-mode="${c.id}" aria-pressed="${s.mode === c.id}" ${c.ready ? "" : `title="Not set up yet"`}>${esc(c.name)}${c.id !== "auto" && c.id !== "basic" ? `<span class="rdot ${c.ready ? "on" : ""}"></span>` : ""}</button>`).join("");
+  const prov = p => `<div class="panel prov ${s.active === p.id ? "live" : ""}"><div class="phd"><h2>${esc(p.name)} <small class="tag">${esc(p.tag)}</small></h2>
+      ${s.active === p.id ? '<span class="chip good">Answering now</span>' : p.has_key ? '<span class="chip">Key saved · standby</span>' : '<span class="chip">Not set up</span>'}</div>
+      <small style="color:var(--muted)">${esc(p.note)} Get a key at <b>${esc(p.signup)}</b>. Stored encrypted for this Windows user.</small>
+      <div class="row"><input class="input" id="key-${p.id}" type="password" autocomplete="off" placeholder="${p.key_masked ? "Saved: " + esc(p.key_masked) : esc(p.hint)}" style="flex:1;min-width:220px">
+      <input class="input" id="model-${p.id}" list="models-${p.id}" value="${esc(p.model)}" title="Pick a model or type any model id" style="min-width:230px">
+      <datalist id="models-${p.id}">${p.models.map(m => `<option value="${esc(m)}">`).join("")}</datalist></div>
+      <div class="row"><button class="btn primary" data-act="prov-save" data-p="${p.id}">Save</button><button class="btn" data-act="prov-test" data-p="${p.id}">Test</button>
+      ${p.has_key && s.mode !== p.id ? `<button class="btn ghost" data-act="ai-mode" data-mode="${p.id}">Use ${esc(p.name)} first</button>` : ""}
+      ${p.has_key ? `<button class="btn danger" data-act="prov-clear" data-p="${p.id}">Remove key</button>` : ""}
+      <small style="color:var(--muted)">${p.live_models ? `${p.models.length} models from ${esc(p.name)}` : "Test the key to load the full model list"}</small></div></div>`;
   return `<div class="panel"><div class="phd"><h2>Which AI answers</h2><span class="chip ${s.active === "basic" ? "" : "good"}">Now: ${esc(s.label)}</span></div>
-    <div class="seg">${[["auto", "Auto"], ["groq", "Groq (fast, online)"], ["offline", "Offline AI (this PC)"], ["basic", "Built-in only"]].map(([k, l]) => `<button data-act="ai-mode" data-mode="${k}" aria-pressed="${s.mode === k}">${l}</button>`).join("")}</div>
-    <small style="color:var(--muted)">Auto uses Groq when a key is set, otherwise the offline AI when it is installed, otherwise the built-in assistant, and falls back automatically if one is unavailable.</small></div>
-    <div class="panel"><div class="phd"><h2>Groq</h2><small>Free key at console.groq.com/keys · stored encrypted for this Windows user</small></div>
-      <div class="row"><input class="input" id="groq-key" type="password" placeholder="${s.key_masked ? "Saved: " + esc(s.key_masked) : "gsk_…"}" style="flex:1;min-width:240px">
-      <select class="input" id="groq-model">${s.models.map(m => `<option ${m === s.model ? "selected" : ""}>${esc(m)}</option>`).join("")}</select>
-      <button class="btn primary" data-act="groq-save">Save</button><button class="btn" data-act="groq-test">Test</button>${s.key_masked ? `<button class="btn danger" data-act="groq-clear">Remove key</button>` : ""}</div>
-      <div class="setting"><div><b>Send employee codes instead of names</b><small>Groq then never sees names; P&O puts the names back on your screen.</small></div><label class="switch"><input type="checkbox" id="anon" ${s.anonymise ? "checked" : ""}><span></span></label></div>
-      <small style="color:var(--muted)">With Groq, each question and the figures needed to answer it are sent to Groq's servers. Files you drop into the chat stay on this PC (only column names and 5 sample rows are shown to the AI to work out unknown layouts).</small></div>
+    <div class="seg">${mode}</div>
+    <small style="color:var(--muted)">Auto uses the first AI that is set up, in this order: Groq → Gemini → OpenRouter → Offline AI → built-in. Picking one puts it first; if it fails (wrong key, free limit used up, no internet) P&amp;O switches to the next one on the spot and says so in the answer. You can also switch from the chat box.</small></div>
+    ${s.providers.map(prov).join("")}
+    <div class="panel"><div class="phd"><h2>Privacy</h2></div>
+      <div class="setting"><div><b>Send employee codes instead of names</b><small>Online AIs then never see names; P&amp;O puts the names back on your screen.</small></div><label class="switch"><input type="checkbox" id="anon" ${s.anonymise ? "checked" : ""}><span></span></label></div>
+      <small style="color:var(--muted)">With an online AI (Groq, Gemini or OpenRouter), each question and the figures needed to answer it are sent to that service. Files you drop into the chat stay on this PC (only column names and 5 sample rows are shown to the AI to work out unknown layouts).</small></div>
     <div class="panel"><div class="phd"><h2>Offline AI</h2><small>${esc(o.model_name)} · about ${o.model_gb} GB · runs on this PC, no internet after setup</small></div>
       <div class="setting"><div><b>Runtime</b><small>${o.runtime ? "Installed" : "Not installed (included in the Windows package)"}</small></div>${o.runtime ? '<span class="chip good">Ready</span>' : `<button class="btn" data-act="offline-install" data-what="runtime">Install</button>`}</div>
       <div class="setting"><div><b>Model</b><small>${o.model ? esc(o.model) : "Not downloaded yet"}</small></div><div class="row">${o.model ? '<span class="chip good">Ready</span>' : `<button class="btn primary" data-act="offline-install" data-what="model">Download (${o.model_gb} GB)</button>`}<button class="btn" data-act="offline-pick">Choose a .gguf file</button></div></div>
@@ -1110,10 +1137,20 @@ const ACT = {
     await call("settings_save", { weights: w, rules }); toast("Scoring saved · scores recalculated"); render();
   },
   "weights-reset": async () => { await call("settings_reset"); toast("Default scoring restored"); render(); },
-  "ai-mode": async b => { await call("agent_settings", { mode: b.dataset.mode }); await reinit(); render(); },
-  "groq-save": async () => { const k = $("#groq-key").value.trim(); await call("agent_settings", { key: k || null, model: $("#groq-model").value }); toast("Groq settings saved"); await reinit(); render(); },
-  "groq-test": async b => { b.disabled = true; try { const r = await API.call("agent_test"); toast(r.message, { err: !r.ok, ms: 7000 }); } catch (e) { fail(e); } b.disabled = false; },
-  "groq-clear": async () => { await call("agent_settings", { clear_key: true }); await reinit(); render(); },
+  "ai-mode": async b => { const st = await setEngine(b.dataset.mode); toast(`Now answering with ${st.label}`); render(); },
+  "prov-save": async b => {
+    const p = b.dataset.p, k = $("#key-" + p).value.trim(), model = $("#model-" + p).value.trim();
+    await call("agent_settings", { provider: p, key: k || null, model: model || null });
+    toast(k ? "Key saved · testing it…" : "Saved"); await reinit(); await render();
+    if (k) { const r = await API.call("agent_test", { provider: p }); toast(r.message, { err: !r.ok, ms: 7000 }); if (S.page === "settings") render(); }
+  },
+  "prov-test": async b => {
+    const p = b.dataset.p; b.disabled = true;
+    try { const r = await API.call("agent_test", { provider: p, key: $("#key-" + p).value.trim() || null, model: $("#model-" + p).value.trim() || null }); toast(r.message, { err: !r.ok, ms: 7000 }); if (r.ok && r.models && r.models.length && S.page === "settings") render(); }
+    catch (e) { fail(e); }
+    b.disabled = false;
+  },
+  "prov-clear": async b => { await call("agent_settings", { provider: b.dataset.p, clear_key: true }); toast("Key removed"); await reinit(); render(); },
   "offline-install": async b => { await call("offline_install", { what: b.dataset.what }); toast("Download started"); S.dlWas = true; render(); },
   "offline-pick": async () => { const r = await call("offline_pick_model"); if (!r.cancelled) { toast("Model linked"); await reinit(); render(); } },
   "alias-ok": async b => { await call("store_alias_set", { alias: b.dataset.alias, store_id: +b.dataset.store }); await afterDataChange(false); render(); },
@@ -1368,7 +1405,7 @@ PAGES.data = async () => {
     <div class="grid g2">
       <div class="panel"><div class="phd"><h2>Insights</h2><small>calculated from the data</small></div><div class="dx-ins">${v.insights.map(i => `<p>${md(i)}</p>`).join("")}</div></div>
       <div class="panel"><div class="phd"><h2>AI analyst</h2><button class="btn sm primary" data-act="dx-ai">${ic("spark", 14)}Analyse with AI</button></div>
-        <div id="dx-ai" class="dx-ins">${v.ai_insights ? md(v.ai_insights) : `<p style="color:var(--muted)">The AI reads the summaries above (not the raw file) and writes what a P&amp;O director should act on. Uses Groq or the offline AI from Settings → AI.</p>`}</div></div>
+        <div id="dx-ai" class="dx-ins">${v.ai_insights ? md(v.ai_insights) : `<p style="color:var(--muted)">The AI reads the summaries above (not the raw file) and writes what a P&amp;O director should act on. Uses the AI chosen in Settings → AI (Groq, Gemini, OpenRouter or offline).</p>`}</div></div>
     </div>
     <div class="panel flush"><div class="row" style="padding:12px 14px 0;justify-content:space-between"><h2 style="margin:0">Data</h2><input class="input" id="dx-q" placeholder="Filter rows" value="${esc(S.dx.q)}" style="width:260px"></div>
       <div class="tbl-wrap" style="max-height:520px"><table class="t" id="dx-table"><thead><tr>${cols.map(c => `<th class="${c.type === "number" || c.type === "percent" ? "n" : ""}">${esc(c.name)}${c.role ? `<span class="sub">${esc(c.role.replace("_", " "))}</span>` : ""}</th>`).join("")}</tr></thead>
@@ -1397,7 +1434,7 @@ ACT["dx-ai"] = async b => {
   b.disabled = true; const box = $("#dx-ai"); box.innerHTML = `<div class="loading"><span class="spin"></span>The AI is reading the summaries…</div>`;
   try {
     const r = await call("dataset_ai", { import_id: S.dx.id });
-    box.innerHTML = r.text ? md(r.text) + `<small style="color:var(--muted)">${esc({ groq: "Groq", offline: "Offline AI" }[r.engine] || "")}</small>` : `<p style="color:var(--muted)">${esc(r.note || "")}</p>`;
+    box.innerHTML = r.text ? md(r.text) + `<small style="color:var(--muted)">${esc({ groq: "Groq", gemini: "Gemini", openrouter: "OpenRouter", offline: "Offline AI" }[r.engine] || "")}</small>` : `<p style="color:var(--muted)">${esc(r.note || "")}</p>`;
   } catch (e) { box.innerHTML = ""; } finally { b.disabled = false; }
 };
 
@@ -1436,6 +1473,7 @@ ACT["nps-city"] = b => { S.nps.city = b.dataset.city; render(); };
 
 Object.assign(ACT, CHAT_ACTS);
 document.addEventListener("click", e => {
+  if (!e.target.closest(".menu-wrap")) document.querySelectorAll(".cmenu:not([hidden])").forEach(m => { m.hidden = true; });
   const g = e.target.closest("[data-go]");
   if (g && !e.target.closest("[data-act]")) { if (g.dataset.tab) S.setTab = g.dataset.tab; closeSheet(); return go(g.dataset.go); }
   const a = e.target.closest("[data-act]");

@@ -1,7 +1,7 @@
-"""Ask PNO: the chat agent. Groq (fast, cloud), the offline model (on this PC) or the built-in assistant.
+"""P&O AI: the chat agent. Groq, Gemini or OpenRouter (cloud), the offline model (on this PC) or the built-in assistant.
 
-Mode 'auto' uses Groq when a key is set, else the offline model when it is installed, else the built-in assistant, and
-falls back down that list when a service fails. Changes the agent prepares are saved only after the user confirms.
+Mode 'auto' uses the first cloud AI with a key (Groq, Gemini, OpenRouter), else the offline model when it is installed, else
+the built-in assistant, and moves down that list on the fly when a service fails. Choosing one AI puts it first. Changes the agent prepares are saved only after the user confirms.
 """
 
 from __future__ import annotations
@@ -49,6 +49,12 @@ When the user asks to record leave, holidays or notes, use the propose_* tools; 
 If the user writes in Urdu or Roman Urdu, answer in the same language."""
 
 
+ENGINES = ["auto", "groq", "gemini", "openrouter", "offline", "basic"]
+ENGINE_NAME = {"auto": "Auto", "groq": "Groq", "gemini": "Gemini", "openrouter": "OpenRouter", "offline": "Offline AI",
+               "basic": "Built-in assistant"}
+STATUS_LABEL = {"offline": "Offline AI · on this PC", "basic": "Built-in assistant"}
+
+
 class AgentService:
     def __init__(self, api):
         self.api = api
@@ -59,69 +65,142 @@ class AgentService:
         return self.api.db
 
     # ---------------------------------------------------------------- settings
+    # Settings "ai": mode (auto | groq | gemini | openrouter | offline | basic), keys {provider: encrypted key},
+    # models {provider: model id}, lists {provider: models the provider reported on the last Test}, anonymise.
     def _cfg(self) -> dict:
-        c = {"mode": "auto", "model": llm.GROQ_MODELS[0], "anonymise": False, "key": ""}
-        c.update(self.db.get_setting("ai", {}) or {})
+        stored = self.db.get_setting("ai", {}) or {}
+        c = {"mode": "auto", "anonymise": False, "keys": {}, "models": {}, "lists": {}}
+        c.update({k: v for k, v in stored.items() if k not in ("key", "model")})
+        c["keys"], c["models"], c["lists"] = dict(c["keys"] or {}), dict(c["models"] or {}), dict(c["lists"] or {})
+        if stored.get("key") and "groq" not in c["keys"]:          # settings saved by P&O 1.3 and earlier
+            c["keys"]["groq"] = stored["key"]
+        if stored.get("model") and "groq" not in c["models"]:
+            c["models"]["groq"] = stored["model"]
+        if c["mode"] not in ENGINES:
+            c["mode"] = "auto"
         return c
 
-    def save_settings(self, mode=None, model=None, anonymise=None, key=None, clear_key=False) -> dict:
+    def save_settings(self, mode=None, model=None, anonymise=None, key=None, clear_key=False, provider=None) -> dict:
         c = self._cfg()
-        if mode in ("auto", "groq", "offline", "basic"):
+        if mode in ENGINES:
             c["mode"] = mode
-        if model:
-            c["model"] = model
+        pid = provider if provider in llm.PROVIDERS else (mode if mode in llm.PROVIDERS else "groq")
+        if model and str(model).strip():
+            c["models"][pid] = str(model).strip()
         if anonymise is not None:
             c["anonymise"] = bool(anonymise)
-        if key:
-            c["key"] = protect(key.strip())
+        if key and str(key).strip():
+            c["keys"][pid] = protect(str(key).strip())
         if clear_key:
-            c["key"] = ""
+            c["keys"].pop(pid, None)
+            c["lists"].pop(pid, None)
         self.db.set_setting("ai", c)
         return self.status()
 
+    def _keys(self, c: dict | None = None) -> dict:
+        c = c or self._cfg()
+        out = {}
+        for pid in llm.PROVIDERS:
+            k = unprotect(c["keys"].get(pid, "")) if c["keys"].get(pid) else ""
+            if k:
+                out[pid] = k
+        return out
+
     def _key(self) -> str:
-        return unprotect(self._cfg().get("key", ""))
+        """The key of the cloud AI that answers now (kept for older callers)."""
+        c = self._cfg()
+        keys = self._keys(c)
+        return next((keys[e] for e in self._chain(c, keys) if e in keys), "")
+
+    def _model(self, c: dict, pid: str) -> str:
+        return c["models"].get(pid) or llm.PROVIDERS[pid]["models"][0]
 
     def offline_ready(self) -> bool:
         return bool(local.find_runtime() and local.model_path(self.db))
 
     def public_status(self) -> dict:
         c = self._cfg()
-        key = self._key()
-        active = self._choose(c, key)
-        return {"mode": c["mode"], "active": active, "groq": bool(key), "offline": self.offline_ready(),
-                "label": {"groq": "Groq · fast", "offline": "Offline AI · on this PC", "basic": "Built-in assistant"}[active]}
+        keys = self._keys(c)
+        active = self._choose(c, keys)
+        ready = [e for e in ENGINES[1:] if self._usable(e, keys)]
+        label = STATUS_LABEL.get(active, "")
+        if active in llm.PROVIDERS:
+            label = f"{llm.PROVIDERS[active]['name']} · {self._model(c, active).split('/')[-1]}"
+        return {"mode": c["mode"], "active": active, "label": label, "offline": "offline" in ready,
+                "groq": "groq" in keys, "gemini": "gemini" in keys, "openrouter": "openrouter" in keys,
+                "ready": ready,
+                "choices": [{"id": e, "name": ENGINE_NAME[e], "ready": e == "auto" or e in ready} for e in ENGINES]}
 
     def status(self) -> dict:
         c = self._cfg()
-        key = self._key()
-        return {**self.public_status(), "model": c["model"], "models": llm.GROQ_MODELS, "anonymise": c["anonymise"],
-                "key_masked": mask(key), "offline_status": self.offline_status()}
+        keys = self._keys(c)
+        providers = []
+        for pid, p in llm.PROVIDERS.items():
+            listed = c["lists"].get(pid) or []
+            model = self._model(c, pid)
+            models = list(dict.fromkeys([model] + p["models"] + listed))
+            providers.append({"id": pid, "name": p["name"], "tag": p["tag"], "signup": p["signup"], "note": p["note"],
+                              "hint": p["hint"], "has_key": pid in keys, "key_masked": mask(keys.get(pid, "")),
+                              "model": model, "models": models, "live_models": bool(listed)})
+        groq = providers[0]
+        return {**self.public_status(), "providers": providers, "anonymise": c["anonymise"],
+                "model": groq["model"], "models": groq["models"], "key_masked": groq["key_masked"],     # older screens
+                "offline_status": self.offline_status()}
 
-    def _choose(self, c: dict, key: str) -> str:
+    def _usable(self, engine_name: str, keys: dict) -> bool:
+        if engine_name in llm.PROVIDERS:
+            return engine_name in keys
+        if engine_name == "offline":
+            return self.offline_ready()
+        return engine_name == "basic"
+
+    def _chain(self, c: dict, keys: dict) -> list[str]:
+        """The AIs to try, in order, ending with the built-in assistant (which always works).
+
+        Auto: every cloud AI that has a key (Groq, Gemini, OpenRouter), then the offline AI, then built-in. Choosing one AI
+        puts it first; the others that are set up still stand behind it, so a failed key or a used-up free limit switches
+        to the next one instead of stopping."""
+        order = list(llm.PROVIDERS) + ["offline"]
         m = c["mode"]
-        if m == "groq":
-            return "groq" if key else "basic"
-        if m == "offline":
-            return "offline" if self.offline_ready() else "basic"
         if m == "basic":
-            return "basic"
-        if key:
-            return "groq"
-        return "offline" if self.offline_ready() else "basic"
+            return ["basic"]
+        if m in order:
+            order.remove(m)
+            order.insert(0, m)
+        return [e for e in order if self._usable(e, keys)] + ["basic"]
 
-    def test(self) -> dict:
-        key = self._key()
-        if not key:
-            return {"ok": False, "message": "Add a Groq API key first (free at console.groq.com/keys)."}
+    def _choose(self, c: dict, key=None) -> str:
+        keys = key if isinstance(key, dict) else self._keys(c)
+        return self._chain(c, keys)[0]
+
+    def test(self, provider: str | None = None, key: str | None = None, model: str | None = None) -> dict:
+        """Check one cloud AI: list its models and ask it to say OK. A key typed but not saved yet can be tested too."""
+        c = self._cfg()
+        keys = self._keys(c)
+        pid = provider if provider in llm.PROVIDERS else next((e for e in self._chain(c, keys) if e in llm.PROVIDERS), "groq")
+        p = llm.PROVIDERS[pid]
+        k = (key or "").strip() or keys.get(pid, "")
+        if not k:
+            return {"ok": False, "provider": pid, "message": f"Add a {p['name']} API key first (get one at {p['signup']})."}
+        model = (model or "").strip() or self._model(c, pid)
+        base = llm.provider_url(pid)
         t = time.time()
+        models: list[str] = []
         try:
-            models = llm.list_models(llm.GROQ_URL, key)
-            msg = llm.chat(llm.GROQ_URL, key, self._cfg()["model"], [{"role": "user", "content": "Reply with: OK"}], max_tokens=5)
+            try:
+                models = llm.list_models(base, k)
+            except llm.LLMError as e:
+                if e.status in (401, 403):
+                    raise
+            msg = llm.chat(base, k, model, [{"role": "user", "content": "Reply with: OK"}], max_tokens=5 if pid == "groq" else 20)
         except llm.LLMError as e:
-            return {"ok": False, "message": str(e)}
-        return {"ok": True, "message": f"Groq is working ({time.time() - t:.1f}s). Reply: {(msg.get('content') or '').strip()[:20]}",
-                "models": [m for m in models if not re.search(r"whisper|guard|tts|embed", m)]}
+            return {"ok": False, "provider": pid, "message": str(e)}
+        models = [m for m in models if not re.search(r"whisper|guard|tts|embed|imagen|veo|aqa|image|audio|vision-preview|moderation", m)]
+        if models:
+            c["lists"][pid] = models[:400]
+            self.db.set_setting("ai", c)
+        return {"ok": True, "provider": pid, "models": models,
+                "message": f"{p['name']} is working with {model} ({time.time() - t:.1f}s). Reply: {(msg.get('content') or '').strip()[:20]}"}
 
     # ---------------------------------------------------------------- offline AI
     def offline_status(self) -> dict:
@@ -228,49 +307,54 @@ class AgentService:
         return con
 
     # ---------------------------------------------------------------- asking
-    def complete(self, prompt: str, system: str = "", max_tokens: int = 900, allow_offline: bool = True) -> tuple[str, str] | None:
-        """One plain AI completion (no tools) with whichever AI is set up; None when only the built-in assistant is."""
-        c = self._cfg()
-        key = self._key()
-        engine_name = self._choose(c, key)
-        if engine_name == "offline" and not allow_offline:
-            return None
-        if engine_name == "groq":
-            base, model, k = llm.GROQ_URL, c["model"], key
-        elif engine_name == "offline":
-            path = local.model_path(self.db)
-            if not local.SERVER.ensure(path, wait=60):
-                return None
-            base, model, k = f"http://127.0.0.1:{local.PORT}/v1", "local", ""
-        else:
-            return None
-        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
-        msg = llm.chat(base, k, model, msgs, None, timeout=90, max_tokens=max_tokens)
-        return (msg.get("content") or "").strip(), engine_name
+    def _endpoint(self, engine_name: str, c: dict, keys: dict, wait: float | None = None) -> tuple[str, str, str]:
+        if engine_name in llm.PROVIDERS:
+            return llm.provider_url(engine_name), self._model(c, engine_name), keys[engine_name]
+        path = local.model_path(self.db)
+        if not (local.SERVER.ensure(path, wait=wait) if wait else local.SERVER.ensure(path)):
+            raise RuntimeError("The offline AI is still loading. Try again in a moment.")
+        return f"http://127.0.0.1:{local.PORT}/v1", "local", ""
 
-    def ask(self, question: str, history: list, month: str | None, scope: dict, attachments: list) -> dict:
+    def complete(self, prompt: str, system: str = "", max_tokens: int = 900, allow_offline: bool = True) -> tuple[str, str] | None:
+        """One plain AI completion (no tools) with the first AI that answers; None when only the built-in assistant is set up."""
+        c = self._cfg()
+        keys = self._keys(c)
+        chain = [e for e in self._chain(c, keys) if e != "basic" and (allow_offline or e != "offline")]
+        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+        err: Exception | None = None
+        for engine_name in chain:
+            try:
+                base, model, k = self._endpoint(engine_name, c, keys, wait=60)
+                msg = llm.chat(base, k, model, msgs, None, timeout=90, max_tokens=max_tokens)
+                return (msg.get("content") or "").strip(), engine_name
+            except (llm.LLMError, RuntimeError, OSError) as e:
+                err = e
+        if err:
+            raise err
+        return None
+
+    def ask(self, question: str, history: list, month: str | None, scope: dict, attachments: list, engine: str | None = None) -> dict:
         t0 = time.time()
         c = self._cfg()
-        key = self._key()
+        if engine in ENGINES:                  # switched from the chat box for this question
+            c["mode"] = engine
+        keys = self._keys(c)
         tb = Toolbox(self, month, scope, bool(c["anonymise"]))
-        intro = self._attachments(tb, attachments, key, c) if attachments else ""
+        intro = self._attachments(tb, attachments) if attachments else ""
         if not question.strip() and intro:
             return self._reply(tb, intro, "basic", t0)
-        engine_name = self._choose(c, key)
-        note = ""
-        if engine_name in ("groq", "offline"):
+        notes = []
+        for engine_name in self._chain(c, keys):
+            if engine_name == "basic":
+                break
             try:
-                text = self._llm(engine_name, c, key, tb, question, history)
-                return self._reply(tb, (intro + "\n\n" if intro else "") + text, engine_name, t0)
+                text = self._llm(engine_name, c, keys, tb, question, history)
+                note = ("_" + " ".join(notes) + f" Answered with {ENGINE_NAME[engine_name]} instead._\n\n") if notes else ""
+                return self._reply(tb, note + (intro + "\n\n" if intro else "") + text, engine_name, t0)
             except (llm.LLMError, RuntimeError, OSError) as e:
-                note = f"_{e} Answered with the built-in assistant instead._\n\n"
+                notes.append(str(e).rstrip(".") + ".")
                 tb.blocks.clear()
-                if c["mode"] == "auto" and engine_name == "groq" and self.offline_ready():
-                    try:
-                        text = self._llm("offline", c, key, tb, question, history)
-                        return self._reply(tb, (intro + "\n\n" if intro else "") + text, "offline", t0)
-                    except Exception:
-                        pass
+        note = ("_" + " ".join(notes) + " Answered with the built-in assistant instead._\n\n") if notes else ""
         text = basic.answer(tb, question) if question.strip() else ""
         return self._reply(tb, note + (intro + "\n\n" if intro else "") + text, "basic", t0)
 
@@ -278,18 +362,14 @@ class AgentService:
         if tb.anon:
             mm = tb._mm()
             text = re.sub(r"Employee (\d{5,})", lambda m: f"{mm.people[m.group(1)].name} ({m.group(1)})" if m.group(1) in mm.people else m.group(0), text)
+        label = ENGINE_NAME[engine_name]
+        if engine_name in llm.PROVIDERS:
+            label += " · " + self._model(self._cfg(), engine_name).split("/")[-1]
         return {"answer": text.strip(), "blocks": tb.blocks, "actions": tb.actions, "engine": engine_name,
-                "engine_label": {"groq": "Groq", "offline": "Offline AI", "basic": "Built-in assistant"}[engine_name],
-                "tools": tb.used, "seconds": round(time.time() - t0, 1)}
+                "engine_label": label, "tools": tb.used, "seconds": round(time.time() - t0, 1)}
 
-    def _llm(self, engine_name: str, c: dict, key: str, tb: Toolbox, question: str, history: list) -> str:
-        if engine_name == "groq":
-            base, model, k = llm.GROQ_URL, c["model"], key
-        else:
-            path = local.model_path(self.db)
-            if not local.SERVER.ensure(path):
-                raise RuntimeError("The offline AI is still loading. Try again in a moment.")
-            base, model, k = f"http://127.0.0.1:{local.PORT}/v1", "local", ""
+    def _llm(self, engine_name: str, c: dict, keys: dict, tb: Toolbox, question: str, history: list) -> str:
+        base, model, k = self._endpoint(engine_name, c, keys)
         mm = tb._mm()
         ctx = (f"Month on screen: {mm.month} (data up to {mm.as_of}). Filters on screen: "
                f"{json.dumps(tb.scope) if tb.scope else 'whole country'}. Months available: {', '.join(engine.months_available(self.db))}. "
@@ -317,7 +397,7 @@ class AgentService:
         return "I looked at the data but needed too many steps. Please ask a narrower question."
 
     # ---------------------------------------------------------------- files dropped into the chat
-    def _attachments(self, tb: Toolbox, paths: list, key: str, c: dict) -> str:
+    def _attachments(self, tb: Toolbox, paths: list) -> str:
         lines = []
         known = []
         for p in paths:
@@ -327,7 +407,7 @@ class AgentService:
                 lines.append(f"**{Path(p).name}**: could not be read ({e}).")
                 continue
             if a["results"] and all(r.kind == "dataset" for r in a["results"]):
-                leave = self._leave_from_unknown(p, key, c)
+                leave = self._leave_from_unknown(p)
                 if leave:
                     tb.t_propose_leave(leave)
                     lines.append(f"**{Path(p).name}** looks like a leave list. I prepared {len(leave)} leave records for you to confirm.")
@@ -337,7 +417,7 @@ class AgentService:
                 for r in a["results"]:
                     lines.append(f"**{Path(p).name}** looks like a **{importers.KIND_LABEL[r.kind]}**: {r.summary}.")
             else:
-                leave = self._leave_from_unknown(p, key, c)
+                leave = self._leave_from_unknown(p)
                 if leave:
                     tb.t_propose_leave(leave)
                     lines.append(f"**{Path(p).name}** looks like a leave list. I prepared {len(leave)} leave records for you to confirm.")
@@ -356,7 +436,7 @@ class AgentService:
             lines.append("Click **Confirm** to import.")
         return "\n".join(lines)
 
-    def _leave_from_unknown(self, path: str, key: str, c: dict) -> list[dict]:
+    def _leave_from_unknown(self, path: str) -> list[dict]:
         """A leave list in an unknown layout: the AI sees only the headers and 5 sample rows to work out the columns;
         the whole file is then read here on this PC."""
         from ..reader import open_file
@@ -369,17 +449,13 @@ class AgentService:
         header = [clean_text(x) for x in rows[hdr_i]]
         sample = [[clean_text(x) for x in r] for r in rows[hdr_i + 1:hdr_i + 6]]
         mapping = None
-        if key or self.offline_ready():
+        if self._choose(self._cfg()) != "basic":
             prompt = ("Columns of a spreadsheet: " + json.dumps(header) + "\nSample rows: " + json.dumps(sample) +
                       '\nIf this is a list of employee leave, reply with JSON only: {"emp": i, "from": i, "to": i, "type": i, '
                       '"status": i} using 0-based column indexes (null if missing). If it is not a leave list reply {"leave": false}.')
             try:
-                if key:
-                    msg = llm.chat(llm.GROQ_URL, key, c["model"], [{"role": "user", "content": prompt}], max_tokens=120)
-                else:
-                    local.SERVER.ensure(local.model_path(self.db))
-                    msg = llm.chat(f"http://127.0.0.1:{local.PORT}/v1", "", "local", [{"role": "user", "content": prompt}], max_tokens=120)
-                m = re.search(r"\{.*\}", msg.get("content") or "", re.S)
+                out = self.complete(prompt, max_tokens=120)
+                m = re.search(r"\{.*\}", out[0] if out else "", re.S)
                 mapping = json.loads(m.group(0)) if m else None
             except Exception:
                 mapping = None

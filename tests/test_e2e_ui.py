@@ -278,10 +278,12 @@ def test_click_everything(app):
         settle(0.8)
         page.locator("[data-act=set-tab][data-tab=ai]").click()
         settle()
-        for mode in ["basic", "offline", "groq", "auto"]:
-            page.locator(f"[data-act=ai-mode][data-mode={mode}]").click()
+        for mode in ["basic", "offline", "groq", "gemini", "openrouter", "auto"]:
+            page.locator(f".seg [data-act=ai-mode][data-mode={mode}]").click()
             settle(0.4)
-        page.locator("[data-act=groq-test]").click()
+        for p in ["groq", "gemini", "openrouter"]:
+            assert page.locator(f"#key-{p}").count() and page.locator(f"#model-{p}").count()
+        page.locator("[data-act=prov-test][data-p=gemini]").click()
         time.sleep(0.8)
         page.evaluate("document.querySelectorAll('.toast.err').forEach(t=>t.remove())")   # no key in tests: expected message
         page.locator("[data-act=set-tab][data-tab=stores]").click()

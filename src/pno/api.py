@@ -754,11 +754,11 @@ class Api:
     def api_agent_settings(self, **kw) -> dict:
         return self.agent.save_settings(**kw)
 
-    def api_agent_test(self) -> dict:
-        return self.agent.test()
+    def api_agent_test(self, provider: str | None = None, key: str | None = None, model: str | None = None) -> dict:
+        return self.agent.test(provider, key, model)
 
-    def api_agent_ask(self, question: str, history: list | None = None, month=None, scope=None, attachments=None) -> dict:
-        return self.agent.ask(question, history or [], month, scope or {}, attachments or [])
+    def api_agent_ask(self, question: str, history: list | None = None, month=None, scope=None, attachments=None, engine=None) -> dict:
+        return self.agent.ask(question, history or [], month, scope or {}, attachments or [], engine)
 
     def api_agent_confirm(self, action_id: str, approve: bool = True) -> dict:
         return self.agent.confirm(action_id, approve)

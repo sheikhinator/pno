@@ -93,11 +93,14 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if self.path.startswith("/gemini"):
+            return self._send(200, {"data": [{"id": "models/gemini-2.5-flash"}, {"id": "models/text-embedding-004"}]})
         self._send(200, {"data": [{"id": "llama-3.3-70b-versatile"}, {"id": "whisper-large-v3"}]})
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        Fake.seen.append({"auth": self.headers.get("Authorization"), "body": body})
+        Fake.seen.append({"auth": self.headers.get("Authorization"), "body": body, "path": self.path,
+                          "title": self.headers.get("X-Title")})
         status, payload = Fake.script.pop(0)
         self._send(status, payload)
 
@@ -115,6 +118,8 @@ def fake_groq(monkeypatch):
     srv = HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     monkeypatch.setattr(llm, "GROQ_URL", f"http://127.0.0.1:{srv.server_port}/v1")
+    monkeypatch.setattr(llm, "GEMINI_URL", f"http://127.0.0.1:{srv.server_port}/gemini/v1")
+    monkeypatch.setattr(llm, "OPENROUTER_URL", f"http://127.0.0.1:{srv.server_port}/openrouter/v1")
     Fake.script, Fake.seen = [], []
     yield Fake
     srv.shutdown()
@@ -249,3 +254,60 @@ def test_runtime_asset_picker_handles_renamed_releases():
     assert r["tag_name"] == "b6000"
     assert pick_runtime_asset([none], "Windows") == (None, None)
     assert pick_runtime_asset([old], "Linux") == (None, None)
+
+
+# ------------------------------------------------------------------ Gemini, OpenRouter and switching between AIs
+def test_gemini_key_alone_answers(api, fake_groq):
+    st = api.dispatch("agent_settings", {"provider": "gemini", "key": "AIza_test_key_123456", "model": "gemini-2.5-pro"})
+    assert st["active"] == "gemini" and st["label"].startswith("Gemini") and st["gemini"] and not st["groq"]
+    g = next(p for p in st["providers"] if p["id"] == "gemini")
+    assert g["has_key"] and g["model"] == "gemini-2.5-pro" and "test_key" not in g["key_masked"]
+    fake_groq.script = [msg("Sales are on budget.")]
+    r = ask(api, "How are sales?")
+    assert r["engine"] == "gemini" and r["engine_label"] == "Gemini · gemini-2.5-pro"
+    assert fake_groq.seen[0]["path"].startswith("/gemini/") and fake_groq.seen[0]["body"]["model"] == "gemini-2.5-pro"
+
+
+def test_failed_ai_switches_to_the_next_on_the_fly(api, fake_groq):
+    api.dispatch("agent_settings", {"provider": "groq", "key": "gsk_test_key_123456"})
+    api.dispatch("agent_settings", {"provider": "openrouter", "key": "sk-or-test-123456", "model": "anthropic/claude-sonnet-4"})
+    assert api.dispatch("agent_status", {})["active"] == "groq"
+    fake_groq.script = [(429, {"error": {"message": "rate limit"}}), msg("Turnover is highest in Karachi.")]
+    r = ask(api, "Where is turnover highest?")
+    assert r["engine"] == "openrouter" and "Turnover is highest" in r["answer"]
+    assert "Groq's limit was reached" in r["answer"] and "Answered with OpenRouter instead" in r["answer"]
+    second = fake_groq.seen[1]
+    assert second["path"].startswith("/openrouter/") and second["title"] == "P&O" and second["auth"] == "Bearer sk-or-test-123456"
+
+
+def test_switching_ai_is_instant_and_per_question(api, fake_groq):
+    api.dispatch("agent_settings", {"provider": "groq", "key": "gsk_test_key_123456"})
+    api.dispatch("agent_settings", {"provider": "gemini", "key": "AIza_test_key_123456"})
+    st = api.dispatch("agent_settings", {"mode": "gemini"})
+    assert st["mode"] == "gemini" and st["active"] == "gemini"
+    assert {c["id"]: c["ready"] for c in st["choices"]} == {"auto": True, "groq": True, "gemini": True, "openrouter": False,
+                                                            "offline": api.agent.offline_ready(), "basic": True}
+    fake_groq.script = [msg("From Groq.")]
+    r = api.dispatch("agent_ask", {"question": "hello", "month": "2026-09", "engine": "groq"})
+    assert r["engine"] == "groq" and fake_groq.seen[0]["path"].startswith("/v1")
+    assert api.dispatch("agent_status", {})["mode"] == "gemini"          # a one-question switch does not change the setting
+    api.dispatch("agent_settings", {"mode": "basic"})
+    assert ask(api, "How is attendance?")["engine"] == "basic"
+
+
+def test_gemini_test_button_loads_models(api, fake_groq):
+    fake_groq.script = [msg("OK")]
+    r = api.dispatch("agent_test", {"provider": "gemini", "key": "AIza_unsaved_123456"})
+    assert r["ok"] and r["models"] == ["gemini-2.5-flash"] and "Gemini is working" in r["message"]
+    assert not api.dispatch("agent_status", {})["gemini"]          # testing a typed key does not save it
+    r = api.dispatch("agent_test", {"provider": "openrouter"})
+    assert not r["ok"] and "openrouter.ai/keys" in r["message"]
+
+
+def test_settings_from_older_versions_still_work(api, db):
+    from pno.agent.secrets import protect
+    db.set_setting("ai", {"mode": "groq", "key": protect("gsk_old_key_123456"), "model": "openai/gpt-oss-120b", "anonymise": True})
+    st = api.dispatch("agent_status", {})
+    assert st["active"] == "groq" and st["model"] == "openai/gpt-oss-120b" and st["anonymise"]
+    api.dispatch("agent_settings", {"provider": "groq", "clear_key": True})
+    assert not api.dispatch("agent_status", {})["groq"]
