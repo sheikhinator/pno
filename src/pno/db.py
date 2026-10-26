@@ -51,6 +51,27 @@ CREATE TABLE IF NOT EXISTS stores (
     code TEXT NOT NULL DEFAULT '',      -- productivity store number, e.g. 663
     is_ho INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS vacancies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL, role TEXT, category TEXT, store TEXT, section TEXT, grade TEXT,
+    headcount INTEGER NOT NULL DEFAULT 1, manager TEXT, jd TEXT, rubric TEXT,   -- rubric: JSON criteria + knock-outs
+    status TEXT NOT NULL DEFAULT 'open', target_date TEXT, notes TEXT, created_at TEXT, closed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT, email TEXT, phone TEXT, city TEXT, file_name TEXT, file_path TEXT, file_hash TEXT,
+    text TEXT,                                  -- CV text with personal details (age, marital status, CNIC…) removed
+    parsed TEXT, source TEXT, notes TEXT, bank INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT, updated_at TEXT, anonymised INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vacancy_id INTEGER NOT NULL, candidate_id INTEGER NOT NULL,
+    score REAL, band TEXT, result TEXT, stage TEXT NOT NULL DEFAULT 'applied', stage_at TEXT, history TEXT,
+    ai TEXT, kit TEXT, panel TEXT, onboarding TEXT, created_at TEXT,
+    UNIQUE(vacancy_id, candidate_id)
+);
+
 CREATE TABLE IF NOT EXISTS store_aliases (
     alias TEXT PRIMARY KEY,             -- normalised name as written in a report
     raw TEXT NOT NULL,

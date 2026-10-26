@@ -42,11 +42,45 @@ def _health_answer(tb: Toolbox) -> str:
     return "\n".join(lines)
 
 
+_HIRE_RX = re.compile(r"\b(vacanc|candidate|cv|cvs|resume|shortlist|hiring|hire|recruit|interview|talent bank|applicant)", re.I)
+
+
+def _hire_answer(tb: Toolbox, q: str) -> str:
+    stop = {"who", "are", "the", "best", "top", "for", "candidates", "candidate", "cvs", "cv", "role", "vacancy", "shortlist", "should", "we",
+            "interview", "which", "show", "me", "hiring", "how", "is", "going", "our", "what", "position", "job"}
+    words = " ".join(w for w in re.findall(r"[a-z&]+", q.lower()) if w not in stop)
+    r = tb.t_hiring(vacancy=words)
+    if "vacancy" in r:
+        v = r["vacancy"]
+        lines = [f"**{v['title']}{(' · ' + v['store']) if v['store'] else ''}: {v['bands']['strong']} strong and {v['bands']['possible']} possible "
+                 f"candidates out of {sum(v['bands'].values())} CVs.**", "", "| # | Candidate | Score | Recommendation | Highest role | Years | Stage |",
+                 "|---|---|---|---|---|---|---|"]
+        lines += [f"| {i + 1} | {c['name']} | **{c['score']:.0f}** | {c['recommendation']} | {c['highest_role'] or '—'} | {c['years'] or '—'} | {c['stage']} |"
+                  for i, c in enumerate(v["candidates"][:10])]
+        checks = [f"- **{c['name']}**: {'; '.join(c['checks'])}" for c in v["candidates"][:10] if c["checks"]]
+        if checks:
+            lines += ["", "### To check in interview"] + checks[:6]
+        if v["internal_candidates"]:
+            lines += ["", "> **Internal option:** " + ", ".join(f"{p['name']} ({p['role']}, {p['store']})" for p in v["internal_candidates"][:3])]
+        return "\n".join(lines)
+    a = r["analytics"]
+    if not r["open_vacancies"]:
+        return "There are no vacancies yet. Open **Hiring** in the menu to create one and drop in CVs."
+    lines = [f"**{a['open']} open vacanc{'y' if a['open'] == 1 else 'ies'} · {a['bank']} people in the talent bank.**", "",
+             "| Vacancy | Store | CVs | Strong | Days open |", "|---|---|---|---|---|"]
+    lines += [f"| {v['title']} | {v['store'] or '—'} | {v['cvs']} | {v['strong']} | {v['days_open'] if v['days_open'] is not None else '—'} |" for v in r["open_vacancies"]]
+    lines += ["", f"Time to hire: {a['time_to_hire'] or '—'} days · offer acceptance: {a['offer_acceptance'] if a['offer_acceptance'] is not None else '—'}%.",
+              "Ask about one vacancy by name for its ranked shortlist."]
+    return "\n".join(lines)
+
+
 def answer(tb: Toolbox, question: str) -> str:
     q = question.strip()
     ql = q.lower()
     if _HEALTH_RX.search(ql):
         return _health_answer(tb)
+    if _HIRE_RX.search(ql):
+        return _hire_answer(tb, q)
     mm = tb._mm()
     if not mm.people and not getattr(mm, "sales", {}):
         return _dataset_answer(tb, q) or _po_answer(tb, q) or "There is no data yet. Import the roster, attendance, productivity and BO sales reports first (Import screen)."

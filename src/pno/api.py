@@ -80,6 +80,101 @@ class Api:
             return {"error": str(e) or e.__class__.__name__}
 
     @property
+    def hiring(self):
+        if getattr(self, "_hiring", None) is None:
+            from .hiring import Hiring
+            self._hiring = Hiring(self)
+        return self._hiring
+
+    # ---------------------------------------------------------------- hiring (vacancies, CVs, pipeline)
+    def api_hire_list(self) -> dict:
+        self.hiring.retention()
+        return self.hiring.vacancies()
+
+    def api_hire_draft(self, title: str = "", role: str = "", store: str = "", section: str = "", category: str = "") -> dict:
+        return self.hiring.draft(title, role, store, section, category)
+
+    def api_hire_ai_jd(self, title: str, store: str = "", section: str = "", notes: str = "") -> dict:
+        d = self.hiring.draft(title, "", store, section)
+        out = self.agent.complete(
+            "Write a clear, professional job description for Majid Al Futtaim Carrefour Pakistan in markdown with sections: Purpose of the role, "
+            "Key responsibilities (6-8 bullets), What you bring (experience, education, skills), Competencies, Working conditions. "
+            f"Role: {title}. Store: {store or 'any'}. Section: {section or 'any'}. Extra notes from the hiring manager: {notes or 'none'}. "
+            "Never ask for age, gender, marital status or religion.", max_tokens=900)
+        if out:
+            d["jd"], d["engine"] = out[0], out[1]
+        else:
+            d["note"] = "No AI is set up: the built-in JD for this role is shown."
+        return d
+
+    def api_hire_save(self, **v) -> dict:
+        return self.hiring.save_vacancy(**v)
+
+    def api_hire_delete(self, vacancy_id: int) -> dict:
+        return self.hiring.delete_vacancy(int(vacancy_id))
+
+    def api_hire_vacancy(self, vacancy_id: int, blind: bool = False) -> dict:
+        return self.hiring.vacancy(int(vacancy_id), bool(blind))
+
+    def api_hire_upload(self, files: list, vacancy_id: int | None = None, source: str = "Upload") -> dict:
+        return self.hiring.add_uploads(files, vacancy_id, source)
+
+    def api_hire_add_paths(self, paths: list, vacancy_id: int | None = None, source: str = "Upload") -> dict:
+        return self.hiring.add_cvs(paths, vacancy_id, source)
+
+    def api_hire_pick(self, vacancy_id: int | None = None, source: str = "Upload") -> dict:
+        paths = self.host.pick_files("cvs")
+        if not paths:
+            return {"cancelled": True}
+        return self.hiring.add_cvs(paths, vacancy_id, source)
+
+    def api_hire_candidate(self, candidate_id: int, vacancy_id: int | None = None, blind: bool = False) -> dict:
+        return self.hiring.candidate(int(candidate_id), vacancy_id, bool(blind))
+
+    def api_hire_candidate_update(self, candidate_id: int, **kw) -> dict:
+        return self.hiring.update_candidate(int(candidate_id), **kw)
+
+    def api_hire_candidate_delete(self, candidate_id: int) -> dict:
+        return self.hiring.delete_candidate(int(candidate_id))
+
+    def api_hire_apply(self, vacancy_id: int, candidate_ids: list) -> dict:
+        for c in candidate_ids:
+            self.hiring.apply(int(vacancy_id), int(c))
+        return self.hiring.vacancy(int(vacancy_id))
+
+    def api_hire_stage(self, app_id: int, stage: str, note: str = "") -> dict:
+        return self.hiring.set_stage(int(app_id), stage, note)
+
+    def api_hire_kit(self, app_id: int, ai: bool = True) -> dict:
+        return self.hiring.kit(int(app_id), bool(ai))
+
+    def api_hire_panel(self, app_id: int, interviewer: str, scores: dict, note: str = "", decision: str = "") -> dict:
+        return self.hiring.panel_score(int(app_id), interviewer, scores, note, decision)
+
+    def api_hire_onboarding(self, app_id: int, item: str, done: bool) -> dict:
+        return self.hiring.onboarding(int(app_id), item, bool(done))
+
+    def api_hire_message(self, app_id: int, kind: str = "invite", lang: str = "en", when: str = "", place: str = "") -> dict:
+        return self.hiring.message(int(app_id), kind, lang, when, place)
+
+    def api_hire_ai(self, app_id: int) -> dict:
+        return self.hiring.ai_assess(int(app_id))
+
+    def api_hire_bank(self, q: str = "", skill: str = "", city: str = "", min_years: float = 0) -> dict:
+        return self.hiring.bank(q, skill, city, min_years or 0)
+
+    def api_hire_match_bank(self, vacancy_id: int) -> dict:
+        return self.hiring.match_bank(int(vacancy_id))
+
+    def api_hire_analytics(self) -> dict:
+        return self.hiring.analytics()
+
+    def api_hire_settings(self, keep_months: int | None = None) -> dict:
+        if keep_months:
+            self.db.set_setting("hire_keep_months", max(1, int(keep_months)))
+        return {"keep_months": self.db.get_setting("hire_keep_months", 12), **self.hiring.retention()}
+
+    @property
     def agent(self):
         if self._agent is None:
             from .agent.service import AgentService
@@ -478,7 +573,10 @@ class Api:
                    open_after: bool = True) -> dict:
         from . import exports
         hide_names = self._hide() if hide is None else bool(hide)
-        report = exports.build_pack(self.db, pack, month, scope or {}, emp=emp, store_id=store_id, hide=hide_names)
+        if pack == "hiring":
+            report = self.hiring.report(int(emp or store_id), hide_names)
+        else:
+            report = exports.build_pack(self.db, pack, month, scope or {}, emp=emp, store_id=store_id, hide=hide_names)
         name = exports.file_name(report, fmt)
         path = save_as or self.host.save_path(name, fmt)
         if not path:

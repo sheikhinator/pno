@@ -72,6 +72,7 @@ const ICON = {
   shifts: '<rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7 13h2M11 13h2M15 13h2M7 17h2M11 17h2"/>',
   data: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6M4 11.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
   nps: '<path d="M12 21s-7-4.4-9.3-9A5.2 5.2 0 0 1 12 6.6 5.2 5.2 0 0 1 21.3 12C19 16.6 12 21 12 21z"/>',
+  hiring: '<rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M8.5 7V5.5A2 2 0 0 1 10.5 3.5h3a2 2 0 0 1 2 2V7M3 12.5h18M10.5 12.5v1.5h3v-1.5"/>',
   health: '<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
 };
@@ -79,12 +80,12 @@ const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" f
 const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
   ["people", "People", "people"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
-  ["ask", "Ask P&O AI", "ask"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
-const NAV_GROUP = { retention: "Insights", ask: "Tools" };
+  ["hiring", "Hiring", "hiring"], ["ask", "Ask P&O AI", "ask"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
+const NAV_GROUP = { retention: "Insights", hiring: "Talent", ask: "Tools" };
 const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
 const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
   talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
-  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", settings: "Settings" };
+  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -873,6 +874,7 @@ async function uploadFiles(fileList) {
 }
 window.PNO_drop = async paths => {
   if (S.page === "ask") { S.attach.push(...paths); drawChat(); return; }
+  if (S.page === "hiring" && S.hire.vid) { toast(`Reading ${paths.length} CV${paths.length > 1 ? "s" : ""}…`); hireAfterAdd(await call("hire_add_paths", { paths, vacancy_id: S.hire.vid })); return; }
   if (S.page !== "import") { S.page = "import"; $$("#nav button").forEach(b => b.toggleAttribute("aria-current", b.dataset.go === "import")); }
   toast("Reading " + paths.length + " file" + (paths.length > 1 ? "s" : "") + "…");
   S.importSess = await call("import_analyze", { paths });
@@ -1591,7 +1593,348 @@ document.addEventListener("keydown", e => {
 window.addEventListener("resize", () => { clearTimeout(S.rz); S.rz = setTimeout(() => { const f = AFTER[S.page]; if (f && !["ask", "import", "settings", "people", "org"].includes(S.page)) f(); }, 200); });
 document.addEventListener("dragover", e => e.preventDefault());
 window.addEventListener("mouseup", e => { if (e.button === 3) { e.preventDefault(); ACT.back(); } });
-document.addEventListener("drop", e => { e.preventDefault(); if (!window.qt && e.dataTransfer && e.dataTransfer.files.length && !e.target.closest("#drop")) { if (S.page !== "import") go("import"); uploadFiles(e.dataTransfer.files); } });
+document.addEventListener("drop", e => { e.preventDefault(); if (!window.qt && S.page === "hiring" && S.hire.vid && e.dataTransfer && e.dataTransfer.files.length) { hireAddFiles(e.dataTransfer.files); return; }
+  if (!window.qt && e.dataTransfer && e.dataTransfer.files.length && !e.target.closest("#drop")) { if (S.page !== "import") go("import"); uploadFiles(e.dataTransfer.files); } });
+
+/* ============================================================== Hiring: vacancies, CV screening, pipeline, talent bank */
+const HBAND = { strong: ["Strong", "good"], possible: ["Possible", "info"], weak: ["Weak", "warn"], no: ["Not suitable", "bad"] };
+const HSTAGE = { applied: "Applied", screened: "Screened", interview1: "Interview 1", interview2: "Interview 2", offer: "Offer", joined: "Joined", rejected: "Not selected", withdrawn: "Withdrew" };
+S.hire = { tab: "vac", vid: null, blind: false, cand: null, ctab: "assess", q: "", skill: "", city: "", years: "", sel: new Set() };
+const HLEVELS = [[1, "Associate"], [2, "Team leader / supervisor"], [3, "Section manager"], [4, "Department head"], [5, "Deputy / assistant SM"], [6, "Store manager"]];
+const HEDU = [[0, "Any"], [2, "Matric"], [3, "Intermediate"], [4, "Bachelor's"], [5, "Master's"]];
+const hBand = b => `<span class="chip ${(HBAND[b] || ["", ""])[1]}">${esc((HBAND[b] || ["—"])[0])}</span>`;
+const hBar = (v, b) => `<div class="hbarw"><div class="hbarv ${b}" style="width:${Math.max(2, Math.min(100, v || 0))}%"></div><b>${v == null ? "—" : Math.round(v)}</b></div>`;
+async function filesToB64(fileList) {
+  const files = [];
+  for (const f of fileList) {
+    const bytes = new Uint8Array(await f.arrayBuffer()); let bin = "";
+    for (let i = 0; i < bytes.length; i += 32768) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768));
+    files.push({ name: f.name, b64: btoa(bin) });
+  }
+  return files;
+}
+async function hireAddFiles(fileList) {
+  toast(`Reading ${fileList.length} CV${fileList.length > 1 ? "s" : ""}…`);
+  const r = await call("hire_upload", { files: await filesToB64(fileList), vacancy_id: S.hire.vid });
+  hireAfterAdd(r);
+}
+function hireAfterAdd(r) {
+  if (r.cancelled) return;
+  const msg = [`${r.added.length} new`, r.updated.length ? `${r.updated.length} updated (same person)` : "", r.failed.length ? `${r.failed.length} could not be read` : ""].filter(Boolean).join(" · ");
+  toast("CVs: " + msg, { ms: 7000, err: !r.added.length && !r.updated.length });
+  if (r.failed.length) modal(`<h3>Some CVs could not be read</h3>${r.failed.map(f => `<p><b>${esc(f.file)}</b><br><small style="color:var(--muted)">${esc(f.error)}</small></p>`).join("")}<div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="modal-close">OK</button></div>`);
+  render();
+}
+
+PAGES.hiring = async () => {
+  const H = S.hire;
+  const tabs = `<div class="seg">${[["vac", "Vacancies"], ["pipe", "Pipeline"], ["bank", "Talent bank"], ["stats", "Hiring analytics"]].map(([k, l]) => `<button data-act="h-tab" data-tab="${k}" aria-pressed="${H.tab === k}">${l}</button>`).join("")}</div>`;
+  const head = (title, sub, right = "") => `<div class="ph"><div><h1>${title}</h1><p>${sub}</p></div><div class="row">${right}${tabs}</div></div>`;
+  if (H.tab === "vac" && H.vid) return hireVacancy(head);
+  if (H.tab === "pipe") return hirePipeline(head);
+  if (H.tab === "bank") return hireBank(head);
+  if (H.tab === "stats") return hireStats(head);
+  const d = DATA.hiring = await API.call("hire_list");
+  const card = v => `<button class="hcard" data-act="h-open" data-id="${v.id}"><div class="row" style="justify-content:space-between;gap:8px"><b>${esc(v.title)}</b><span class="chip ${v.status === "open" ? "good" : v.status === "filled" ? "info" : ""}">${esc(v.status)}</span></div>
+      <small>${esc([v.store, v.section].filter(Boolean).join(" · ") || "Any store")} · ${v.headcount} post${v.headcount > 1 ? "s" : ""}${v.days_open != null ? ` · open ${v.days_open} day${v.days_open === 1 ? "" : "s"}` : ""}</small>
+      <div class="hstats"><span><b>${v.cvs}</b>CVs</span><span><b class="t-good">${v.strong}</b>strong</span><span><b>${v.possible}</b>possible</span><span><b>${v.interview}</b>interview</span><span><b>${v.joined}</b>joined</span></div>
+      <div class="hprog"><i style="width:${v.cvs ? Math.round(100 * (v.strong + v.possible) / v.cvs) : 0}%"></i></div></button>`;
+  return head("Hiring", `Post a vacancy, drop in CVs and P&O ranks them against the job, with the evidence for every point. ${d.bank.toLocaleString("en-US")} people in the talent bank.`,
+      `<button class="btn primary" data-act="h-new">${ic("spark", 15)}New vacancy</button>`) +
+    (d.rows.length ? `<div class="hcards stagger">${d.rows.map(card).join("")}</div>`
+      : `<div class="panel"><div class="hero"><div class="logo" style="width:64px;height:64px;font-size:26px;border-radius:18px">👤</div><h2>No vacancies yet</h2>
+        <p>Create a vacancy from a ready-made role (Associate, Cashier, Team Leader, Section Manager, Department Head, Store Manager) or paste your JD.
+        Then drop in CVs, even hundreds at once (PDF, Word or text).</p><div class="row" style="justify-content:center"><button class="btn primary" data-act="h-new">${ic("spark", 15)}Create the first vacancy</button></div></div></div>`);
+};
+
+function hireForm(v) {
+  const t = DATA.hiring || {};
+  const roles = (t.roles || []).map(r => `<option value="${r.key}" ${r.key === v.role ? "selected" : ""}>${esc(r.title)}</option>`).join("");
+  const cats = ["", ...(t.categories || [])].map(c => `<option ${c === (v.category || "") ? "selected" : ""} value="${esc(c)}">${esc(c || "Any area")}</option>`).join("");
+  const rub = v.rubric || { criteria: [], knockouts: {} };
+  const skillsC = rub.criteria.find(c => c.type === "skills") || { items: [] };
+  const cityC = rub.criteria.find(c => c.type === "city") || { items: [] };
+  const crit = rub.criteria.filter(c => c.type !== "skills" && c.type !== "city").map(c => `<tr><td>${esc(c.label)}</td>
+      <td>${c.type === "level" ? `<select class="input sm" data-rc="${c.key}" data-f="target">${HLEVELS.map(([n, l]) => `<option value="${n}" ${+c.target === n ? "selected" : ""}>${l}</option>`).join("")}</select>`
+        : c.type === "education" ? `<select class="input sm" data-rc="${c.key}" data-f="target">${HEDU.map(([n, l]) => `<option value="${n}" ${+c.target === n ? "selected" : ""}>${l}</option>`).join("")}</select>`
+        : `<input class="input sm" type="number" step="0.5" min="0" data-rc="${c.key}" data-f="target" value="${c.target ?? ""}" style="width:80px"> <small style="color:var(--muted)">${c.type === "team" ? "people" : "years"}</small>`}</td>
+      <td><input class="input sm" type="range" min="0" max="40" data-rc="${c.key}" data-f="weight" value="${c.weight}"><span class="wv">${c.weight}</span></td></tr>`).join("");
+  return `<h3>${v.id ? "Edit vacancy" : "New vacancy"}</h3><p style="color:var(--muted);margin:0 0 12px">Pick a role to start from: the job description and the scoring rubric fill in, and you can change anything.</p>
+    <div class="hform">
+      <label class="dx-l">Job title<input class="input" id="hv-title" value="${esc(v.title || "")}" placeholder="e.g. Section Manager · Fresh Food"></label>
+      <label class="dx-l">Start from role<select class="input" id="hv-role">${roles}</select></label>
+      <label class="dx-l">Area<select class="input" id="hv-cat">${cats}</select></label>
+      <label class="dx-l">Store<input class="input" id="hv-store" list="hv-stores" value="${esc(v.store || "")}"><datalist id="hv-stores">${(t.stores || []).map(s => `<option value="${esc(s)}">`).join("")}</datalist></label>
+      <label class="dx-l">Section<input class="input" id="hv-section" value="${esc(v.section || "")}" placeholder="e.g. Bakery"></label>
+      <label class="dx-l">Posts<input class="input" id="hv-head" type="number" min="1" value="${v.headcount || 1}"></label>
+      <label class="dx-l">Hiring manager<input class="input" id="hv-mgr" value="${esc(v.manager || "")}"></label>
+      <label class="dx-l">Fill by<input class="input" id="hv-date" type="date" value="${esc(v.target_date || "")}"></label>
+      ${v.id ? `<label class="dx-l">Status<select class="input" id="hv-status">${["open", "on hold", "filled", "closed"].map(s => `<option ${s === v.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>` : ""}
+    </div>
+    <div class="row" style="margin:12px 0 6px;justify-content:space-between"><b>Job description</b><span class="row"><button class="btn sm" data-act="h-draft">Fill from role</button><button class="btn sm" data-act="h-aijd">${ic("spark", 13)}Write with AI</button></span></div>
+    <textarea class="input" id="hv-jd" rows="9" style="width:100%;font-size:13px">${esc(v.jd || "")}</textarea>
+    <details class="hrub" open><summary><b>How CVs are scored</b> <small style="color:var(--muted)">targets and weights; age, gender, marital status and religion are never scored</small></summary>
+      <table class="t"><thead><tr><th>Criterion</th><th>Asks for</th><th>Weight</th></tr></thead><tbody>${crit}</tbody></table>
+      <div style="margin-top:10px"><div class="row" style="gap:8px"><b style="font-size:12.5px">Skills to look for</b><small style="color:var(--muted)">weight</small>
+        <input class="input sm" type="number" min="0" max="40" data-rc="skills" data-f="weight" value="${skillsC.weight || 0}" style="width:64px"></div>
+        <div class="hskills">${(t.skills || []).map(s => `<label class="hsk"><input type="checkbox" data-hskill value="${esc(s)}" ${skillsC.items.includes(s) ? "checked" : ""}><span>${esc(s)}</span></label>`).join("")}</div></div>
+      <div class="hform" style="margin-top:8px">
+        <label class="dx-l">Prefer candidates in (cities, comma separated)<input class="input" id="hv-cities" value="${esc((cityC.items || []).join(", "))}" placeholder="e.g. Lahore"></label>
+        <label class="dx-l">City weight<input class="input" type="number" min="0" max="40" data-rc="city" data-f="weight" value="${cityC.weight || 0}"></label>
+        <label class="dx-l">Must have at least (years)<input class="input" id="hv-ko-years" type="number" min="0" step="0.5" value="${rub.knockouts.min_years || 0}"></label>
+        <label class="dx-l">Only these cities (knock-out)<input class="input" id="hv-ko-cities" value="${esc((rub.knockouts.cities || []).join(", "))}"></label>
+      </div></details>
+    <div class="row" style="justify-content:flex-end;margin-top:14px">${v.id ? `<button class="btn ghost danger" data-act="h-del" data-id="${v.id}">Delete</button><span class="spacer"></span>` : ""}<button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" data-act="h-save" data-id="${v.id || ""}">${v.id ? "Save and re-score" : "Create vacancy"}</button></div>`;
+}
+function hireRubricFromForm(base) {
+  const rub = JSON.parse(JSON.stringify(base || { criteria: [], knockouts: {} }));
+  $$("[data-rc]").forEach(i => { const c = rub.criteria.find(x => x.key === i.dataset.rc); if (c && i.value !== "") c[i.dataset.f] = +i.value; });
+  const sk = rub.criteria.find(c => c.type === "skills"); if (sk) sk.items = $$("[data-hskill]").filter(i => i.checked).map(i => i.value);
+  const ct = rub.criteria.find(c => c.type === "city"); if (ct) ct.items = $("#hv-cities").value.split(",").map(s => s.trim()).filter(Boolean);
+  rub.knockouts = { ...(rub.knockouts || {}), min_years: +$("#hv-ko-years").value || 0, cities: $("#hv-ko-cities").value.split(",").map(s => s.trim()).filter(Boolean), must_skills: (rub.knockouts || {}).must_skills || [] };
+  return rub;
+}
+function hireOpenForm(v) {
+  S.hire.form = v;
+  const m = modal(hireForm(v)); m.classList.add("wide");
+  m.addEventListener("input", e => { if (e.target.type === "range") { const w = e.target.parentElement.querySelector(".wv"); if (w) w.textContent = e.target.value; } });
+  const role = $("#hv-role", m); role.onchange = () => ACT["h-draft"]();
+}
+
+async function hireVacancy(head) {
+  const H = S.hire;
+  const v = DATA.hvac = await API.call("hire_vacancy", { vacancy_id: H.vid, blind: H.blind });
+  const b = v.bands;
+  const rows = v.apps.map((a, i) => `<tr class="click" data-act="h-cand" data-id="${a.candidate_id}">
+      <td class="n">${i + 1}</td><td><b>${esc(a.name)}</b><span class="sub">${esc(a.level || "level not found")}${a.retailers.length ? " · " + esc(a.retailers.join(", ")) : ""}</span></td>
+      <td style="min-width:130px">${hBar(a.score, a.band)}</td><td>${hBand(a.band)}</td>
+      <td class="n">${a.years ?? "—"}</td><td class="n">${a.retail_years ?? "—"}</td><td>${esc(a.city || "—")}</td>
+      <td>${a.knockouts.length ? `<span class="chip bad" title="${esc(a.knockouts.join("; "))}">knock-out</span>` : ""}${a.flags.length ? `<span class="chip warn" title="${esc(a.flags.join("; "))}">${a.flags.length} to ask</span>` : ""}${a.tags.length ? `<span class="chip info" title="${esc(a.tags.join("; "))}">history</span>` : ""}</td>
+      <td><select class="input sm" data-hstage="${a.id}">${Object.entries(HSTAGE).map(([k, l]) => `<option value="${k}" ${k === a.stage ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+      <td class="n">${a.panel == null ? "" : a.panel.toFixed(1) + "/5"}</td></tr>`).join("");
+  const internal = v.internal.length ? `<div class="panel"><div class="phd"><h2>Already in the business</h2><small>People one level below in the same area who could step up</small></div>
+      <div class="hint-list">${v.internal.slice(0, 6).map(p => `<div><b>${esc(p.name)}</b><small>${esc(p.role)} · ${esc(p.store)} · ${esc(p.leads)}${p.index != null ? ` · index ${(p.index / 10).toFixed(1)}` : ""}${p.rating != null ? ` · rating ${p.rating}` : ""}</small></div>`).join("")}</div></div>` : "";
+  return head(esc(v.title), `${esc([v.store, v.section].filter(Boolean).join(" · ") || "Any store")} · ${v.headcount} post${v.headcount > 1 ? "s" : ""} · open ${v.days_open ?? 0} days · ${v.apps.length} CVs`,
+      `<button class="btn ghost" data-act="h-back">${ic("back", 15)}All vacancies</button><label class="switch-l" title="Hide names and contact details while reviewing"><input type="checkbox" id="h-blind" ${H.blind ? "checked" : ""}> Blind review</label>
+       <button class="btn" data-act="h-edit">Edit</button><div class="menu-wrap"><button class="btn" data-act="h-expmenu">${ic("export", 15)}Export ▾</button><div class="cmenu" id="h-exp" hidden>
+       <button data-act="h-export" data-fmt="pdf"><b>Shortlist PDF</b><small>ranked list and the top 6 profiles with evidence</small></button><button data-act="h-export" data-fmt="pptx"><b>PowerPoint</b><small>for the hiring meeting</small></button><button data-act="h-export" data-fmt="xlsx"><b>Excel</b><small>every candidate and score</small></button></div></div>`) +
+    `<div class="kpis k5">
+      <div class="kpi"><span class="kpi-l">CVs screened</span><span class="kpi-v">${v.apps.length}</span><span class="kpi-s"><span>${v.funnel.find(f => f.stage === "interview1").count} in interview</span></span></div>
+      <div class="kpi"><span class="kpi-l">Strong · interview</span><span class="kpi-v t-good">${b.strong}</span><span class="kpi-s"><span>score 75+</span></span></div>
+      <div class="kpi"><span class="kpi-l">Possible · phone screen</span><span class="kpi-v">${b.possible}</span><span class="kpi-s"><span>55–74</span></span></div>
+      <div class="kpi"><span class="kpi-l">Weak · hold</span><span class="kpi-v">${b.weak}</span><span class="kpi-s"><span>35–54</span></span></div>
+      <div class="kpi"><span class="kpi-l">Not suitable</span><span class="kpi-v">${b.no}</span><span class="kpi-s"><span>below 35 or knock-out</span></span></div></div>
+    <div class="drop hdrop" id="hdrop"><div class="row" style="gap:14px;align-items:center;justify-content:center"><div class="ic">${ic("attach", 22)}</div>
+      <div style="text-align:left"><b>Drop CVs here</b><br><small style="color:var(--muted)">PDF, Word or text · hundreds at once · the same person twice is merged</small></div>
+      <button class="btn primary" data-act="h-pick">${ic("file", 15)}Choose CVs</button><button class="btn" data-act="h-matchbank">Find in talent bank</button></div>
+      <input type="file" id="hfile" multiple hidden accept=".pdf,.docx,.doc,.txt,.rtf"></div>
+    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Ranked candidates</h2><small>Click a candidate for the score breakdown, interview kit and messages</small></div>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th class="n">#</th><th>Candidate</th><th>Match</th><th>Recommendation</th><th class="n">Years</th><th class="n">Retail</th><th>City</th><th>Checks</th><th>Stage</th><th class="n">Panel</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="10"><div class="empty">No CVs yet. Drop them above.</div></td></tr>`}</tbody></table></div></div>
+    ${internal}
+    <details class="panel"><summary style="cursor:pointer"><h2 style="display:inline;margin:0">Job description</h2></summary><div class="md">${md(v.jd || "")}</div></details>`;
+}
+
+async function hireCandidate(cid) {
+  const H = S.hire;
+  H.cand = cid;
+  const c = DATA.hcand = await API.call("hire_candidate", { candidate_id: cid, vacancy_id: H.vid, blind: H.blind });
+  const app = c.applications.find(a => a.vacancy_id === H.vid) || c.applications[0];
+  const p = c.parsed || {};
+  const r = app ? app.result : null;
+  const tabs = [["assess", "Assessment"], ["interview", "Interview"], ["msg", "Messages"], ["onboard", "Onboarding"], ["cv", "CV"], ["notes", "Notes"]];
+  let body = "";
+  if (!app) body = `<div class="empty">Not applied to a vacancy yet.</div>`;
+  else if (H.ctab === "assess") {
+    body = `<table class="t hparts"><thead><tr><th>Criterion</th><th class="n">Points</th><th>Finding</th></tr></thead><tbody>${r.parts.map(x => `<tr><td><b>${esc(x.label)}</b></td>
+        <td class="n"><div class="hbarw"><div class="hbarv ${x.value >= 0.99 ? "strong" : x.value >= 0.5 ? "possible" : "weak"}" style="width:${Math.max(2, 100 * x.value)}px"></div><b>${x.points.toFixed(0)}<small style="display:inline;color:var(--muted)">/${x.max.toFixed(0)}</small></b></div></td>
+        <td>${esc(x.why)}${x.evidence ? `<span class="sub">“${esc(x.evidence)}”</span>` : ""}</td></tr>`).join("")}</tbody></table>
+      <div class="grid g2" style="margin-top:12px"><div><h4>Strengths</h4>${(r.strengths || []).map(s => `<div class="alert good"><span class="ic">✓</span><span>${esc(s)}</span></div>`).join("") || "<small>—</small>"}</div>
+      <div><h4>Gaps and checks</h4>${[...(r.knockouts || []).map(x => ["bad", x]), ...(r.gaps || []).map(x => ["warn", x]), ...(r.flags || []).map(x => ["warn", "Ask: " + x]), ...(r.tags || []).map(x => ["", x])].map(([k, x]) => `<div class="alert ${k}"><span class="ic">${k === "bad" ? "!" : "•"}</span><span>${esc(x)}</span></div>`).join("") || "<small>—</small>"}</div></div>
+      <div class="panel" style="margin-top:12px"><div class="phd"><h2>AI assessment</h2><button class="btn sm primary" data-act="h-ai" data-app="${app.id}">${ic("spark", 13)}${app.ai && app.ai.text ? "Ask again" : "Assess with AI"}</button></div>
+        <div class="md" id="h-ai-box">${app.ai && app.ai.text ? md(app.ai.text) : `<small style="color:var(--muted)">The AI reads the CV with personal details removed and the JD, then writes a verdict, strengths, concerns and what to ask.</small>`}</div></div>`;
+  } else if (H.ctab === "interview") {
+    const kit = app.kit;
+    const comps = kit ? kit.competencies : [];
+    body = `<div class="row" style="justify-content:space-between"><b>Interview kit</b><button class="btn sm primary" data-act="h-kit" data-app="${app.id}">${ic("spark", 13)}${kit ? "Make again" : "Make interview kit"}</button></div>
+      ${kit ? `<ol class="hq">${kit.questions.map(q => `<li><span class="chip ${q.type === "gap" ? "warn" : q.type === "flag" ? "bad" : q.type === "ai" ? "info" : ""}">${esc(q.area)}</span> ${esc(q.q)}</li>`).join("")}</ol>` : `<p style="color:var(--muted)">Questions for the role's competencies, the gaps in this CV and anything to check.</p>`}
+      <h4 style="margin-top:16px">Panel scorecard</h4>
+      ${app.panel.map(pn => `<div class="hpanel"><b>${esc(pn.interviewer)}</b> · ${Object.entries(pn.scores).map(([k, v]) => `${esc(k)} <b>${v}</b>`).join(" · ")}${pn.decision ? ` · <span class="chip">${esc(pn.decision)}</span>` : ""}${pn.note ? `<br><small>${esc(pn.note)}</small>` : ""}</div>`).join("")}
+      ${app.panel_avg != null ? `<p><b>Panel average: ${app.panel_avg.toFixed(2)} / 5</b></p>` : ""}
+      <div class="hform" style="margin-top:8px"><label class="dx-l">Interviewer<input class="input" id="hp-who" placeholder="Your name"></label>
+        ${(comps.length ? comps : ["Overall fit", "Experience", "Communication"]).map(cn => `<label class="dx-l">${esc(cn)}<select class="input" data-hp="${esc(cn)}"><option value="">—</option>${[1, 2, 3, 4, 5].map(n => `<option>${n}</option>`).join("")}</select></label>`).join("")}
+        <label class="dx-l">Decision<select class="input" id="hp-dec"><option value="">—</option><option>Hire</option><option>Second interview</option><option>Hold</option><option>Do not hire</option></select></label></div>
+      <textarea class="input" id="hp-note" rows="2" placeholder="Notes" style="width:100%;margin-top:6px"></textarea>
+      <div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="h-panel" data-app="${app.id}">Save scores</button></div>`;
+  } else if (H.ctab === "msg") {
+    body = `<div class="hform"><label class="dx-l">Message<select class="input" id="hm-kind"><option value="invite">Interview invitation</option><option value="offer">Offer</option><option value="regret">Regret (not selected)</option></select></label>
+        <label class="dx-l">Language<select class="input" id="hm-lang"><option value="en">English</option><option value="ur">اردو Urdu</option></select></label>
+        <label class="dx-l">Date and time<input class="input" id="hm-when" placeholder="e.g. Tuesday 3 Nov, 11:00"></label><label class="dx-l">Place<input class="input" id="hm-place" placeholder="${esc(DATA.hvac ? DATA.hvac.store || "" : "")}"></label></div>
+      <div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="h-msg" data-app="${app.id}">Write message</button></div>
+      <textarea class="input" id="hm-text" rows="10" style="width:100%;margin-top:8px"></textarea>
+      <div class="row" style="justify-content:flex-end"><button class="btn" data-act="h-copy">Copy</button></div>`;
+  } else if (H.ctab === "onboard") {
+    const ob = app.onboarding || {};
+    body = `<p style="color:var(--muted)">Track joining paperwork and first-week steps. Document numbers are never stored, only whether each step is done.</p>
+      <div class="hlist">${app.checklist.map(it => `<label class="hrow" style="cursor:pointer"><input type="checkbox" data-hob="${esc(it)}" data-app="${app.id}" ${ob[it] ? "checked" : ""}><b>${esc(it)}</b><small>${ob[it] ? "done " + ob[it] : ""}</small></label>`).join("")}</div>`;
+  } else if (H.ctab === "cv") {
+    body = `<p style="color:var(--muted)">CV text as stored: age, marital status, religion, CNIC and similar details are removed.</p><pre class="hcv">${esc(c.text || "(anonymised)")}</pre>`;
+  } else {
+    body = `<textarea class="input" id="hc-notes" rows="8" style="width:100%" placeholder="Notes about this candidate">${esc(c.notes)}</textarea>
+      <label class="switch-l" style="margin:10px 0"><input type="checkbox" id="hc-bank" ${c.bank ? "checked" : ""}> Keep in the talent bank for future roles</label>
+      <div class="row" style="justify-content:space-between"><button class="btn ghost danger" data-act="h-cdel" data-id="${c.id}">Delete candidate and CV</button><button class="btn primary" data-act="h-cnotes" data-id="${c.id}">Save</button></div>`;
+  }
+  const facts = [p.top_level_label, p.years_total != null ? `${p.years_total} yrs` : "", p.years_retail ? `${p.years_retail} yrs retail` : "", p.education, c.city].filter(Boolean);
+  const html = `<div class="hdraw-h"><button class="btn sm ghost" data-act="h-cclose">${ic("x", 15)}</button>
+      <div class="row" style="gap:14px;align-items:center">${app ? `<div class="hscore ${app.band}">${Math.round(app.score)}</div>` : ""}<div><h2 style="margin:0">${esc(c.name)}</h2>
+      <small style="color:var(--muted)">${esc(facts.join(" · "))}</small>${!H.blind && (c.email || c.phone) ? `<br><small>${esc([c.email, c.phone].filter(Boolean).join(" · "))}</small>` : ""}</div></div>
+      ${app ? `<div class="row" style="margin-top:8px">${hBand(app.band)}<select class="input sm" data-hstage="${app.id}">${Object.entries(HSTAGE).map(([k, l]) => `<option value="${k}" ${k === app.stage ? "selected" : ""}>${l}</option>`).join("")}</select>
+        ${(p.retailers || []).map(x => `<span class="chip">${esc(x)}</span>`).join("")}</div>` : ""}
+      <div class="seg" style="margin-top:12px">${tabs.map(([k, l]) => `<button data-act="h-ctab" data-tab="${k}" aria-pressed="${H.ctab === k}">${l}</button>`).join("")}</div></div>
+    <div class="hdraw-b">${body}</div>`;
+  let d = $("#hdraw");
+  if (!d) { d = document.createElement("aside"); d.id = "hdraw"; d.className = "hdraw"; document.body.append(d); requestAnimationFrame(() => d.classList.add("on")); }
+  d.innerHTML = html;
+}
+function hireCloseCand() { const d = $("#hdraw"); if (d) { d.classList.remove("on"); setTimeout(() => d.remove(), 250); } S.hire.cand = null; }
+
+async function hirePipeline(head) {
+  const H = S.hire;
+  const list = (DATA.hiring && DATA.hiring.rows) || (await API.call("hire_list")).rows;
+  if (!H.vid && list.length) H.vid = (list.find(v => v.status === "open") || list[0]).id;
+  if (!H.vid) return head("Pipeline", "Create a vacancy first.") + `<div class="empty">No vacancies yet.</div>`;
+  const v = DATA.hvac = await API.call("hire_vacancy", { vacancy_id: H.vid, blind: H.blind });
+  const cols = ["applied", "screened", "interview1", "interview2", "offer", "joined", "rejected"];
+  return head("Pipeline", "Drag candidates between stages. Every move is kept in their history.",
+      `<select class="input" id="h-pv">${list.map(x => `<option value="${x.id}" ${x.id === H.vid ? "selected" : ""}>${esc(x.title)}${x.store ? " · " + esc(x.store) : ""}</option>`).join("")}</select>`) +
+    `<div class="hboard">${cols.map(st => { const cs = v.apps.filter(a => a.stage === st || (st === "rejected" && a.stage === "withdrawn"));
+      return `<div class="hcol" data-hdrop="${st}"><div class="hcol-h"><b>${HSTAGE[st]}</b><span class="chip">${cs.length}</span></div>
+        ${cs.map(a => `<div class="hpcard" draggable="true" data-hdrag="${a.id}" data-act="h-cand" data-id="${a.candidate_id}"><div class="row" style="justify-content:space-between"><b>${esc(a.name)}</b><span class="hmini ${a.band}">${Math.round(a.score)}</span></div>
+          <small>${esc(a.level || "")}${a.years != null ? " · " + a.years + " yrs" : ""}</small>${a.panel != null ? `<small>panel ${a.panel.toFixed(1)}/5</small>` : ""}</div>`).join("") || `<div class="hcol-e">—</div>`}</div>`; }).join("")}</div>`;
+}
+
+async function hireBank(head) {
+  const H = S.hire;
+  const d = await API.call("hire_bank", { q: H.q, skill: H.skill, city: H.city, min_years: +H.years || 0 });
+  const vacs = ((DATA.hiring && DATA.hiring.rows) || (await API.call("hire_list")).rows).filter(v => v.status === "open");
+  return head("Talent bank", `${d.total.toLocaleString("en-US")} people from every CV ever added. Search by skill, city or experience and add them to an open vacancy.`) +
+    `<div class="panel"><div class="row" style="gap:8px;flex-wrap:wrap"><input class="input" id="hb-q" placeholder="Search names, employers, anything in the CV" value="${esc(H.q)}" style="flex:1;min-width:220px">
+      <select class="input" id="hb-skill"><option value="">Any skill</option>${d.skills.map(s => `<option ${s === H.skill ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
+      <select class="input" id="hb-city"><option value="">Any city</option>${d.cities.map(s => `<option ${s === H.city ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
+      <select class="input" id="hb-years"><option value="">Any experience</option>${[1, 2, 3, 5, 8, 10].map(n => `<option value="${n}" ${String(n) === String(H.years) ? "selected" : ""}>${n}+ years</option>`).join("")}</select></div>
+      ${vacs.length ? `<div class="row" style="margin-top:10px"><small style="color:var(--muted)">Selected: <b id="hb-n">${H.sel.size}</b></small><select class="input sm" id="hb-vac">${vacs.map(v => `<option value="${v.id}">${esc(v.title)}</option>`).join("")}</select><button class="btn sm primary" data-act="hb-add">Add selected to vacancy</button></div>` : ""}</div>
+    <div class="panel flush"><div class="tbl-wrap"><table class="t"><thead><tr><th></th><th>Name</th><th>Highest role</th><th class="n">Years</th><th class="n">Retail</th><th>City</th><th>Skills</th><th>Applied for</th><th>Added</th></tr></thead><tbody>
+    ${d.rows.map(r => `<tr><td><input type="checkbox" data-hbsel="${r.id}" ${H.sel.has(r.id) ? "checked" : ""}></td><td class="click" data-act="h-cand" data-id="${r.id}"><b>${esc(r.name)}</b>${r.bank ? "" : `<span class="sub">not kept in bank</span>`}</td><td>${esc(r.level || "—")}</td><td class="n">${r.years ?? "—"}</td><td class="n">${r.retail_years ?? "—"}</td>
+      <td>${esc(r.city || "—")}</td><td><small>${esc(r.skills.join(", "))}</small></td><td><small>${esc(r.applied.join(" · ") || "—")}</small></td><td class="nw">${esc(r.added)}</td></tr>`).join("") || `<tr><td colspan="9"><div class="empty">Nobody matches.</div></td></tr>`}</tbody></table></div></div>`;
+}
+
+async function hireStats(head) {
+  const d = DATA.hstats = await API.call("hire_analytics");
+  const set = await API.call("hire_settings", {});
+  const k = (l, v, s) => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  return head("Hiring analytics", "How fast roles are filled, where good candidates come from and how the funnel converts.") +
+    `<div class="kpis k5">${k("Open vacancies", d.open, d.avg_days_open != null ? `open ${d.avg_days_open} days on average` : "none open")}${k("Time to hire", d.time_to_hire != null ? d.time_to_hire + "<small> days</small>" : "—", "vacancy opened → joined")}
+      ${k("Offer acceptance", d.offer_acceptance != null ? d.offer_acceptance.toFixed(0) + "%" : "—", d.offers_pending ? `${d.offers_pending} offer${d.offers_pending > 1 ? "s" : ""} still open` : "decided offers that joined")}${k("Hires", d.hires, `${d.filled} vacancies filled`)}${k("Talent bank", d.bank.toLocaleString("en-US"), "people on file")}</div>
+    <div class="grid g2"><div class="panel"><div class="phd"><h2>Funnel</h2><small>every CV ever added to a vacancy</small></div><div id="ch-hfunnel"></div></div>
+      <div class="panel"><div class="phd"><h2>Recommendations</h2><small>bands across all CVs</small></div><div id="ch-hbands"></div></div></div>
+    <div class="grid g2"><div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Sources</h2><small>which source brings people who get hired</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Source</th><th class="n">CVs</th><th class="n">Interviewed</th><th class="n">Joined</th></tr></thead><tbody>
+      ${d.sources.map(s => `<tr><td>${esc(s.source)}</td><td class="n">${s.cvs}</td><td class="n">${s.interviewed}</td><td class="n">${s.joined}</td></tr>`).join("") || `<tr><td colspan="4"><div class="empty">—</div></td></tr>`}</tbody></table></div></div>
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Longest open</h2></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Vacancy</th><th>Store</th><th class="n">Days open</th></tr></thead><tbody>
+      ${d.oldest.map(o => `<tr><td>${esc(o.title)}</td><td>${esc(o.store || "—")}</td><td class="n">${o.days}</td></tr>`).join("") || `<tr><td colspan="3"><div class="empty">No open vacancies.</div></td></tr>`}</tbody></table></div></div></div>
+    <div class="panel"><div class="phd"><h2>Candidate data</h2></div><div class="setting"><div><b>Keep CVs of people not in the talent bank for</b><small>After this, their CV file is deleted and their record is anonymised. People kept in the talent bank stay.</small></div>
+      <div class="row"><input class="input sm" type="number" min="1" id="h-keep" value="${set.keep_months}" style="width:70px"> months <button class="btn sm" data-act="h-keep">Save</button></div></div></div>`;
+}
+AFTER.hiring = () => {
+  const H = S.hire;
+  const bl = $("#h-blind"); if (bl) bl.onchange = () => { H.blind = bl.checked; render(); };
+  const fi = $("#hfile"), dz = $("#hdrop");
+  if (fi) fi.onchange = () => { if (fi.files.length) hireAddFiles(fi.files); };
+  if (dz) {
+    ["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("over"); }));
+    ["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, () => dz.classList.remove("over")));
+    dz.addEventListener("drop", e => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.files.length && !window.qt) hireAddFiles(e.dataTransfer.files); });
+  }
+  const pv = $("#h-pv"); if (pv) pv.onchange = () => { H.vid = +pv.value; render(); };
+  $$("[data-hdrag]").forEach(c => c.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", c.dataset.hdrag); c.classList.add("dragging"); }));
+  $$("[data-hdrop]").forEach(col => {
+    col.addEventListener("dragover", e => { e.preventDefault(); col.classList.add("over"); });
+    col.addEventListener("dragleave", () => col.classList.remove("over"));
+    col.addEventListener("drop", async e => { e.preventDefault(); e.stopPropagation(); col.classList.remove("over"); const id = e.dataTransfer.getData("text/plain"); if (!id) return;
+      await call("hire_stage", { app_id: +id, stage: col.dataset.hdrop }); toast("Moved to " + HSTAGE[col.dataset.hdrop]); render(); });
+  });
+  const q = $("#hb-q"); if (q) q.addEventListener("input", () => { clearTimeout(H.t); H.t = setTimeout(() => { H.q = q.value; render(); }, 300); });
+  [["hb-skill", "skill"], ["hb-city", "city"], ["hb-years", "years"]].forEach(([id, k]) => { const el = $("#" + id); if (el) el.onchange = () => { H[k] = el.value; render(); }; });
+  if (DATA.hstats && $("#ch-hfunnel")) {
+    const f = DATA.hstats.funnel; Charts.hbar($("#ch-hfunnel"), { labels: f.map(x => x.label), values: f.map(x => x.count), name: "People", fmt: "int" });
+    const b = DATA.hstats.bands; if (Charts.donut) Charts.donut($("#ch-hbands"), { labels: ["Strong", "Possible", "Weak", "Not suitable"], values: [b.strong, b.possible, b.weak, b.no], colors: ["#2E7D4F", "#3A6EA5", "#C9821F", "#B3261E"] });
+  }
+  if (H.cand && S.page === "hiring" && !$("#hdraw")) hireCandidate(H.cand);
+};
+document.addEventListener("change", async e => {
+  const st = e.target.closest && e.target.closest("[data-hstage]");
+  if (st) { await call("hire_stage", { app_id: +st.dataset.hstage, stage: st.value }); toast("Stage: " + HSTAGE[st.value]); if (S.page === "hiring") { const keep = S.hire.cand; await render(); if (keep) hireCandidate(keep); } return; }
+  const ob = e.target.closest && e.target.closest("[data-hob]");
+  if (ob) { await call("hire_onboarding", { app_id: +ob.dataset.app, item: ob.dataset.hob, done: ob.checked }); hireCandidate(S.hire.cand); return; }
+  const sel = e.target.closest && e.target.closest("[data-hbsel]");
+  if (sel) { const id = +sel.dataset.hbsel; sel.checked ? S.hire.sel.add(id) : S.hire.sel.delete(id); const n = $("#hb-n"); if (n) n.textContent = S.hire.sel.size; }
+});
+const HIRE_ACTS = {
+  "h-tab": b => { S.hire.tab = b.dataset.tab; if (b.dataset.tab === "vac") S.hire.vid = null; hireCloseCand(); render(); },
+  "h-open": b => { S.hire.vid = +b.dataset.id; S.hire.tab = "vac"; render(); },
+  "h-back": () => { S.hire.vid = null; hireCloseCand(); render(); },
+  "h-new": async () => { if (!DATA.hiring) DATA.hiring = await API.call("hire_list"); const d = await call("hire_draft", { role: "section_manager" }); hireOpenForm({ ...d, title: "", headcount: 1 }); },
+  "h-edit": () => hireOpenForm(DATA.hvac),
+  "h-draft": async () => {
+    const d = await call("hire_draft", { title: $("#hv-title").value, role: $("#hv-role").value, store: $("#hv-store").value, section: $("#hv-section").value, category: $("#hv-cat").value });
+    if (!$("#hv-title").value) $("#hv-title").value = d.title;
+    $("#hv-jd").value = d.jd; S.hire.form = { ...S.hire.form, rubric: d.rubric, role: d.role };
+    const keep = { title: $("#hv-title").value, role: d.role, category: $("#hv-cat").value, store: $("#hv-store").value, section: $("#hv-section").value, headcount: +$("#hv-head").value, manager: $("#hv-mgr").value, target_date: $("#hv-date").value, jd: d.jd, rubric: d.rubric, id: S.hire.form.id, status: S.hire.form.status };
+    hireOpenForm(keep);
+  },
+  "h-aijd": async b => { b.disabled = true; b.innerHTML = `<span class="spin" style="width:13px;height:13px"></span> Writing…`;
+    try { const d = await call("hire_ai_jd", { title: $("#hv-title").value || "Section Manager", store: $("#hv-store").value, section: $("#hv-section").value, notes: $("#hv-jd").value.slice(0, 1500) });
+      $("#hv-jd").value = d.jd; toast(d.note || "JD written by " + (d.engine || "AI"), { err: !!d.note }); } finally { b.disabled = false; b.innerHTML = `${ic("spark", 13)}Write with AI`; } },
+  "h-save": async b => {
+    const f = S.hire.form || {};
+    const v = { id: b.dataset.id ? +b.dataset.id : null, title: $("#hv-title").value.trim(), role: $("#hv-role").value, category: $("#hv-cat").value, store: $("#hv-store").value.trim(),
+      section: $("#hv-section").value.trim(), headcount: +$("#hv-head").value || 1, manager: $("#hv-mgr").value.trim(), target_date: $("#hv-date").value || null,
+      jd: $("#hv-jd").value, rubric: hireRubricFromForm(f.rubric), status: $("#hv-status") ? $("#hv-status").value : "open" };
+    if (!v.title) return toast("Give the vacancy a title.", { err: true });
+    const r = await call("hire_save", v); closeModal(); toast(v.id ? "Saved · CVs re-scored" : "Vacancy created · now drop in CVs"); S.hire.vid = r.id; S.hire.tab = "vac"; render();
+  },
+  "h-del": async b => { if (!confirm("Delete this vacancy? Candidates stay in the talent bank.")) return; await call("hire_delete", { vacancy_id: +b.dataset.id }); closeModal(); S.hire.vid = null; render(); },
+  "h-pick": async () => { if (window.qt) { const r = await call("hire_pick", { vacancy_id: S.hire.vid }); hireAfterAdd(r); } else $("#hfile").click(); },
+  "h-matchbank": async () => {
+    const r = await call("hire_match_bank", { vacancy_id: S.hire.vid });
+    const m = modal(`<h3>From the talent bank</h3><p style="color:var(--muted);margin:0 0 10px">People who applied before and fit this vacancy (strong or possible).</p>
+      ${r.rows.length ? `<div class="tbl-wrap" style="max-height:360px"><table class="t"><tbody>${r.rows.map(x => `<tr><td><input type="checkbox" data-mb="${x.id}" checked></td><td><b>${esc(x.name)}</b><span class="sub">${esc(x.city)}</span></td><td>${hBar(x.score, x.band)}</td><td>${hBand(x.band)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Nobody in the bank fits yet.</div>`}
+      <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-act="modal-close">Close</button>${r.rows.length ? `<button class="btn primary" id="mb-add">Add to vacancy</button>` : ""}</div>`);
+    const btn = $("#mb-add", m); if (btn) btn.onclick = async () => { const ids = $$("[data-mb]", m).filter(i => i.checked).map(i => +i.dataset.mb); await call("hire_apply", { vacancy_id: S.hire.vid, candidate_ids: ids }); closeModal(); toast(ids.length + " added"); render(); };
+  },
+  "h-cand": b => { S.hire.ctab = S.hire.ctab || "assess"; hireCandidate(+b.dataset.id); },
+  "h-cclose": () => hireCloseCand(),
+  "h-ctab": b => { S.hire.ctab = b.dataset.tab; hireCandidate(S.hire.cand); },
+  "h-ai": async b => { b.disabled = true; $("#h-ai-box").innerHTML = `<div class="loading"><span class="spin"></span>The AI is reading the CV…</div>`;
+    const r = await call("hire_ai", { app_id: +b.dataset.app }); if (!r.ok) { toast(r.message, { err: true }); } hireCandidate(S.hire.cand); },
+  "h-kit": async b => { b.disabled = true; b.innerHTML = `<span class="spin" style="width:13px;height:13px"></span> Preparing…`; await call("hire_kit", { app_id: +b.dataset.app }); hireCandidate(S.hire.cand); },
+  "h-panel": async b => {
+    const scores = {}; $$("[data-hp]").forEach(s => { if (s.value) scores[s.dataset.hp] = +s.value; });
+    if (!Object.keys(scores).length) return toast("Score at least one competency.", { err: true });
+    await call("hire_panel", { app_id: +b.dataset.app, interviewer: $("#hp-who").value || "Interviewer", scores, note: $("#hp-note").value, decision: $("#hp-dec").value });
+    toast("Scores saved"); hireCandidate(S.hire.cand);
+  },
+  "h-msg": async b => { const r = await call("hire_message", { app_id: +b.dataset.app, kind: $("#hm-kind").value, lang: $("#hm-lang").value, when: $("#hm-when").value, place: $("#hm-place").value });
+    const t = $("#hm-text"); t.value = r.text; t.dir = $("#hm-lang").value === "ur" ? "rtl" : "ltr"; },
+  "h-copy": () => { const t = $("#hm-text"); try { navigator.clipboard.writeText(t.value); toast("Copied: paste into WhatsApp or email"); } catch (e) { t.select(); document.execCommand("copy"); toast("Copied"); } },
+  "h-cnotes": async b => { await call("hire_candidate_update", { candidate_id: +b.dataset.id, notes: $("#hc-notes").value, bank: $("#hc-bank").checked }); toast("Saved"); },
+  "h-cdel": async b => { if (!confirm("Delete this candidate and their CV file? This cannot be undone.")) return; await call("hire_candidate_delete", { candidate_id: +b.dataset.id }); hireCloseCand(); render(); },
+  "h-expmenu": () => { const m = $("#h-exp"); if (m) m.hidden = !m.hidden; },
+  "h-export": async b => { $("#h-exp").hidden = true; const r = await call("export", { pack: "hiring", fmt: b.dataset.fmt, emp: S.hire.vid, hide: S.hire.blind }); if (r.ok) toast("Saved " + r.name); },
+  "hb-add": async () => { if (!S.hire.sel.size) return toast("Tick people first.", { err: true }); await call("hire_apply", { vacancy_id: +$("#hb-vac").value, candidate_ids: [...S.hire.sel] }); toast(S.hire.sel.size + " added to the vacancy"); S.hire.sel.clear(); render(); },
+  "h-keep": async () => { const r = await call("hire_settings", { keep_months: +$("#h-keep").value }); toast(`Saved${r.anonymised ? ` · ${r.anonymised} old candidate records anonymised` : ""}`); },
+};
+
+Object.assign(ACT, HIRE_ACTS);
 
 function applyTheme(t) { if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; }
 

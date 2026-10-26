@@ -21,7 +21,9 @@ from .paths import exports_dir, resource
 
 FILTERS = {
     "reports": "Reports (*.xlsx *.xlsm *.xls *.csv *.txt *.tsv);;All files (*)",
+    "cvs": "CVs (*.pdf *.docx *.doc *.txt *.rtf);;All files (*)",
     "gguf": "AI model (*.gguf)",
+    "docx": "Word (*.docx)",
     "backup": "P&O backup (*.sqlite3 *.db);;All files (*)",
     "pdf": "PDF (*.pdf)",
     "pptx": "PowerPoint (*.pptx)",
@@ -84,10 +86,11 @@ class QtHost(Host):
         self.window = window
 
     def pick_files(self, kind: str = "reports") -> list[str]:
-        title = {"reports": "Choose report files", "gguf": "Choose an AI model file", "backup": "Choose a P&O backup"}.get(kind, "Choose files")
+        title = {"reports": "Choose report files", "gguf": "Choose an AI model file", "backup": "Choose a P&O backup",
+                 "cvs": "Choose CVs (PDF, Word or text)"}.get(kind, "Choose files")
         start = str(Path.home() / ("Downloads" if kind != "backup" else "Documents"))
-        if kind == "reports":
-            paths, _ = QFileDialog.getOpenFileNames(self.window, title, start, FILTERS["reports"])
+        if kind in ("reports", "cvs"):
+            paths, _ = QFileDialog.getOpenFileNames(self.window, title, start, FILTERS[kind])
             return list(paths)
         path, _ = QFileDialog.getOpenFileName(self.window, title, start, FILTERS.get(kind, ""))
         return [path] if path else []

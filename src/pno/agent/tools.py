@@ -85,6 +85,12 @@ TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: s
                              "from_month": {"type": "string", "description": "YYYY-MM, YTD start (default January)"},
                              "to_month": {"type": "string", "description": "YYYY-MM, the month (MTD) or YTD end"}},
                              "required": ["question"]}})
+TOOLS.insert(1, {"name": "hiring", "description": "Hiring: open vacancies, ranked candidates for a vacancy (match score 0-100 with "
+              "strengths, gaps and things to check), the talent bank (search by skill, city, years) and hiring analytics (time to hire, "
+              "funnel, offer acceptance). Use for 'best candidates for X', 'who should we interview', 'how is hiring going', "
+              "'anyone in the bank with butchery experience'.",
+              "parameters": {"type": "object", "properties": {"vacancy": {"type": "string", "description": "words from the vacancy title"},
+                             "search": {"type": "string"}, "skill": {"type": "string"}, "city": {"type": "string"}}}})
 TOOLS.insert(1, {"name": "data_health", "description": "Is the data for a month complete and trustworthy? Returns the checklist of "
               "expected reports (in, worked out from other periods, older period only, missing), checks across tabs (leavers still on "
               "the Basic Sheet, unconfirmed store names, conflicting files, totals that do not add up, outliers), a 0-100 health score "
@@ -197,6 +203,30 @@ class Toolbox:
         return {"title": v["title"], "rows": v["rows"], "columns": [{k: c.get(k) for k in ("name", "type", "role")} for c in v["columns"]],
                 "grouped_by": v["group"], "measure": v["measure"], "aggregation": v["agg"], "groups": v["series"][:30],
                 "trend": v["trend"][-24:], "insights": v["insights"]}
+
+    def t_hiring(self, vacancy: str = "", search: str = "", skill: str = "", city: str = "", **kw) -> dict:
+        h = self.svc.api.hiring
+        vacs = h.vacancies()["rows"]
+        out: dict = {"open_vacancies": [{"title": v["title"], "store": v["store"], "cvs": v["cvs"], "strong": v["strong"], "days_open": v["days_open"],
+                                         "status": v["status"]} for v in vacs][:20], "analytics": {k: v for k, v in h.analytics().items()
+                                                                                                   if k in ("open", "time_to_hire", "offer_acceptance", "hires", "bank", "funnel")}}
+        words = [w for w in vacancy.lower().split() if len(w) > 2]
+        hit = next((v for v in vacs if words and all(w in f"{v['title']} {v['store']}".lower() for w in words)), None) or \
+            next((v for v in vacs if words and any(w in v["title"].lower() for w in words)), None)
+        if hit:
+            d = h.vacancy(hit["id"], blind=self.anon)
+            out["vacancy"] = {"title": d["title"], "store": d["store"], "bands": d["bands"], "candidates": [
+                {"name": a["name"], "score": a["score"], "recommendation": a["band_label"], "highest_role": a["level"], "years": a["years"],
+                 "retail_years": a["retail_years"], "city": a["city"], "stage": a["stage"], "checks": a["flags"] + a["knockouts"] + a["tags"]}
+                for a in d["apps"][:15]], "internal_candidates": d["internal"][:5]}
+            top = d["apps"][:8]
+            if top:
+                self.blocks.append({"type": "chart", "kind": "hbar", "title": f"{d['title']} · match score", "labels": [a["name"] for a in top],
+                                    "series": [{"name": "Score", "values": [a["score"] for a in top]}]})
+        if search or skill or city:
+            b = h.bank(search, skill, city)
+            out["talent_bank"] = [{"name": r["name"], "years": r["years"], "level": r["level"], "city": r["city"], "skills": r["skills"]} for r in b["rows"][:15]]
+        return out
 
     def t_data_health(self, month: str = "", **kw) -> dict:
         r = self.svc.api.api_data_health(month or None)
