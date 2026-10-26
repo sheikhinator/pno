@@ -122,6 +122,16 @@ def analyse(sheet: Sheet, file_name: str = "", fixed: dict[str, int] | None = No
             multi_dim = any((c.f("date") > 0.8 or c.f("section") > 0.6 or c.f("month") > 0.8) and c.distinct > 1 for c in t.columns)
             if sc_col is None or sc_col.distinct < 0.9 * sc_col.n or multi_dim:
                 sc = 0.0
+        if k in ("productivity", "po_shrink", "po_nps") and sc > 0 and not fixed:
+            # these are named by their headers (a number column alone can't tell productivity from sales); dated rows are trend data
+            key = {"productivity": "productivity", "po_shrink": ("shrink_actual", "stock_days_actual"), "po_nps": "nps"}[k]
+            keys = key if isinstance(key, tuple) else (key,)
+            named = any(f in m2 and header_score(next((c.header for c in t.columns if c.index == m2[f]), ""), f) >= 0.7 for f in keys)
+            dated = any(c.f("date") > 0.8 and c.distinct > 1 for c in t.columns)
+            if k == "po_nps" and re.search(r"\bnps\b|promoter|customer|\bcx\b|satisfaction", context, re.I):
+                named = True
+            if not named or dated:
+                sc = 0.0
         if kind and sc == 0:
             sc = 0.05
         if sc > 0:
@@ -242,6 +252,45 @@ def build_records(m: Match) -> list[dict]:
             out.append({"level": "store", "code": "STORE", "name": "Total Store", "dept": "", "store_raw": str(st).strip(), "actual": a,
                         "budget": b, "ly": ly, "growth": round(100 * (a / ly - 1), 1) if ly else None,
                         "var_pct": round(100 * (a / b - 1), 1) if b else None})
+        return out
+    skip = lambda v: not v or re.match(r"^\s*(grand )?total", str(v), re.I)  # noqa: E731
+    if m.kind == "po_nps":
+        out = []
+        for r in t.body:
+            where = g(r, "city") or g(r, "store")
+            n = to_num(g(r, "nps"))
+            if skip(where) or n is None:
+                continue
+            city = canon.city(where) or canon.store_city(canon.store(where)) or str(where).split(" ")[0]
+            yr = to_num(g(r, "year"))
+            sec_raw = str(g(r, "section") or g(r, "department") or "").strip()
+            out.append({"city": city, "year": int(yr) if yr and 2000 <= yr <= 2100 else today().year, "section": canon.section(sec_raw) if sec_raw else "",
+                        "section_raw": sec_raw, "category": sec_raw, "nps": n})
+        return out
+    if m.kind == "productivity":
+        from ..importers.productivity import row_code
+        out = []
+        for r in t.body:
+            st, a = g(r, "store"), to_num(g(r, "productivity"))
+            if skip(st) or a is None:
+                continue
+            sec_raw = str(g(r, "section") or g(r, "department") or "Total Store").strip()
+            rc = row_code(sec_raw) or (("STORE", "store") if re.search(r"total|overall|^store$", sec_raw, re.I) else (f"N:{canon.section(sec_raw) or sec_raw}", "section"))
+            out.append({"store_raw": str(st).strip(), "row_code": rc[0], "level": rc[1], "row_name": sec_raw, "actual": a, "ly": None,
+                        "target": to_num(g(r, "productivity_target")), "forecast": None})
+        return out
+    if m.kind == "po_shrink":
+        out = []
+        for r in t.body:
+            st = g(r, "store")
+            a, b = to_num(g(r, "shrink_actual")), to_num(g(r, "shrink_budget"))
+            da, db_ = to_num(g(r, "stock_days_actual")), to_num(g(r, "stock_days_budget"))
+            if skip(st) or (a is None and da is None):
+                continue
+            sec_raw = str(g(r, "section") or g(r, "department") or "Total Store").strip()
+            out.append({"store": canon.store(st), "store_raw": str(st).strip(), "section": canon.section(sec_raw) or sec_raw, "section_raw": sec_raw,
+                        "shrink_budget_pct": b, "shrink_actual_pct": a, "shrink_variance_pct": round(a - b, 2) if a is not None and b is not None else None,
+                        "stock_days_budget": db_, "stock_days_actual": da, "scope": "Smart Import"})
         return out
     return []
 

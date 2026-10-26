@@ -21,6 +21,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "stock_days": 10.0,
     "rating": 15.0,
     "retention": 10.0,
+    "nps": 10.0,
 }
 WEIGHT_LABELS = {
     "sales": "Sales vs budget",
@@ -29,6 +30,7 @@ WEIGHT_LABELS = {
     "stock_days": "Stock days vs budget",
     "rating": "Performance rating",
     "retention": "Team retention",
+    "nps": "Customer NPS",
 }
 BUSINESS_COMPONENTS = ("sales", "productivity", "shrink", "stock_days")
 PACK_LABELS = {
@@ -755,6 +757,8 @@ class Insights:
         kpis["shrink"] = shrink_parts
         city = canon.store_city(leader.store)
         kpis["nps"] = [(sec, n) for sec in leader.sections if (n := self.nps(city, sec))] if city else []
+        if city and not kpis["nps"] and leader.sections and (whole := self.nps(city)):
+            kpis["nps"] = [("Whole store", whole)]           # store leaders, or sections NPS doesn't break out: the city score
         leavers = []
         for section in leader.sections or [""]:
             leavers.extend(self.leavers(leader.store, section or None))
@@ -779,6 +783,12 @@ class Insights:
             components["stock_days"] = _clamp(100 - (sum(day_ratios) / len(day_ratios) - 1) * 200)
         if leader.latest_rating is not None:
             components["rating"] = _clamp((leader.latest_rating - 1) / 4 * 100)
+        nps_parts = [n for _, n in kpis["nps"] if n.get("nps") is not None]
+        if nps_parts:
+            # NPS 70+ is full marks, 0 or below is none; a year-on-year rise or fall moves it up to 15 points
+            level = sum(n["nps"] for n in nps_parts) / len(nps_parts)
+            ch = [n["change"] for n in nps_parts if n.get("change") is not None]
+            components["nps"] = _clamp(level / 70 * 100 + max(-15.0, min(15.0, sum(ch) / len(ch))) if ch else level / 70 * 100)
         if kpis["leavers"] is not None and leader.sections:
             components["retention"] = _clamp(100 - kpis["leavers"] * 10)
         leader.components = components

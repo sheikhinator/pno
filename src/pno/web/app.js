@@ -89,6 +89,8 @@ const ICON = {
   manpower: '<circle cx="8" cy="7" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M2.5 20c.5-3.6 2.8-5.6 5.5-5.6s5 2 5.5 5.6M14.5 15c2.6-.4 5.6 1 6.5 4.5"/><path d="M19 3v3M17.5 4.5h3"/>',
   engagement: '<path d="M12 20.5s-7.5-4.4-7.5-10A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.9c0 5.6-7.5 10-7.5 10z"/><path d="M8 12h2l1.2-2 1.6 4 1.2-2h2"/>',
   recognition: '<circle cx="12" cy="9" r="5.5"/><path d="M8.5 13.3 7 21l5-2.6 5 2.6-1.5-7.7"/>',
+  calendar: '<rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7.5 13.5h2M11 13.5h2M14.5 13.5h2M7.5 17h2M11 17h2"/>',
+  brief: '<path d="M6 3h9l4 4v14H6z"/><path d="M14.5 3v4.5H19M9 12h7M9 15.5h7M9 9h3"/>',
   insights: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/><circle cx="19" cy="8" r="1.5"/>',
   relations: '<path d="M12 3v18M5 7h14M5 7l-2.5 6a3 3 0 0 0 5 0zM19 7l-2.5 6a3 3 0 0 0 5 0zM8 21h8"/>',
   brain: '<circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="17" r="2.8"/><circle cx="19" cy="15" r="1.8"/><path d="M8.3 8.2 10.6 15M15.7 7.2 13 14.5M8.4 7.3l7.2-1M14.7 16.4l2.6-.9"/>',
@@ -105,12 +107,12 @@ const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" f
 const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
   ["people", "People", "people"], ["brain", "People Brain", "brain"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["insights", "People insights", "insights"], ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
-  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["forecast", "Workforce plan", "forecast"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["relations", "Employee relations", "relations"], ["engagement", "Engagement", "engagement"], ["recognition", "Recognition", "recognition"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
+  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["forecast", "Workforce plan", "forecast"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["relations", "Employee relations", "relations"], ["calendar", "HR calendar", "calendar"], ["brief", "Weekly brief", "brief"], ["engagement", "Engagement", "engagement"], ["recognition", "Recognition", "recognition"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
 const NAV_GROUP = { insights: "Insights", hiring: "Talent", ask: "Tools" };
 const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
 const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
   talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
-  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", forecast: "Workforce plan", brain: "People Brain", relations: "Employee relations", insights: "People insights", goals: "Goals", notes: "1:1s & visits", engagement: "Engagement", recognition: "Recognition", policies: "Policy assistant", settings: "Settings" };
+  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", forecast: "Workforce plan", brain: "People Brain", relations: "Employee relations", insights: "People insights", calendar: "HR calendar", brief: "Weekly brief", goals: "Goals", notes: "1:1s & visits", engagement: "Engagement", recognition: "Recognition", policies: "Policy assistant", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -284,7 +286,7 @@ function decorateTables(root) {
     if (hd) hd.append(b); else { p.style.position = "relative"; b.classList.add("abs"); p.prepend(b); }
   });
 }
-function polish(root) { try { countUp(root); decorateTables(root); } catch (e) { /* cosmetic only */ } }
+function polish(root) { try { countUp(root); decorateTables(root); explainKpis(root); } catch (e) { /* cosmetic only */ } }
 function tableData(t) {
   const head = $$("thead th", t).map(th => th.innerText.replace(/\s+/g, " ").trim());
   const rows = $$("tbody tr", t).filter(tr => !(tr.children.length === 1 && tr.querySelector(".empty"))).map(tr => $$("td", tr).map(td => {
@@ -586,7 +588,7 @@ PAGES.store = async id => {
   const secRows = rows => rows.map(r => `<tr><td><b>${esc(r.code)}</b> ${esc(r.name)}</td><td>${esc(r.managers.join(", ") || "—")}</td><td class="n">${money(r.actual)}</td>
     <td class="n"><div class="bar-cell"><div class="track"><div class="fill" style="width:${Math.min(100, (r.sales_pct || 0) / 1.3)}%;background:${(r.sales_pct || 0) >= 100 ? "var(--good)" : "var(--warn)"}"></div></div>${pct(r.sales_pct)}</div></td>
     <td class="n">${r.growth == null ? "—" : (r.growth > 0 ? "+" : "") + r.growth.toFixed(1) + "%"}</td><td class="n">${pct(r.waste, 1)}</td><td class="n">${pct(r.oos, 1)}</td><td class="n">${pct(r.prod_pct)}</td></tr>`).join("");
-  return `<div class="ph"><div><button class="btn sm ghost" data-go="stores">${ic("back", 14)} Stores</button><h1 style="margin-top:6px">${esc(d.store)} <span class="fmt">${esc(d.format)}</span></h1>
+  return `<div class="ph"><div><button class="btn sm ghost" data-go="stores">${ic("back", 14)} Stores</button><h1 style="margin-top:6px">${esc(d.store)} <span class="fmt">${esc(d.format)}</span> <button class="btn sm" data-act="visit-new" data-store="${esc(d.store)}">📋 Visit checklist</button></h1>
     <p>${esc(d.format_label)} · ${esc(d.city)}${d.code ? " · store " + esc(d.code) : ""} · ${esc(d.month_label)}${d.sales_as_of ? " · sales up to " + fmtDate(d.sales_as_of) : ""}</p></div>
     <div class="actions"><button class="btn" data-act="focus-store" data-id="${d.store_id}">Focus dashboard on this store</button><button class="btn primary" data-act="export" data-pack="store" data-store="${d.store_id}">${ic("export", 16)}Store report</button></div></div>
     <div class="kpis stagger">
@@ -1117,7 +1119,7 @@ window.PNO_drop = async paths => {
 
 /* settings */
 PAGES.settings = async () => {
-  const tabs = [["scoring", "Scoring"], ["ai", "AI assistant"], ["stores", "Stores"], ["sections", "Sections"], ["holidays", "Holidays"], ["leave", "Leave"], ["data", "Data & backup"], ["look", "Appearance"]];
+  const tabs = [["scoring", "Scoring"], ["ai", "AI assistant"], ["stores", "Stores"], ["sections", "Sections"], ["holidays", "Holidays"], ["leave", "Leave"], ["data", "Data & backup"], ["backups", "Backups & columns"], ["look", "Appearance"]];
   const t = S.setTab;
   const body = await SETTINGS[t]();
   return `<div class="ph"><div><h1>Settings</h1><p>How scores are calculated, the AI assistant, store and section matching, holidays and leave, and your data.</p></div></div>
@@ -1234,6 +1236,8 @@ AFTER.settings = () => {
   const sum = ro => { const t = $$(`[data-w="${ro}"]`).reduce((a, i) => a + (+i.value || 0), 0); const b = $(`[data-total="${ro}"]`); if (b) b.textContent = t; };
   $$("[data-w]").forEach(i => { i.oninput = () => sum(i.dataset.w); sum(i.dataset.w); });
   const an = $("#anon"); if (an) an.onchange = () => call("agent_settings", { anonymise: an.checked }).then(() => toast("Saved"));
+  const bk = $("#bk-auto"); if (bk) bk.onchange = () => call("backup_auto", { on: bk.checked }).then(() => toast(bk.checked ? "Daily backups on" : "Daily backups off"));
+  $$("[data-syn]").forEach(i => i.onchange = () => call("synonyms_save", { field: i.dataset.syn, words: i.value.split(",") }).then(() => toast("Smart Import will recognise these names")));
   const hn = $("#hide-names"); if (hn) hn.onchange = () => call("settings_save", { hide_names: hn.checked }).then(() => { S.init.hide_names = hn.checked; toast(hn.checked ? "Names hidden" : "Names shown"); });
   $$("[data-alias]").forEach(s => { if (s.tagName === "SELECT") s.onchange = () => call("store_alias_set", { alias: s.dataset.alias, store_id: +s.value }).then(afterDataChange); });
   $$("[data-rename]").forEach(i => i.onchange = () => call("store_update", { store_id: +i.dataset.rename, name: i.value }).then(() => toast("Store renamed")));
@@ -1855,13 +1859,13 @@ document.addEventListener("click", e => {
   const p = e.target.closest("[data-person]");
   if (p && !e.target.closest("input")) { e.preventDefault(); openPerson(p.dataset.person); }
 });
-const GO_KEYS = { h: "home", r: "review", s: "stores", p: "people", b: "brain", t: "talent", a: "attendance", i: "insights", e: "relations", n: "hiring", l: "learning", d: "import", k: "ask", o: "organisation", g: "goals", x: "settings" };
+const GO_KEYS = { c: "calendar", w: "brief", h: "home", r: "review", s: "stores", p: "people", b: "brain", t: "talent", a: "attendance", i: "insights", e: "relations", n: "hiring", l: "learning", d: "import", k: "ask", o: "organisation", g: "goals", x: "settings" };
 const KEY_OF = Object.fromEntries(Object.entries(GO_KEYS).map(([k, v]) => [v, k]));
 let gArmed = 0;
 function shortcutHelp() {
   const rows = [["Ctrl K", "Search people, stores and commands"], ["?", "This list"], ["Esc", "Close a window"], ["Alt ←", "Back"], ["Ctrl Z", "Undo the last delete (while its message shows)"]]
     .concat(Object.entries(GO_KEYS).map(([k, v]) => [`G ${k.toUpperCase()}`, "Go to " + (PAGE_TITLE[v] || v)]));
-  modal(`<h3>Keyboard shortcuts</h3><div class="kbgrid">${rows.map(([k, l]) => `<div><span>${k.split(" ").map(x => `<kbd>${esc(x)}</kbd>`).join(" ")}</span><small>${esc(l)}</small></div>`).join("")}</div>
+  modal(`<div class="row" style="justify-content:space-between"><h3>Keyboard shortcuts</h3><button class="btn sm" data-act="tour" onclick="this.closest('.modal-bg,.modal') && document.querySelector('[data-act=modal-close]').click()">Take the tour again</button></div><div class="kbgrid">${rows.map(([k, l]) => `<div><span>${k.split(" ").map(x => `<kbd>${esc(x)}</kbd>`).join(" ")}</span><small>${esc(l)}</small></div>`).join("")}</div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Close</button></div>`);
 }
 document.addEventListener("keydown", e => {
@@ -2367,6 +2371,135 @@ AFTER.insights = () => {
     Charts.columns($("#ch-wd"), { labels: L.map(x => x.slice(0, 3)), tipLabels: L, series: [{ name: "Absence %", values: V, colors: V.map(v => v >= A.average * 1.25 ? "#DC2626" : v >= A.average ? "#F59E0B" : "#16A34A") }], fmt: "pct" }); }
   if ($("#ch-ten")) Charts.columns($("#ch-ten"), { labels: T.tenure_bands.map(x => x[0]), series: [{ name: "Leavers", values: T.tenure_bands.map(x => x[1]), colors: ["#DC2626", "#F59E0B", "#0EA5E9", "#16A34A"] }] });
   if ($("#ch-early")) Charts.hbar($("#ch-early"), { labels: T.early_by_store.map(x => x[0]), values: T.early_by_store.map(x => x[1]), color: "#DC2626" });
+};
+
+/* ============================================================== 3.0 HR calendar */
+const EVK = { anniversary: ["🎉", "Anniversary", "#16A34A"], probation: ["⏳", "Probation ends", "#F59E0B"], leave: ["🌴", "Leave", "#0EA5E9"], er: ["⚖️", "ER step due", "#DC2626"],
+  goal: ["🎯", "Goal due", "#7A5C9E"], action: ["✅", "Action due", "#94481A"], followup: ["💬", "1:1 follow-up", "#C2410C"], holiday: ["🏖️", "Holiday", "#B8860B"], training: ["🎓", "Training due", "#1E3A8A"] };
+PAGES.calendar = async () => {
+  const m = S.calMonth || new Date().toISOString().slice(0, 7);
+  const d = DATA.cal = await API.call("hr_calendar", { month: m });
+  const shift = n => { const [y, mo] = m.split("-").map(Number); const t = new Date(y, mo - 1 + n, 1); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`; };
+  const today = new Date().toISOString().slice(0, 10), f = S.calKind || "all";
+  const cells = Array(d.first_weekday).fill(`<div class="cd empty"></div>`).concat(d.days.map(x => {
+    const ev = x.events.filter(e => f === "all" || e.kind === f);
+    return `<div class="cd ${x.day === today ? "today" : ""} ${ev.length ? "has" : ""}" ${ev.length ? `data-act="cal-day" data-d="${x.day}"` : ""}><b>${+x.day.slice(8)}</b>
+      ${ev.slice(0, 3).map(e => `<span class="ce" style="--c:${EVK[e.kind][2]}" title="${esc(e.text)}">${EVK[e.kind][0]} ${esc(e.text)}</span>`).join("")}${ev.length > 3 ? `<small>+${ev.length - 3} more</small>` : ""}</div>`; }));
+  return `<div class="ph"><div><h1>HR calendar</h1><p>Every date that matters in one place: anniversaries, probation ends, leave, case deadlines, goals, actions, follow-ups, training and holidays.</p></div>
+    <div class="row"><button class="btn sm" data-act="cal-m" data-m="${shift(-1)}">‹</button><b style="min-width:130px;text-align:center">${esc(d.label)}</b><button class="btn sm" data-act="cal-m" data-m="${shift(1)}">›</button><button class="btn sm ghost" data-act="cal-m" data-m="">Today</button></div></div>
+    <div class="chips cal-f"><button class="chip ${f === "all" ? "on" : ""}" data-act="cal-k" data-k="all">All</button>${Object.entries(EVK).map(([k, [i, l, c]]) => `<button class="chip ${f === k ? "on" : ""}" data-act="cal-k" data-k="${k}" style="--c:${c}">${i} ${l} <b>${d.counts[k] || 0}</b></button>`).join("")}</div>
+    <div class="panel hrcal"><div class="hc-h">${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(x => `<span>${x}</span>`).join("")}</div><div class="hc-g">${cells.join("")}</div></div>`;
+};
+function calDay(day) {
+  const x = DATA.cal.days.find(d => d.day === day);
+  modal(`<h3>${fmtDate(day)}</h3>${x.events.map(e => `<div class="il" style="border-left:3px solid ${EVK[e.kind][2]};padding-left:10px">${EVK[e.kind][0]} <b>${EVK[e.kind][1]}</b> · ${esc(e.text)}
+    ${e.go ? ` <button class="lnk" ${e.emp && e.go === "brain" ? `data-act="br-open" data-emp="${esc(e.emp)}"` : `data-go="${e.go}"`}>Open</button>` : ""}</div>`).join("")}
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Close</button></div>`);
+}
+
+/* ============================================================== 3.0 Weekly brief */
+PAGES.brief = async () => {
+  const b = DATA.brief = await API.call("weekly_brief");
+  const IC = { "The numbers": ["📊", "#B8860B"], "Stores that need attention": ["🏬", "#DC2626"], "Leaders": ["⭐", "#0EA5E9"], "Needs you this week": ["📌", "#C2410C"], "People": ["👥", "#16A34A"], "Coming up": ["📅", "#7A5C9E"] };
+  return `<div class="ph"><div><h1>Weekly brief</h1><p>${esc(b.title)}. Built from everything in P&O, ready to send to your line manager or the store managers.</p></div>
+    <div class="row"><button class="btn" data-act="brief-copy">Copy text</button><button class="btn" data-act="brief-x" data-f="docx">Word</button><button class="btn primary" data-act="brief-x" data-f="pdf">PDF</button></div></div>
+    <div class="brief">${b.sections.map(s => `<div class="panel bsec" style="--c:${(IC[s.title] || ["", "#94481A"])[1]}"><h2>${(IC[s.title] || ["•"])[0]} ${esc(s.title)}</h2><ul>${s.items.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>`).join("") || `<div class="panel"><div class="empty">Import data to build the brief.</div></div>`}</div>`;
+};
+
+/* ============================================================== 3.0 Store visit checklist */
+async function visitForm(store) {
+  const t = await call("visit_template", { store });
+  const ans = {};
+  const m = modal(`<h3>Store visit · ${esc(store)}</h3>${t.facts.length ? `<div class="banner">📍 <b>Check while you're there:</b> ${t.facts.map(esc).join(" · ")}</div>` : ""}
+    <div class="vlist">${Object.entries(t.sections).map(([sec, items]) => `<h4 class="ih">${esc(sec)}</h4>${items.map(it => `<div class="vi"><span>${esc(it)}</span><div class="seg sm" data-vi="${esc(it)}"><button data-v="ok">✓ OK</button><button data-v="issue">✗ Issue</button><button data-v="na">N/A</button></div></div>`).join("")}`).join("")}</div>
+    <label class="dx-l" style="margin-top:10px">Notes<textarea class="input" id="vf-n" rows="3" style="width:100%" placeholder="What you saw, who you spoke to"></textarea></label>
+    <label class="dx-l">Actions (one per line, each becomes a tracked action for ${esc(store)})<textarea class="input" id="vf-a" rows="3" style="width:100%"></textarea></label>
+    <div class="row" style="justify-content:space-between;margin-top:12px"><small id="vf-s" class="muted">0 checked</small><div class="row" style="gap:6px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="vf-go">Save visit</button></div></div>`);
+  m.classList.add("wide");
+  const upd = () => { const v = Object.values(ans), ok = v.filter(x => x === "ok").length, is = v.filter(x => x === "issue").length; $("#vf-s", m).textContent = `${v.length} checked · ${ok} OK · ${is} issue${is === 1 ? "" : "s"}${ok + is ? ` · ${Math.round(100 * ok / (ok + is))}%` : ""}`; };
+  $$("[data-vi]", m).forEach(g => $$("button", g).forEach(b => b.onclick = () => { ans[g.dataset.vi] = b.dataset.v; $$("button", g).forEach(x => x.setAttribute("aria-pressed", x === b)); upd(); }));
+  $("#vf-go", m).onclick = async () => { const r = await call("visit_save", { store, answers: ans, notes: $("#vf-n", m).value, actions: $("#vf-a", m).value.split("\n") });
+    closeModal(); SNAP.clear(); toast(`Visit saved${r.score != null ? ` · ${r.score}%` : ""}${r.actions ? ` · ${r.actions} action${r.actions > 1 ? "s" : ""} created` : ""}`); if (S.page === "notes") render(); };
+}
+async function visitPick() {
+  const st = (await call("visit_template", { store: "" })).stores || [];
+  const m = modal(`<h3>Which store are you visiting?</h3><div class="vpick">${st.map(s => `<button class="btn" data-n="${esc(s)}">${esc(s)}</button>`).join("") || `<div class="empty">Import data first.</div>`}</div>`);
+  $$(".vpick button", m).forEach(b => b.onclick = () => { closeModal(); visitForm(b.dataset.n); });
+}
+
+/* ============================================================== 3.0 Explain this number */
+let GLOSS = null;
+async function explainKpis(root) {
+  if (!GLOSS) { try { GLOSS = (await API.call("glossary")).terms; } catch (_) { GLOSS = []; } }
+  const alias = ["index", "leavers", "turnover", "retention", "absence", "presence", "nps", "sales", "shrink", "stock days", "rating", "bradford", "pattern", "enps", "data health", "productivity"];
+  $$(".kpi", root).forEach(k => {
+    if (k.querySelector(".kx")) return;
+    const l = (k.querySelector(".kpi-l") || {}).textContent || "";
+    const t = l.toLowerCase();
+    if (!GLOSS.some(g => t.includes(g)) && !alias.some(a => t.includes(a))) return;
+    k.insertAdjacentHTML("beforeend", `<span class="kx" data-act="explain" data-t="${esc(l)}" title="How is this calculated?" role="button" tabindex="0">?</span>`);
+  });
+}
+async function explainPop(el, term) {
+  const r = await API.call("explain", { term });
+  $$(".xpop").forEach(x => x.remove());
+  if (!r.what) return toast("No definition yet for " + term);
+  const p = document.createElement("div"); p.className = "xpop";
+  p.innerHTML = `<b>${esc(term)}</b><p>${esc(r.what)}</p>${r.source ? `<small><b>Comes from</b> ${esc(r.source)}</small>` : ""}${r.good ? `<small><b>Good looks like</b> ${esc(r.good)}</small>` : ""}`;
+  document.body.appendChild(p);
+  const b = el.getBoundingClientRect(); p.style.top = Math.min(innerHeight - p.offsetHeight - 10, b.bottom + 6) + "px"; p.style.left = Math.max(10, Math.min(innerWidth - p.offsetWidth - 10, b.left - 140)) + "px";
+  setTimeout(() => document.addEventListener("click", function off(e) { if (!p.contains(e.target)) { p.remove(); document.removeEventListener("click", off); } }), 0);
+}
+
+/* ============================================================== 3.0 Welcome tour */
+const TOUR = [
+  ["#nav", "Everything in one menu", "Business review, stores, people, the People Brain, insights, hiring, learning and more. Hover a menu item and it starts loading before you click."],
+  ["#q", "Find anything", "Search a person, a store or a command. Ctrl K jumps here from anywhere; press ? for all keyboard shortcuts."],
+  ["[data-go=import]", "Bring in your reports", "Any Excel, CSV or PDF. P&O works out what each sheet is, checks it and tells you what doesn't add up. Pick the month on the calendar."],
+  [".ai-pill", "Ask P&O AI", "Ask in plain words, in English or Urdu. Choose which AI handles which kind of job in Settings → AI; confidential work can stay offline."],
+  ["[data-go=insights]", "Look beyond the numbers", "People insights, the HR calendar and the weekly brief turn the data into what needs you this week."],
+];
+function tour(i = 0) {
+  $$(".tour,.tour-hl").forEach(x => x.remove());
+  if (i >= TOUR.length) { API.call("tour_done", { done: true }).catch(() => {}); if (S.init) S.init.tour_done = true; return; }
+  const [sel, h, p] = TOUR[i], el = $(sel);
+  if (!el) return tour(i + 1);
+  if (sel !== "#nav") el.scrollIntoView({ block: "center" });
+  const r = el.getBoundingClientRect();
+  const hl = document.createElement("div"); hl.className = "tour-hl";
+  Object.assign(hl.style, { top: r.top - 6 + "px", left: r.left - 6 + "px", width: r.width + 12 + "px", height: Math.min(r.height, innerHeight - r.top - 20) + 12 + "px" });
+  const c = document.createElement("div"); c.className = "tour";
+  c.innerHTML = `<small>${i + 1} of ${TOUR.length}</small><b>${esc(h)}</b><p>${esc(p)}</p><div class="row" style="justify-content:space-between"><button class="btn sm ghost" data-t="end">Skip tour</button><button class="btn sm primary" data-t="next">${i === TOUR.length - 1 ? "Done" : "Next →"}</button></div>`;
+  document.body.append(hl, c);
+  const below = r.bottom + 190 < innerHeight;
+  Object.assign(c.style, { top: (below ? Math.min(r.bottom + 14, innerHeight - 200) : Math.max(10, r.top - 180)) + "px", left: Math.min(innerWidth - 340, Math.max(10, r.right > innerWidth / 2 ? r.left - 330 : r.right + 14)) + "px" });
+  if (sel === "#nav") c.style.top = "120px";
+  c.querySelector("[data-t=next]").onclick = () => tour(i + 1);
+  c.querySelector("[data-t=end]").onclick = () => tour(TOUR.length);
+}
+
+/* ============================================================== 3.0 Settings: backups and column names */
+SETTINGS.backups = async () => {
+  const b = await API.call("backups"), sy = await API.call("synonyms");
+  return `<div class="panel"><div class="phd"><h2>Automatic backups</h2><small>one copy a day, last 14 kept · ${esc(b.folder)}</small></div>
+    <div class="setting"><div><b>Back up automatically</b><small>${b.last ? "Last automatic copy: " + fmtDate(b.last) : "Runs when P&O opens"}</small></div><label class="switch"><input type="checkbox" id="bk-auto" ${b.auto ? "checked" : ""}><span></span></label></div>
+    <div class="setting"><div><b>Back up now</b><small>Make a copy in the backups folder</small></div><button class="btn" data-act="bk-now">Back up now</button></div>
+    <div class="tbl-wrap" style="max-height:260px"><table class="t"><thead><tr><th>Copy</th><th>Made</th><th class="n">Size</th><th></th></tr></thead><tbody>
+    ${b.rows.map(r => `<tr><td>${esc(r.name)}</td><td class="nw">${esc(r.at.replace("T", " "))}</td><td class="n">${r.size_kb.toLocaleString()} KB</td><td><button class="btn sm ghost" data-act="bk-restore" data-n="${esc(r.name)}">Restore</button></td></tr>`).join("") || `<tr><td colspan="4"><div class="empty">No copies yet.</div></td></tr>`}</tbody></table></div></div>
+    <div class="panel"><div class="phd"><h2>Teach Smart Import your column names</h2><small>names your HR system uses, comma separated; they count like the built-in ones</small></div>
+    <div class="syn">${sy.fields.map(f => `<label class="dx-l"><span>${esc(f.label)} <small class="muted" title="${esc(f.builtin.join(", "))}">already knows ${f.builtin.length}+</small></span><input class="input" data-syn="${f.field}" value="${esc(f.extra.join(", "))}" placeholder="${esc(f.builtin.slice(0, 3).join(", "))}…"></label>`).join("")}</div></div>`;
+};
+const V3_ACTS = {
+  "cal-m": b => { S.calMonth = b.dataset.m || null; render(); },
+  "cal-k": b => { S.calKind = b.dataset.k; render(); },
+  "cal-day": b => calDay(b.dataset.d),
+  "brief-copy": async () => { try { await navigator.clipboard.writeText(DATA.brief.title + "\n\n" + DATA.brief.text); toast("Brief copied"); } catch (_) { toast("Couldn't copy here: use Word or PDF", { err: true }); } },
+  "brief-x": async b => { const r = await call("weekly_brief_export", { fmt: b.dataset.f }); if (!r.cancelled) toast("Brief saved"); },
+  "visit-new": b => b.dataset.store ? visitForm(b.dataset.store) : visitPick(),
+  "explain": b => explainPop(b, b.dataset.t),
+  "tour": () => tour(0),
+  "bk-now": async () => { await call("backup_now"); toast("Backup made"); render(); },
+  "bk-restore": async b => { if (!confirm(`Replace all P&O data with ${b.dataset.n}? The current data is kept as a safety copy.`)) return; await call("restore_backup", { name: b.dataset.n }); toast("Backup restored"); await afterDataChange(true); },
 };
 
 async function hireVacancy(head) {
@@ -2946,6 +3079,7 @@ Object.assign(ACT, IMP_ACTS);
 Object.assign(ACT, INT_ACTS);
 Object.assign(ACT, BRAIN_ACTS);
 Object.assign(ACT, ER_ACTS);
+Object.assign(ACT, V3_ACTS);
 ACT["tpl-forget"] = async b => { await call("import_templates", { forget: b.dataset.k }); toast("Forgotten"); render(); };
 
 /* ============================================================== 2.2 Policy assistant */
@@ -3020,7 +3154,7 @@ PAGES.notes = async () => {
   const f = S.noteKind || "all", rows = d.rows.filter(r => f === "all" || r.kind === f);
   const moods = ["", "😟", "🙁", "😐", "🙂", "😄"];
   return `<div class="ph"><div><h1>1:1s & visits</h1><p>Notes from one-to-ones, store visits and coaching. A follow-up becomes an action with an owner and date.</p></div>
-      <div class="row"><button class="btn primary" data-act="note-new">+ New note</button></div></div>
+      <div class="row"><button class="btn" data-act="visit-new">📋 Store visit checklist</button><button class="btn primary" data-act="note-new">+ New note</button></div></div>
     <div class="kpis">${k("Notes", d.rows.length, "all time")}${k("People met", d.people, "with at least one note")}${k("Open follow-ups", d.open_follow_ups, "in the action tracker", d.open_follow_ups ? "t-warn" : "")}${k("No 1:1 in 45 days", d.overdue_1to1.length, "leaders", d.overdue_1to1.length ? "t-warn" : "")}</div>
     <div class="grid g2" style="grid-template-columns:2fr 1fr">
       <div class="panel flush"><div class="row" style="padding:12px 14px 0"><div class="seg">${["all", ...d.kinds].map(x => `<button data-act="note-kind" data-k="${esc(x)}" aria-pressed="${f === x}">${x === "all" ? "All" : esc(x)}</button>`).join("")}</div></div>
@@ -3286,6 +3420,7 @@ async function boot(keepPage) {
   await refreshOptions();
   render();
   if (S.init.notice) toast(S.init.notice, { ms: 15000 });
+  if (!S.init.tour_done && !keepPage && !navigator.webdriver) setTimeout(() => tour(0), 900);
   if (!S.lockWatching) { S.lockWatching = true; lockWatch(); if (S.init.lock && S.init.lock.enabled) showLock(); }
   window.PNO_ready = true;
 }

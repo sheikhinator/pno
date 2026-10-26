@@ -96,6 +96,19 @@ FIELDS: dict[str, F] = {
                 fit=lambda c: 0.5 if c.n and c.f("num") < 0.2 else 0.0),
     "nps": F(label="NPS", syn=["nps", "net promoter score", "nps score", "customer nps"], fit=lambda c: c.f("nps") * (1 if c.f("num") > 0.8 else 0)),
     "city": F(label="City", syn=["city", "region", "town"], fit=lambda c: 0.0),
+    "year": F(label="Year", syn=["year", "yr", "fy", "financial year", "survey year"], fit=lambda c: c.f("year")),
+    "productivity": F(label="Productivity (actual)", syn=["productivity", "store productivity", "actual productivity", "sales per hour",
+                      "sph", "productivity actual", "prod actual"], fit=lambda c: 0.3 * c.f("num"), avoid=["target", "ly", "last year", "forecast", "budget"]),
+    "productivity_target": F(label="Productivity target", syn=["target productivity", "productivity target", "prod target", "target sph",
+                             "productivity budget"], fit=lambda c: 0.3 * c.f("num"), avoid=["ly", "last year"]),
+    "shrink_actual": F(label="Shrinkage % (actual)", syn=["shrink", "shrinkage", "shrink actual", "shrinkage actual", "shrink %", "shrinkage %",
+                       "actual shrink"], fit=lambda c: 0.3 * c.f("num"), avoid=["budget", "target", "var", "days"]),
+    "shrink_budget": F(label="Shrinkage % (budget)", syn=["shrink budget", "shrinkage budget", "budget shrink", "shrink target", "shrinkage target"],
+                       fit=lambda c: 0.3 * c.f("num"), avoid=["var", "days"]),
+    "stock_days_actual": F(label="Stock days (actual)", syn=["stock days", "stock days actual", "days of stock", "doh", "days on hand",
+                           "inventory days"], fit=lambda c: 0.3 * c.f("num"), avoid=["budget", "target"]),
+    "stock_days_budget": F(label="Stock days (budget)", syn=["stock days budget", "stock days target", "budget stock days", "target doh"],
+                           fit=lambda c: 0.3 * c.f("num")),
     "sales_actual": F(label="Sales (actual)", syn=["net sales", "sales", "actual", "net sales actual", "sales actual", "revenue",
                       "sales mtd", "sales ytd", "actual sales"], fit=lambda c: c.f("money"), avoid=["budget", "target", "ly", "last year", "%"]),
     "sales_budget": F(label="Sales budget", syn=["budget", "net sales budget", "sales budget", "target sales", "plan", "sales target",
@@ -122,9 +135,25 @@ KINDS: dict[str, dict] = {
                        never=["exit_date", "rating", "leave_from"], label="Biometric attendance"),
     "po_da": dict(need=["store", ("count", "employee_id", "employee_name", "action")], want=["section", "date", "action", "count"], min_want=1,
                   never=["rating", "leave_from", "time_in", "joining_date"], label="Disciplinary actions (DA)", context=r"disciplin|\bda\b|warning|show cause|misconduct|violation|penalt"),
+    "po_nps": dict(need=["nps", ("city", "store")], want=["section", "year", "city"], min_want=0,
+                   never=["employee_id", "employee_name", "rating", "time_in"], label="Customer NPS"),
+    "productivity": dict(need=["store", "productivity"], want=["productivity_target", "section"], min_want=1,
+                         never=["employee_id", "employee_name", "time_in", "shrink_actual"], label="Productivity"),
+    "po_shrink": dict(need=["store", ("shrink_actual", "stock_days_actual")], want=["section", "shrink_budget", "stock_days_budget"], min_want=1,
+                      never=["employee_id", "employee_name", "time_in"], label="Shrinkage & stock days"),
     "sales_simple": dict(need=["store", "sales_actual"], want=["sales_budget", "sales_ly"], min_want=1,
                          never=["employee_id", "employee_name"], label="Store sales (table)"),
 }
+
+
+_BASE_SYN = {k: list(v["syn"]) for k, v in FIELDS.items()}
+
+
+def set_user_synonyms(extra: dict[str, list[str]] | None) -> None:
+    """Column names P&O added in Settings: they count exactly like the built-in ones."""
+    for k, v in FIELDS.items():
+        v["syn"] = _BASE_SYN[k] + [str(x).strip() for x in (extra or {}).get(k, []) if str(x).strip()]
+    header_score.cache_clear()
 
 
 @lru_cache(maxsize=20000)

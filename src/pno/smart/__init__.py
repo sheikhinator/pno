@@ -16,7 +16,7 @@ from ..reader import Sheet
 from . import checks, mapper
 from .schema import FIELDS, KINDS
 
-SMART_KINDS = {"roster", "po_role", "po_rating", "po_turnover", "leave", "attendance", "po_shift", "po_da", "sales_simple"}
+SMART_KINDS = {"roster", "po_role", "po_rating", "po_turnover", "leave", "attendance", "po_shift", "po_da", "sales_simple", "po_nps", "productivity", "po_shrink"}
 MIN_SCORE = 0.55
 
 
@@ -44,8 +44,10 @@ def read(sheet: Sheet, file_name: str = "", fixed: dict[str, int] | None = None,
 
 
 def build(m: mapper.Match, sheet: Sheet, file_name: str = "") -> ParseResult | None:
-    if m.kind in ("po_da", "sales_simple"):
+    if m.kind in ("po_da", "sales_simple", "po_nps", "productivity", "po_shrink"):
         rows = mapper.build_records(m)
+        if not rows:
+            return None
         kind = "sales" if m.kind == "sales_simple" else m.kind
         res = ParseResult(kind=kind, sheet=sheet.name, rows=rows)
         if kind == "sales":
@@ -53,6 +55,13 @@ def build(m: mapper.Match, sheet: Sheet, file_name: str = "") -> ParseResult | N
                 r.update(period="MTD", as_of=None, d_from=None)
             res.summary = f"{len(rows)} stores · sales{' vs budget' if any(r.get('budget') for r in rows) else ''}"
             res.needs = ["month"]
+        elif kind == "po_nps":
+            res.summary = f"{len(rows)} NPS scores · {', '.join(sorted({r['city'] for r in rows}))}"
+        elif kind == "productivity":
+            res.summary = f"{len(rows)} productivity rows · {len({r['store_raw'] for r in rows})} stores"
+            res.needs = ["month"]
+        elif kind == "po_shrink":
+            res.summary = f"{len(rows)} shrinkage rows · {len({r['store'] for r in rows})} stores"
         else:
             res.summary = f"{sum(r['count'] for r in rows)} cases · {len({r['store'] for r in rows})} stores"
         res.preview = rows[:8]

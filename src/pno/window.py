@@ -181,6 +181,9 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1024, 680)
 
         self.api = Api(db, QtHost(self))
+        import threading
+        from . import api as _api_mod, office
+        threading.Thread(target=lambda: _api_mod._quiet(office.auto_backup, db), daemon=True).start()   # one copy a day, kept 14 days
         self.bridge = Bridge(self.api, self)
         self.channel = QWebChannel(self)
         self.channel.registerObject("bridge", self.bridge)

@@ -44,6 +44,18 @@ def analyze_workbook(wb: Workbook, force_kind: str | None = None) -> dict:
                 skipped.append(sh.name)
                 continue
             kind = force_kind
+        res = None
+        if kind:
+            mod = dict(PARSERS)[kind]
+            try:
+                res = mod.parse(sh, wb.name) if kind == "productivity" else mod.parse(sh)
+                res.confidence = conf
+            except Exception:  # noqa: BLE001 - looked like a known report but isn't laid out like one: let Smart Import read it
+                if force_kind:
+                    raise
+                res, kind = None, None
+            if res is not None and not res.rows and not force_kind:
+                res, kind = None, None
         if not kind:
             from .. import smart                # no exact reader: work out what it is from its columns
             try:
@@ -60,9 +72,6 @@ def analyze_workbook(wb: Workbook, force_kind: str | None = None) -> dict:
             else:
                 skipped.append(sh.name)
             continue
-        mod = dict(PARSERS)[kind]
-        res = mod.parse(sh, wb.name) if kind == "productivity" else mod.parse(sh)
-        res.confidence = conf
         if res.rows:
             results.append(res)
         else:

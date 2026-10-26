@@ -83,6 +83,13 @@ IMPORT_GUIDE = {
 }
 
 
+def _quiet(fn, *a):
+    try:
+        fn(*a)
+    except Exception:  # noqa: BLE001 - background housekeeping never stops the app
+        traceback.print_exc()
+
+
 class Api:
     def __init__(self, db: Database, host: Host | None = None):
         self.real_db = db
@@ -93,6 +100,11 @@ class Api:
         self._agent = None
         self._lock = threading.RLock()
         self._repair_stores(db)
+        from . import office
+        try:
+            office.load_synonyms(db)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
 
     @staticmethod
     def _repair_stores(db: Database) -> None:
@@ -341,7 +353,7 @@ class Api:
         mm = engine.model(self.db, default) if default else None
         counts = {k: self.db.val(f"SELECT COUNT(*) FROM imports WHERE kind=? AND active=1", (k,), 0)
                   for k in ("roster", "attendance", "productivity", "sales", "leave")}
-        return {"version": __version__, "months": months, "month": default, "demo": self.demo,
+        return {"version": __version__, "months": months, "month": default, "demo": self.demo, "tour_done": bool(self.db.get_setting("tour_done", False)),
                 "options": analytics.options(mm, {}) if mm else {"cities": [], "formats": [], "stores": [], "depts": [], "sections": []},
                 "counts": counts, "has_data": any(counts.values()), "hide_names": self._hide(),
                 "theme": self.db.get_setting("theme", "auto"), "ai": self.agent.public_status(), "lock": self.api_lock_status(),
@@ -1183,6 +1195,76 @@ class Api:
         if getattr(self, "_pi_cache", (None,))[0] != key:
             self._pi_cache = (key, people_insights.report(self))
         return self._pi_cache[1]
+
+    # ---------------------------------------------------------------- 3.0 office
+    def api_backups(self) -> dict:
+        from . import office
+        return {"rows": office.backups(), "auto": self.db.get_setting("auto_backup", True) is not False, "folder": str(office.backup_dir()),
+                "last": self.db.get_setting("auto_backup_last", None)}
+
+    def api_backup_now(self) -> dict:
+        from . import office
+        office.auto_backup(self.db, force=True)
+        return self.api_backups()
+
+    def api_backup_auto(self, on: bool = True) -> dict:
+        self.db.set_setting("auto_backup", bool(on))
+        return self.api_backups()
+
+    def api_restore_backup(self, name: str) -> dict:
+        from . import office
+        p = office.backup_dir() / Path(name).name
+        if not p.exists():
+            raise ValueError("That backup is no longer there.")
+        self.db.restore(p)
+        return {"ok": True}
+
+    def api_synonyms(self) -> dict:
+        from . import office
+        return office.synonyms(self.db)
+
+    def api_synonyms_save(self, field: str, words: list) -> dict:
+        from . import office
+        return office.save_synonyms(self.db, field, words)
+
+    def api_hr_calendar(self, month: str | None = None) -> dict:
+        from . import office
+        return office.calendar(self, month)
+
+    def api_weekly_brief(self) -> dict:
+        from . import office
+        return office.weekly_brief(self)
+
+    def api_weekly_brief_export(self, fmt: str = "pdf", save_as: str | None = None, open_after: bool = True) -> dict:
+        from . import office
+        fmt = "docx" if fmt == "docx" else "pdf"
+        path = save_as or self.host.save_path(f"P&O weekly brief {date.today():%Y-%m-%d}.{fmt}", fmt)
+        if not path:
+            return {"cancelled": True}
+        office.brief_file(self, path, fmt)
+        if open_after:
+            self.host.open_path(path)
+        return {"ok": True, "path": path}
+
+    def api_glossary(self) -> dict:
+        from . import office
+        return {"terms": list(office.GLOSSARY)}
+
+    def api_tour_done(self, done: bool = True) -> dict:
+        self.db.set_setting("tour_done", bool(done))
+        return {"ok": True}
+
+    def api_visit_template(self, store: str) -> dict:
+        from . import office
+        return office.visit_template(self, store)
+
+    def api_visit_save(self, store: str, answers: dict, notes: str = "", actions: list | None = None) -> dict:
+        from . import office
+        return office.save_visit(self, store, answers, notes, actions)
+
+    def api_explain(self, term: str) -> dict:
+        from . import office
+        return office.explain(term) or {"term": term, "what": "", "source": "", "good": ""}
 
     def api_people_pick(self, q: str = "") -> dict:
         return {"rows": self._brain().find(q, 15)}

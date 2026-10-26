@@ -170,7 +170,7 @@ def selftest(log_path: str) -> int:
         win = MainWindow(db)
         win.resize(1440, 900)
         win.show()
-        pages = ["home", "review", "stores", "people", "performance", "org", "talent", "attendance", "retention", "nps", "shifts", "health", "hiring", "learning", "manpower", "forecast", "brain", "relations", "insights", "organisation", "goals", "notes", "engagement", "recognition", "policies", "actions",
+        pages = ["home", "review", "stores", "people", "performance", "org", "talent", "attendance", "retention", "nps", "shifts", "health", "hiring", "learning", "manpower", "forecast", "brain", "relations", "insights", "calendar", "brief", "organisation", "goals", "notes", "engagement", "recognition", "policies", "actions",
                  "data", "ask", "import", "settings"]
         state = {"i": -1, "errors": [], "t0": time.time(), "visited": []}
 
