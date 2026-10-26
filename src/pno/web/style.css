@@ -940,10 +940,9 @@ table.po-shifts th .sub{display:block;font-size:10px;color:var(--muted)}
 /* tabular numbers everywhere figures line up */
 table,.kpi,.kpis,svg text,.chip,.hbarw b,.gm small,.stp i{font-variant-numeric:tabular-nums}
 /* balanced headlines, no orphan words in paragraphs */
-h1,h2,h3,h4,.kpi-v .txt{text-wrap:balance}
-p,.il,.banner,small{text-wrap:pretty}
+h1,h2{text-wrap:balance}
+
 /* continuous (squircle) corners where the engine supports them */
-@supports (corner-shape:squircle){.panel,.kpi,.btn,.modal,.chip,.input,.ltype,.toast,.seg,.seg button{corner-shape:squircle}}
 /* hit slop: small targets get a bigger invisible click area */
 .btn.sm,.lnk,.pinx,.seg button,[data-act=modal-close].x{position:relative}
 .btn.sm::after,.lnk::after,.pinx::after{content:"";position:absolute;inset:-6px -4px}
@@ -997,3 +996,10 @@ kbd{display:inline-block;min-width:22px;padding:2px 6px;border-radius:6px;border
 @media (max-width:1200px){.brief{grid-template-columns:1fr}.cd{min-height:78px}}
 
 .search input{padding-right:62px}
+
+/* ---- 3.0.1 performance: no motion, no heavy effects. Office PCs often draw without the graphics card. ---- */
+*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+*{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+.panel,.kpi,.card,.btn,.chip,.ltype,.scard,.lcard,.icard,.bsec,.cd,.seg,.toast,.kx,.gm,.stp i{box-shadow:none!important}
+.page.stale{opacity:.75}
+.growy,.arc{transform:none!important}

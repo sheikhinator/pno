@@ -136,8 +136,8 @@ class Api:
         try:
             out = fn(**params)
             if idem and not (isinstance(out, dict) and out.get("error")):
-                seen[idem] = out
-                if len(seen) > 300:
+                seen[idem] = {"ok": True, "repeat": True} if len(str(out)) > 20000 else out   # never hold big answers in memory
+                if len(seen) > 200:
                     for k in list(seen)[:100]:
                         seen.pop(k, None)
             return out

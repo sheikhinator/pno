@@ -38,6 +38,33 @@ class _Signals(QObject):
     done = Signal(str, str)
 
 
+class _Gui(QObject):
+    """Runs a small piece of work (a file dialog, opening a file) on the window's thread and hands back the result,
+    so the heavy work around it can stay on a background thread and the window never freezes."""
+    call = Signal(object)
+
+    def __init__(self):
+        super().__init__()
+        self.call.connect(self._run, Qt.ConnectionType.BlockingQueuedConnection)
+
+    @Slot(object)
+    def _run(self, box):
+        try:
+            box["out"] = box["fn"]()
+        except Exception as e:  # noqa: BLE001
+            box["err"] = e
+
+    def __call__(self, fn):
+        from PySide6.QtCore import QThread
+        if QThread.currentThread() is self.thread():
+            return fn()
+        box = {"fn": fn}
+        self.call.emit(box)
+        if "err" in box:
+            raise box["err"]
+        return box.get("out")
+
+
 class _Job(QRunnable):
     def __init__(self, api: Api, rid: str, method: str, params: str, signals: _Signals):
         super().__init__()
@@ -74,21 +101,20 @@ class Bridge(QObject):
 
     @Slot(str, str, str)
     def request(self, rid: str, method: str, params: str):
-        if method in self.UI_METHODS:
-            try:
-                out = self.api.dispatch(method, json.loads(params or "{}"))
-            except Exception as e:
-                out = {"error": str(e)}
-            self.reply.emit(rid, dumps(out))
-            return
+        # every request runs off the window's thread; dialogs inside them hop back to it (QtHost.gui), so reading
+        # files, exporting or backing up never freezes the window ("Not responding")
         self.pool.start(_Job(self.api, rid, method, params, self.signals))
 
 
 class QtHost(Host):
     def __init__(self, window: "MainWindow"):
         self.window = window
+        self.gui = _Gui()
 
     def pick_files(self, kind: str = "reports") -> list[str]:
+        return self.gui(lambda: self._pick_files(kind))
+
+    def _pick_files(self, kind: str = "reports") -> list[str]:
         title = {"reports": "Choose report files", "gguf": "Choose an AI model file", "backup": "Choose a P&O backup",
                  "cvs": "Choose CVs (PDF, Word or text)", "policies": "Choose HR policies (PDF, Word or text)", "surveys": "Choose survey results"}.get(kind, "Choose files")
         start = str(Path.home() / ("Downloads" if kind != "backup" else "Documents"))
@@ -99,14 +125,16 @@ class QtHost(Host):
         return [path] if path else []
 
     def save_path(self, name: str, filt: str = "") -> str | None:
-        path, _ = QFileDialog.getSaveFileName(self.window, "Save as", str(exports_dir() / name), FILTERS.get(filt, ""))
-        return path or None
+        def ask():
+            path, _ = QFileDialog.getSaveFileName(self.window, "Save as", str(exports_dir() / name), FILTERS.get(filt, ""))
+            return path or None
+        return self.gui(ask)
 
     def open_path(self, path: str) -> None:
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        self.gui(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))))
 
     def open_url(self, url: str) -> None:
-        QDesktopServices.openUrl(QUrl(url))
+        self.gui(lambda: QDesktopServices.openUrl(QUrl(url)))
 
 
 class Page(QWebEnginePage):
@@ -183,7 +211,10 @@ class MainWindow(QMainWindow):
         self.api = Api(db, QtHost(self))
         import threading
         from . import api as _api_mod, office
-        threading.Thread(target=lambda: _api_mod._quiet(office.auto_backup, db), daemon=True).start()   # one copy a day, kept 14 days
+        # one copy a day, kept 14 days: started 3 minutes after opening so it never slows start-up or an import
+        t = threading.Timer(180, lambda: _api_mod._quiet(office.auto_backup, db))
+        t.daemon = True
+        t.start()
         self.bridge = Bridge(self.api, self)
         self.channel = QWebChannel(self)
         self.channel.registerObject("bridge", self.bridge)

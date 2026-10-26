@@ -27,7 +27,7 @@ const API = (() => {
   const CHANGE = /(^|_)(add|make|open|advance|delete|commit|save|set|update|create|undo|remove|apply|import|close|restore|build|assign|move|lock|clear|rename|merge|pin)(_|$)/;
   const inflight = new Map();
   async function call(method, params = {}) {
-    if (CHANGE.test(method) && !params._idem) {
+    if (CHANGE.test(method) && !params._idem && !/^(import|hire_add|hire_upload|policy_add|survey_add|agent)/.test(method)) {
       const key = method + JSON.stringify(params);          // the same change sent twice while the first is running: one request
       if (inflight.has(key)) return inflight.get(key);
       const p = raw(method, { ...params, _idem: method + "-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) });
@@ -259,6 +259,7 @@ function wireSearch() {
 
 /* ---------------------------------------------------------------- polish: counting numbers, export on every table */
 function countUp(root) {
+  return;                                   // 3.0.1: numbers appear at once (animation cost too much on office PCs)
   if (matchMedia("(prefers-reduced-motion: reduce)").matches || document.body.classList.contains("present")) return;
   $$(".kpi-v", root).forEach(el => {
     const node = [...el.childNodes].find(n => n.nodeType === 3 && /\d/.test(n.textContent));
@@ -344,10 +345,7 @@ async function render() {
   // keep what is on screen while the data loads; only a slow load shows a spinner (no blank flash)
   const snapKey = `${page}|${arg ?? ""}|${S.month}|${JSON.stringify(S.scope || {})}`;
   flushDeletes();
-  if (cur && !same) SNAP.set(cur.dataset.snap || "", cur.outerHTML);
-  if (!same && SNAP.has(snapKey) && SNAP_OK.includes(page)) {          // stale-while-revalidate: last view at once, fresh data replaces it
-    view.innerHTML = SNAP.get(snapKey); view.firstElementChild.classList.add("stale", "swr"); view.scrollTop = 0;
-  } else if (cur) cur.classList.add("stale");
+  if (cur) cur.classList.add("stale");
   const slow = setTimeout(() => { if (token === S.busy && !same) view.innerHTML = `<div class="page"><div class="skel"><div class="sk sk-h"></div><div class="sk sk-p"></div><div class="sk-row">${"<div class='sk sk-k'></div>".repeat(5)}</div><div class="sk-row"><div class="sk sk-c"></div><div class="sk sk-c sm"></div></div></div></div>`; }, 260);
   try {
     if (PERIOD_PAGES.includes(page)) DATA[page] = null;
@@ -359,9 +357,7 @@ async function render() {
       if (!pd.has_data && pd.period.view && pd.period.view.type !== "latest")
         html = `<div class="ph"><div><h1>${esc(PAGE_TITLE[page] || "")}</h1></div></div><div class="panel"><div class="empty">Nothing in this tab for <b>${esc(pd.period.label)}</b>. Pick another period above, or import data for it.</div></div>`;
     }
-    const swap = () => { view.innerHTML = `<div class="page${same || SNAP.has(snapKey) ? "" : " enter"}" data-page="${page}" data-snap="${esc(snapKey)}">${html}</div>`; };
-    if (!same && !SNAP.has(snapKey) && document.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) await document.startViewTransition(swap).updateCallbackDone;
-    else swap();
+    view.innerHTML = `<div class="page" data-page="${page}" data-snap="${esc(snapKey)}">${html}</div>`;
     if (pd && pd.period) {
       const pg = view.firstElementChild, ph = pg.querySelector(":scope > .ph");
       if (ph) ph.insertAdjacentHTML("afterend", periodBar(pd.period)); else pg.insertAdjacentHTML("afterbegin", periodBar(pd.period));
@@ -386,7 +382,7 @@ let warmT = null; const warmed = new Map();
 // read-only requests each screen starts with: warming them fills the server caches without touching what is on screen
 const WARM_CALL = { home: "dashboard", people: "people", stores: "stores", attendance: "attendance", insights: "people_insights", relations: "er_cases", brain: "brain_graph", organisation: "organisation", goals: "goals", forecast: "forecast" };
 const WARM = Object.keys(WARM_CALL);
-document.addEventListener("pointerover", e => {
+false && document.addEventListener("pointerover", e => {      // 3.0.1: off; it competed with real clicks for the CPU
   const b = e.target.closest && e.target.closest("#nav [data-go]"); if (!b) return;
   const k = b.dataset.go; clearTimeout(warmT);
   if (k === S.page || !WARM.includes(k) || (warmed.get(k) || 0) > Date.now() - 60000) return;
