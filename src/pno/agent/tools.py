@@ -85,6 +85,14 @@ TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: s
                              "from_month": {"type": "string", "description": "YYYY-MM, YTD start (default January)"},
                              "to_month": {"type": "string", "description": "YYYY-MM, the month (MTD) or YTD end"}},
                              "required": ["question"]}})
+TOOLS.insert(1, {"name": "hr_policy", "description": "Search the HR policy library (leave, attendance, discipline, pay, conduct…) the "
+              "user added, and return the matching clauses with their policy and section. Use for any 'what does the policy say', "
+              "'how many days', 'are we allowed to' question. Quote the clauses and cite the policy name.",
+              "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}})
+TOOLS.insert(1, {"name": "goals_and_notes", "description": "Goals (baseline, target, current, on track / at risk / off track) and "
+              "1:1 / store-visit notes with follow-ups, plus manager effectiveness (how each manager's team is doing). Use for "
+              "'are we on track', 'which goals are behind', 'when did I last meet X', 'which managers need support'.",
+              "parameters": {"type": "object", "properties": {"person": {"type": "string"}}}})
 TOOLS.insert(1, {"name": "organisation", "description": "Organisation health: who joined, left, transferred or was promoted since the last "
               "Basic Sheet, span of control (direct reports per manager), people ending probation, and rating calibration and fairness "
               "(by store, manager and gender). Use for 'who joined this month', 'span of control', 'probation', 'are ratings fair'.",
@@ -217,6 +225,29 @@ class Toolbox:
         return {"title": v["title"], "rows": v["rows"], "columns": [{k: c.get(k) for k in ("name", "type", "role")} for c in v["columns"]],
                 "grouped_by": v["group"], "measure": v["measure"], "aggregation": v["agg"], "groups": v["series"][:30],
                 "trend": v["trend"][-24:], "insights": v["insights"]}
+
+    def t_hr_policy(self, question: str = "", **kw) -> dict:
+        from .. import workplace
+        hits = workplace.search(self.svc.api.db, question, 5)
+        if not hits:
+            n = self.svc.api.db.q1("SELECT COUNT(*) FROM policies")[0]
+            return {"found": False, "note": "No matching clause." if n else "No policies added yet (Policy assistant → Add policies)."}
+        return {"found": True, "clauses": [{"policy": h["policy"], "section": h["heading"], "text": h["text"][:1500]} for h in hits]}
+
+    def t_goals_and_notes(self, person: str = "", **kw) -> dict:
+        from .. import workplace
+        api = self.svc.api
+        g = workplace.goals(api.db)
+        out = {"goals": [{"title": x["title"], "store": x["store"], "baseline": x["baseline"], "target": x["target"], "current": x["current"],
+                          "progress_pct": x["progress"], "state": x["state"], "due": x["due"]} for x in g["rows"] if x["status"] == "open"][:20]}
+        n = workplace.notes(api.db, subject=person) if person else workplace.notes(api.db)
+        out["notes"] = [{"who": r["subject"], "kind": r["kind"], "on": r["met_on"], "notes": (r["body"] or "")[:400], "follow_up": r["follow_up"],
+                         "follow_up_status": r["action_status"]} for r in n["rows"][:12]]
+        ins = api._po()
+        if not ins.empty:
+            m = workplace.manager_effectiveness(ins)
+            out["managers"] = [{k: r[k] for k in ("manager", "store", "team", "team_index", "team_rating", "leavers", "da", "score", "band", "why")} for r in m["rows"][:15]]
+        return out
 
     def t_organisation(self, **kw) -> dict:
         r = self.svc.api.api_organisation()

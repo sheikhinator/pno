@@ -725,3 +725,34 @@ table.po-shifts th .sub{display:block;font-size:10px;color:var(--muted)}
 .succ td{vertical-align:top}.succ-c small{display:block;color:var(--muted);font-size:11.5px;margin-top:3px}
 .succ-c.bad{background:color-mix(in srgb,var(--bad-bg) 45%,transparent)}.succ-c.good{background:color-mix(in srgb,var(--good-bg) 45%,transparent)}
 .t-warn{color:var(--warn-ink)!important}
+
+/* ---- 2.2 policy assistant, goals, notes ---- */
+.chip-btn{border:1px solid var(--line);background:var(--card);color:var(--ink-2);border-radius:99px;padding:5px 12px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .15s}
+.chip-btn:hover{border-color:var(--brand);color:var(--brand);background:var(--gold-soft)}
+.pol-ask{background:linear-gradient(180deg,var(--gold-soft),var(--card) 140px)}
+.pol-ans{margin-top:16px;padding:16px 18px;border-radius:14px;background:var(--card);border:1px solid var(--line);animation:rise .3s ease}
+.pol-ans .md{font-size:14.5px;line-height:1.6}
+.pol-src{margin-top:12px;display:grid;gap:8px}
+.pol-src details{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--bg)}
+.pol-src summary{cursor:pointer;font-size:13px}
+.pol-txt{margin-top:8px;font-size:13px;line-height:1.55;color:var(--ink-2);white-space:normal}
+.pol-read{max-height:62vh;overflow:auto;font-size:13.5px;line-height:1.6}
+.pol-read h4{margin:14px 0 4px;color:var(--brand)}
+.goal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.goal{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;display:grid;gap:10px;border-top:3px solid var(--line);transition:transform .15s,box-shadow .15s}
+.goal:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.06)}
+.goal.good{border-top-color:var(--good)}.goal.warn{border-top-color:var(--warn)}.goal.bad{border-top-color:var(--bad)}
+.goal-nums{display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:8px;text-align:center}
+.goal-nums span{display:grid;font-size:15px;font-weight:700}
+.goal-nums small{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.goal-nums .cur{font-size:22px;color:var(--brand)}
+.goal-bar{height:8px;border-radius:99px;background:var(--line-2);overflow:hidden}
+.goal-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--brand),var(--gold,#C9A24B));transition:width .8s cubic-bezier(.2,.8,.2,1)}
+.goal.bad .goal-bar i{background:var(--bad)}.goal.warn .goal-bar i{background:var(--warn)}
+.goal-spark svg{width:100%;height:28px}
+.note-list{display:grid;gap:0;max-height:620px;overflow:auto;padding:6px 0}
+.note{padding:12px 16px;border-bottom:1px solid var(--line-2)}
+.note-b{margin-top:6px;font-size:13.5px;line-height:1.55;color:var(--ink-2)}
+.note-f{margin-top:6px;font-size:13px;font-weight:600;color:var(--brand)}
+.goal .sub,.note .sub{display:block;margin-top:2px;font-size:12px;color:var(--muted);font-weight:500}
+.note .chip{margin:0 4px}

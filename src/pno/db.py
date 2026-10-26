@@ -87,6 +87,25 @@ CREATE TABLE IF NOT EXISTS learning_paths (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, role_level INTEGER, course_ids TEXT, created_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS surveys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT, wave TEXT, questions TEXT, has_enps INTEGER, answers TEXT, n INTEGER, created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS policies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL, category TEXT, file_name TEXT, text TEXT, chunks TEXT, added_at TEXT
+);
+CREATE TABLE IF NOT EXISTS meetings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject TEXT, subject_key TEXT, store TEXT, kind TEXT, body TEXT, follow_up TEXT, follow_due TEXT,
+    mood INTEGER, met_on TEXT, created_at TEXT, action_id INTEGER
+);
+CREATE TABLE IF NOT EXISTS goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL, owner TEXT, store TEXT, level TEXT, metric TEXT, unit TEXT,
+    baseline REAL, target REAL, current REAL, due TEXT, status TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT, updated_at TEXT, history TEXT
+);
 CREATE TABLE IF NOT EXISTS actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL, detail TEXT, owner TEXT, store TEXT, area TEXT, due TEXT,

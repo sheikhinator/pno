@@ -200,6 +200,16 @@ def today(api) -> dict:
         days = (date.today() - datetime.fromisoformat(v["created_at"][:19]).date()).days if v["created_at"] else 0
         if days >= 30:
             items.append({"level": "warn", "area": "Hiring", "text": f"{v['title']}{(' · ' + v['store']) if v['store'] else ''} open {days} days", "go": "hiring"})
+    try:
+        from . import workplace
+        bad = [g for g in workplace.goals(db)["rows"] if g["status"] == "open" and g["state"] in ("off track", "missed")]
+        if bad:
+            items.append({"level": "warn", "area": "Goals", "text": f"{len(bad)} goal{'s' if len(bad) > 1 else ''} off track, e.g. {bad[0]['title']}", "go": "goals"})
+        fu = db.q1("SELECT COUNT(*) FROM meetings n JOIN actions a ON a.id=n.action_id WHERE a.status IN ('open','in progress') AND a.due < ?", (t,))[0]
+        if fu:
+            items.append({"level": "info", "area": "1:1 follow-ups", "text": f"{fu} follow-up{'s' if fu > 1 else ''} from 1:1s past due", "go": "notes"})
+    except Exception:  # noqa: BLE001
+        pass
     od = db.q1("SELECT COUNT(*) FROM assignments WHERE status!='completed' AND due IS NOT NULL AND due < ?", (t,))[0]
     if od:
         items.append({"level": "info", "area": "Training", "text": f"{od} training assignment{'s' if od > 1 else ''} past due", "go": "learning"})

@@ -75,6 +75,9 @@ const ICON = {
   hiring: '<rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M8.5 7V5.5A2 2 0 0 1 10.5 3.5h3a2 2 0 0 1 2 2V7M3 12.5h18M10.5 12.5v1.5h3v-1.5"/>',
   learning: '<path d="M2.5 8.5 12 4l9.5 4.5L12 13z"/><path d="M6 10.5V16c0 1.4 2.7 3 6 3s6-1.6 6-3v-5.5M21.5 8.5v6"/>',
   manpower: '<circle cx="8" cy="7" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M2.5 20c.5-3.6 2.8-5.6 5.5-5.6s5 2 5.5 5.6M14.5 15c2.6-.4 5.6 1 6.5 4.5"/><path d="M19 3v3M17.5 4.5h3"/>',
+  goals: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>',
+  notes: '<path d="M5 4h10l4 4v12H5z"/><path d="M15 4v4h4M8.5 12h7M8.5 15.5h5"/>',
+  policies: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12l2.2 2.2 4.2-4.4"/>',
   organisation: '<rect x="9" y="2.5" width="6" height="5" rx="1.2"/><rect x="2.5" y="16.5" width="6" height="5" rx="1.2"/><rect x="15.5" y="16.5" width="6" height="5" rx="1.2"/><path d="M12 7.5V12M5.5 16.5V12h13v4.5"/>',
   actions: '<rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="m8 9 1.8 1.8L13 7.6M8 15.5l1.8 1.8 3.2-3.2M15.5 9.5H17M15.5 16H17"/>',
   health: '<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
@@ -84,12 +87,12 @@ const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" f
 const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
   ["people", "People", "people"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
-  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["organisation", "Organisation", "organisation"], ["ask", "Ask P&O AI", "ask"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
+  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
 const NAV_GROUP = { retention: "Insights", hiring: "Talent", ask: "Tools" };
 const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
 const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
   talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
-  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", settings: "Settings" };
+  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", goals: "Goals", notes: "1:1s & visits", policies: "Policy assistant", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -1552,7 +1555,7 @@ AFTER.talent = async () => {
   if (sel) sel.addEventListener("change", () => { S.po.store = sel.value; render(); });
   const box = $("#po-profile");
   if (box && S.po.leader) {
-    try { const r = await API.call("po_leader", { key: S.po.leader }); box.innerHTML = `<div class="row" style="justify-content:flex-end;margin-bottom:6px"><button class="btn sm" data-act="l-devpack" data-key="${esc(S.po.leader)}">${ic("learning", 14)}Make development pack</button></div><div class="po-html">${r.html}</div>`; }
+    try { const r = await API.call("po_leader", { key: S.po.leader }); box.innerHTML = `<div class="row" style="justify-content:flex-end;margin-bottom:6px;gap:6px"><button class="btn sm" data-act="note-new" data-subject="${esc(r.name || "")}" data-key="${esc(S.po.leader)}" data-store="${esc(r.store || "")}">✎ Log 1:1</button><button class="btn sm" data-act="l-devpack" data-key="${esc(S.po.leader)}">${ic("learning", 14)}Make development pack</button></div><div class="po-html">${r.html}</div>`; }
     catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
   } else if (box) box.innerHTML = `<div class="empty">No leader selected.</div>`;
   if (q && document.activeElement !== q && S.po.q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
@@ -2415,6 +2418,124 @@ const MORE_ACTS = {
 Object.assign(ACT, MORE_ACTS);
 ACT["tpl-forget"] = async b => { await call("import_templates", { forget: b.dataset.k }); toast("Forgotten"); render(); };
 
+/* ============================================================== 2.2 Policy assistant */
+PAGES.policies = async () => {
+  const d = DATA.pol = await API.call("policies");
+  const a = S.polAns;
+  return `<div class="ph"><div><h1>Policy assistant</h1><p>Add the HR policy manual and handbooks once; ask any question and get the exact clause, with the AI's short answer when one is set up.</p></div>
+      <div class="row"><button class="btn" data-act="pol-paste">Paste text</button><button class="btn primary" data-act="pol-add">${ic("import", 14)}Add policies</button></div></div>
+    <div class="panel pol-ask"><form id="pol-f" class="row" style="gap:10px"><input class="input" id="pol-q" placeholder="e.g. How many days of sick leave? What happens after three late arrivals?" value="${esc(S.polQ || "")}" style="flex:1;font-size:15px;padding:12px 14px">
+      <button class="btn primary" type="submit">Ask</button></form>
+      <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap">${["Annual leave entitlement", "Sick leave and medical certificate", "Late arrival rules", "Notice period on resignation", "Overtime", "Maternity leave"].map(x => `<button class="chip-btn" data-act="pol-try" data-q="${esc(x)}">${esc(x)}</button>`).join("")}</div>
+      ${a ? `<div class="pol-ans"><div class="md">${md(a.answer)}</div><small style="color:var(--muted)">${a.engine === "search" ? "Found by search in your policies" : "Answered by " + esc(a.engine) + " from the passages below only"}</small>
+        ${a.sources.length ? `<div class="pol-src">${a.sources.map((s, i) => `<details ${i === 0 ? "open" : ""}><summary><b>[${i + 1}] ${esc(s.policy)}</b>${s.heading ? ` · ${esc(s.heading)}` : ""}</summary><div class="pol-txt">${esc(s.text).replace(/\n/g, "<br>")}</div></details>`).join("")}</div>` : ""}</div>` : ""}</div>
+    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Policy library</h2><small>${d.policies.length} document${d.policies.length === 1 ? "" : "s"} · kept on this computer only</small></div>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Policy</th><th>File</th><th class="n">Passages</th><th class="n">Words</th><th>Added</th><th></th></tr></thead><tbody>
+      ${d.policies.map(p => `<tr><td><b>${esc(p.title)}</b></td><td><small>${esc(p.file_name || "pasted")}</small></td><td class="n">${p.passages}</td><td class="n">${p.words.toLocaleString("en-US")}</td><td class="nw">${esc((p.added_at || "").slice(0, 10))}</td>
+        <td class="n"><button class="btn sm ghost" data-act="pol-view" data-id="${p.id}">Read</button><button class="btn sm ghost danger" data-act="pol-del" data-id="${p.id}">×</button></td></tr>`).join("")
+        || `<tr><td colspan="6"><div class="empty drop-hint">No policies yet. Add the HR manual, leave policy, code of conduct… as PDF, Word or text (or drop the files here).</div></td></tr>`}</tbody></table></div></div>`;
+};
+AFTER.policies = () => {
+  const f = $("#pol-f");
+  if (f) f.onsubmit = async e => { e.preventDefault(); const q = $("#pol-q").value.trim(); if (!q) return; S.polQ = q;
+    const b = f.querySelector("button"); b.disabled = true; b.innerHTML = `<span class="spin" style="width:13px;height:13px"></span>`;
+    try { S.polAns = await call("policy_ask", { question: q }); } finally { render(); } };
+  const page = $(".page");
+  if (page) { page.ondragover = e => { e.preventDefault(); }; page.ondrop = async e => { e.preventDefault(); if (!e.dataTransfer.files.length) return; polAfter(await call("policy_upload", { files: await filesToB64(e.dataTransfer.files) })); }; }
+};
+function polAfter(r) {
+  if (!r || r.cancelled) return;
+  if (r.added.length) toast(`Added ${r.added.length} polic${r.added.length > 1 ? "ies" : "y"}`);
+  r.failed.forEach(f => toast(`${f.file}: ${f.error}`, { err: true }));
+  render();
+}
+
+/* ============================================================== 2.2 Goals */
+PAGES.goals = async () => {
+  const d = DATA.goals = await API.call("goals");
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  const C = d.counts, cls = { "on track": "good", achieved: "good", "at risk": "warn", "off track": "bad", missed: "bad", "no update": "", done: "good", dropped: "" };
+  return `<div class="ph"><div><h1>Goals</h1><p>Store and department goals with a baseline, a target and a date. Update the number as it moves; P&O tells you if it is on track for the date.</p></div>
+      <div class="row"><button class="btn primary" data-act="goal-new">+ New goal</button></div></div>
+    <div class="kpis k5">${k("Open goals", d.open, "being tracked")}${k("On track", (C["on track"] || 0) + (C.achieved || 0), "incl. achieved")}${k("At risk", C["at risk"] || 0, "behind the time elapsed", C["at risk"] ? "t-warn" : "")}
+      ${k("Off track or missed", (C["off track"] || 0) + (C.missed || 0), "need a decision", (C["off track"] || C.missed) ? "t-bad" : "")}${k("Average progress", d.avg_progress == null ? "—" : d.avg_progress + "%", "of open goals")}</div>
+    <div class="goal-grid">${d.rows.map(g => `<div class="goal ${cls[g.state] || ""}"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><b>${esc(g.title)}</b><span class="sub">${esc([g.level, g.store, g.owner].filter(Boolean).join(" · "))}</span></div><span class="chip ${cls[g.state] || ""}">${esc(g.state)}</span></div>
+        <div class="goal-nums"><span><small>Baseline</small>${g.baseline ?? "—"}${esc(g.unit || "")}</span><span class="cur"><small>${esc(g.metric || "Now")}</small>${g.current ?? "—"}${esc(g.unit || "")}</span><span><small>Target</small>${g.target ?? "—"}${esc(g.unit || "")}</span></div>
+        <div class="goal-bar"><i style="width:${Math.min(100, g.progress || 0)}%"></i></div>
+        <div class="row" style="justify-content:space-between"><small>${g.progress == null ? "No numbers yet" : g.progress + "% of the way"} · due ${fmtDate(g.due)}</small>
+          <span><button class="btn sm" data-act="goal-upd" data-id="${g.id}">Update</button>${g.status === "open" ? `<button class="btn sm ghost" data-act="goal-done" data-id="${g.id}">Close</button>` : ""}<button class="btn sm ghost danger" data-act="goal-del" data-id="${g.id}">×</button></span></div>
+        ${g.history.length > 1 ? `<div class="goal-spark" data-spark="${esc(JSON.stringify(g.history.filter(h => h.value != null).map(h => h.value)))}"></div>` : ""}
+        ${g.history.length && g.history[g.history.length - 1].note ? `<small class="sub">“${esc(g.history[g.history.length - 1].note)}”</small>` : ""}</div>`).join("")
+      || `<div class="panel"><div class="empty">No goals yet. Start from a template:<div class="row" style="justify-content:center;gap:6px;margin-top:10px;flex-wrap:wrap">${d.templates.map((t, i) => `<button class="chip-btn" data-act="goal-new" data-t="${i}">${esc(t.title)}</button>`).join("")}</div></div></div>`}</div>`;
+};
+AFTER.goals = () => {
+  $$(".goal-spark").forEach(el => { const v = JSON.parse(el.dataset.spark || "[]"); el.innerHTML = Charts.spark(v, { w: 260, h: 28, color: "var(--brand)" }); });
+};
+function goalForm(t = {}) {
+  const m = modal(`<h3>New goal</h3><div class="hform"><label class="dx-l" style="grid-column:1/-1">Goal<input class="input" id="gf-title" value="${esc(t.title || "")}" placeholder="e.g. Cut leavers at Lucky One"></label>
+    <label class="dx-l">Measure<input class="input" id="gf-metric" value="${esc(t.metric || "")}" placeholder="e.g. Leavers per month"></label><label class="dx-l">Unit<input class="input" id="gf-unit" value="${esc(t.unit || "")}" placeholder="%, PKR, pts"></label>
+    <label class="dx-l">Baseline (now)<input class="input" id="gf-base" type="number" step="any"></label><label class="dx-l">Target<input class="input" id="gf-target" type="number" step="any"></label>
+    <label class="dx-l">Store<input class="input" id="gf-store" list="gf-stores"><datalist id="gf-stores">${((S.init.options && S.init.options.stores) || []).map(s => `<option value="${esc(s.name || s.label || s)}">`).join("")}</datalist></label><label class="dx-l">Owner<input class="input" id="gf-owner"></label>
+    <label class="dx-l">Level<select class="input" id="gf-level">${["Country", "Store", "Department", "Section", "Person"].map(l => `<option ${l === (t.level || "Store") ? "selected" : ""}>${l}</option>`).join("")}</select></label><label class="dx-l">Due<input class="input" type="date" id="gf-due"></label></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="gf-save">Add goal</button></div>`);
+  $("#gf-save", m).onclick = async () => { const v = id => $(id, m).value; if (!v("#gf-title").trim()) return toast("Write the goal.", { err: true });
+    await call("goal_add", { title: v("#gf-title"), metric: v("#gf-metric"), unit: v("#gf-unit"), baseline: v("#gf-base"), target: v("#gf-target"), store: v("#gf-store"), owner: v("#gf-owner"), level: v("#gf-level"), due: v("#gf-due") || null });
+    closeModal(); toast("Goal added"); render(); };
+}
+
+/* ============================================================== 2.2 1:1s and visits */
+PAGES.notes = async () => {
+  const d = DATA.notes = await API.call("meetings");
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  const f = S.noteKind || "all", rows = d.rows.filter(r => f === "all" || r.kind === f);
+  const moods = ["", "😟", "🙁", "😐", "🙂", "😄"];
+  return `<div class="ph"><div><h1>1:1s & visits</h1><p>Notes from one-to-ones, store visits and coaching. A follow-up becomes an action with an owner and date.</p></div>
+      <div class="row"><button class="btn primary" data-act="note-new">+ New note</button></div></div>
+    <div class="kpis">${k("Notes", d.rows.length, "all time")}${k("People met", d.people, "with at least one note")}${k("Open follow-ups", d.open_follow_ups, "in the action tracker", d.open_follow_ups ? "t-warn" : "")}${k("No 1:1 in 45 days", d.overdue_1to1.length, "leaders", d.overdue_1to1.length ? "t-warn" : "")}</div>
+    <div class="grid g2" style="grid-template-columns:2fr 1fr">
+      <div class="panel flush"><div class="row" style="padding:12px 14px 0"><div class="seg">${["all", ...d.kinds].map(x => `<button data-act="note-kind" data-k="${esc(x)}" aria-pressed="${f === x}">${x === "all" ? "All" : esc(x)}</button>`).join("")}</div></div>
+        <div class="note-list">${rows.map(r => `<div class="note"><div class="row" style="justify-content:space-between"><div><b>${esc(r.subject)}</b> <span class="chip">${esc(r.kind)}</span> ${r.mood ? `<span title="Mood">${moods[r.mood]}</span>` : ""}<span class="sub">${esc(r.store || "")} · ${fmtDate(r.met_on)}</span></div><button class="btn sm ghost danger" data-act="note-del" data-id="${r.id}">×</button></div>
+          ${r.body ? `<div class="note-b">${esc(r.body).replace(/\n/g, "<br>")}</div>` : ""}${r.follow_up ? `<div class="note-f">→ ${esc(r.follow_up)}${r.follow_due ? ` · by ${fmtDate(r.follow_due)}` : ""} <span class="chip ${r.action_status === "done" ? "good" : "warn"}">${esc(r.action_status || "")}</span></div>` : ""}</div>`).join("") || `<div class="empty">No notes yet.</div>`}</div></div>
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Due a 1:1</h2><small>No 1:1 note in 45 days</small></div><div class="tbl-wrap" style="max-height:520px"><table class="t"><tbody>
+        ${d.overdue_1to1.map(x => `<tr><td><b>${esc(x.name)}</b><span class="sub">${esc(x.role || "")} · ${esc(x.store || "")}${x.last ? " · last " + fmtDate(x.last) : " · never"}</span></td><td class="n"><button class="btn sm" data-act="note-new" data-subject="${esc(x.name)}" data-key="${esc(x.key)}" data-store="${esc(x.store || "")}">Log 1:1</button></td></tr>`).join("") || `<tr><td><div class="empty">Everyone is up to date.</div></td></tr>`}</tbody></table></div></div></div>`;
+};
+function noteForm(o = {}) {
+  const m = modal(`<h3>${o.subject ? "1:1 with " + esc(o.subject) : "New note"}</h3><div class="hform">
+    <label class="dx-l">Person or store<input class="input" id="nf-sub" value="${esc(o.subject || "")}"></label><label class="dx-l">Type<select class="input" id="nf-kind">${(DATA.notes?.kinds || ["1:1", "Store visit", "Feedback", "Coaching", "Concern", "Recognition"]).map(x => `<option>${esc(x)}</option>`).join("")}</select></label>
+    <label class="dx-l">Store<input class="input" id="nf-store" value="${esc(o.store || "")}"></label><label class="dx-l">Date<input class="input" type="date" id="nf-when" value="${new Date().toISOString().slice(0, 10)}"></label></div>
+    <label class="dx-l" style="margin-top:8px">What was discussed<textarea class="input" id="nf-body" rows="5" style="width:100%" placeholder="Wins, concerns, support needed, career…"></textarea></label>
+    <div class="hform" style="margin-top:8px"><label class="dx-l" style="grid-column:1/-1">Follow-up (becomes an action)<input class="input" id="nf-fu" placeholder="Optional"></label><label class="dx-l">Follow-up by<input class="input" type="date" id="nf-due"></label>
+    <label class="dx-l">Mood<div class="seg" id="nf-mood">${["😟", "🙁", "😐", "🙂", "😄"].map((x, i) => `<button type="button" data-v="${i + 1}" aria-pressed="false">${x}</button>`).join("")}</div></label></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="nf-save">Save note</button></div>`);
+  let mood = null;
+  $$("#nf-mood button", m).forEach(b => b.onclick = () => { mood = +b.dataset.v; $$("#nf-mood button", m).forEach(x => x.setAttribute("aria-pressed", x === b)); });
+  $("#nf-save", m).onclick = async () => { const v = id => $(id, m).value; if (!v("#nf-sub").trim()) return toast("Who is the note about?", { err: true });
+    await call("meeting_add", { subject: v("#nf-sub"), subject_key: o.key || "", kind: v("#nf-kind"), store: v("#nf-store"), when: v("#nf-when"), body: v("#nf-body"), follow_up: v("#nf-fu"), follow_due: v("#nf-due") || null, mood });
+    closeModal(); toast("Note saved"); if (["notes", "talent"].includes(S.page)) render(); };
+}
+
+const WORK_ACTS = {
+  "pol-add": async () => polAfter(await call("policy_pick")),
+  "pol-paste": () => { const m = modal(`<h3>Paste a policy</h3><label class="dx-l">Title<input class="input" id="pp-t" placeholder="e.g. Leave Policy 2026"></label><label class="dx-l" style="margin-top:8px">Text<textarea class="input" id="pp-x" rows="14" style="width:100%"></textarea></label>
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="pp-save">Add</button></div>`);
+    $("#pp-save", m).onclick = async () => { await call("policy_paste", { title: $("#pp-t", m).value, text: $("#pp-x", m).value }); closeModal(); toast("Policy added"); render(); }; },
+  "pol-try": b => { S.polQ = b.dataset.q; const i = $("#pol-q"); if (i) { i.value = b.dataset.q; $("#pol-f").requestSubmit(); } },
+  "pol-del": async b => { if (!confirm("Remove this policy from the library?")) return; await call("policy_delete", { policy_id: +b.dataset.id }); render(); },
+  "pol-view": async b => { const p = await call("policy_view", { policy_id: +b.dataset.id });
+    modal(`<h3>${esc(p.title)}</h3><div class="pol-read">${p.passages.map(c => `${c.heading ? `<h4>${esc(c.heading)}</h4>` : ""}<p>${esc(c.text).replace(/\n/g, "<br>")}</p>`).join("")}</div><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-act="modal-close">Close</button></div>`); },
+  "goal-new": b => goalForm(b.dataset.t != null ? DATA.goals.templates[+b.dataset.t] : {}),
+  "goal-upd": b => { const g = DATA.goals.rows.find(x => x.id === +b.dataset.id);
+    const m = modal(`<h3>Update: ${esc(g.title)}</h3><div class="hform"><label class="dx-l">${esc(g.metric || "Value")} now<input class="input" id="gu-v" type="number" step="any" value="${g.current ?? ""}"></label><label class="dx-l">Due<input class="input" type="date" id="gu-due" value="${esc(g.due || "")}"></label></div>
+      <label class="dx-l" style="margin-top:8px">Note<input class="input" id="gu-n" placeholder="What changed?"></label><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="gu-save">Save</button></div>`);
+    $("#gu-save", m).onclick = async () => { await call("goal_update", { goal_id: g.id, value: $("#gu-v", m).value, note: $("#gu-n", m).value, due: $("#gu-due", m).value || null }); closeModal(); toast("Goal updated"); render(); }; },
+  "goal-done": async b => { await call("goal_update", { goal_id: +b.dataset.id, status: "done" }); render(); },
+  "goal-del": async b => { if (!confirm("Delete this goal?")) return; await call("goal_delete", { goal_id: +b.dataset.id }); render(); },
+  "note-new": b => noteForm({ subject: b.dataset.subject, key: b.dataset.key, store: b.dataset.store }),
+  "note-kind": b => { S.noteKind = b.dataset.k; render(); },
+  "note-del": async b => { if (!confirm("Delete this note?")) return; await call("meeting_delete", { note_id: +b.dataset.id }); render(); },
+};
+Object.assign(ACT, WORK_ACTS);
+
 /* ============================================================== Organisation health */
 PAGES.organisation = async () => {
   const d = DATA.org = await API.call("organisation", {});
@@ -2440,6 +2561,10 @@ PAGES.organisation = async () => {
         <div class="tbl-wrap" style="max-height:360px"><table class="t"><thead><tr><th>Manager</th><th>Store</th><th class="n">Direct reports</th><th></th></tr></thead><tbody>
         ${sp.rows.map(r => `<tr><td><b>${esc(r.manager)}</b><span class="sub">${esc(r.role)}</span></td><td>${esc(r.store)}</td><td class="n">${r.direct_reports}</td><td>${r.flag ? `<span class="chip ${r.flag === "Too wide" ? "warn" : ""}">${r.flag}</span>` : ""}</td></tr>`).join("") || `<tr><td colspan="4"><div class="empty">Needs manager names on the Basic Sheet.</div></td></tr>`}</tbody></table></div></div>
     </div>
+    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Manager effectiveness</h2><small>How each manager's team is doing: leader index 45% · team rating 25% · people leaving 20% · discipline 10%</small></div>
+      <div class="tbl-wrap" style="max-height:420px"><table class="t"><thead><tr><th>Manager</th><th>Store</th><th class="n">Team</th><th class="n">Team index</th><th class="n">Team rating</th><th class="n">Leavers</th><th class="n">DA</th><th>Effectiveness</th><th>Watch</th></tr></thead><tbody>
+      ${d.managers.rows.map(r => `<tr><td><b>${esc(r.manager)}</b><span class="sub">${esc(r.role || "")}</span></td><td>${esc(r.store)}</td><td class="n">${r.team}</td><td class="n">${r.team_index ?? "—"}</td><td class="n">${r.team_rating ?? "—"}</td><td class="n">${r.leavers || ""}</td><td class="n">${r.da || ""}</td>
+        <td><div class="hbarw"><div class="hbarv ${r.band === "Strong" ? "strong" : r.band === "Steady" ? "possible" : "weak"}" style="width:${Math.max(2, r.score)}%"></div><b>${Math.round(r.score)}</b></div></td><td><small>${esc(r.why.join(" · ") || "—")}</small></td></tr>`).join("") || `<tr><td colspan="9"><div class="empty">Needs manager names on the Basic Sheet.</div></td></tr>`}</tbody></table></div></div>
     <div class="panel"><div class="phd"><h2>Rating calibration and fairness</h2><small>${ca.has_data ? `${ca.n} rated · average ${ca.avg} · ${ca.top_share}% rated 4–5` : "Import Performance Rating to check calibration"}</small></div>
       ${ca.has_data ? `${ca.flags.map(f => `<div class="alert warn"><span class="ic">•</span><span>${esc(f)}</span></div>`).join("") || `<div class="alert good"><span class="ic">✓</span><span>No calibration or fairness flags.</span></div>`}
       <div class="grid g3" style="margin-top:10px"><div><h4>Distribution</h4><div id="ch-cal"></div></div>

@@ -766,11 +766,274 @@ class Api:
         from . import actions
         return actions.today(self)
 
+    # ---------------------------------------------------------------- 2.2 policies, notes, goals, managers
+    def api_policies(self) -> dict:
+        from . import workplace
+        return {"policies": workplace.policies(self.db)}
+
+    def _add_policy_paths(self, paths: list[str]) -> dict:
+        from . import workplace
+        from .hiring.cvparse import read_text
+        added, failed = [], []
+        for p in paths:
+            name = Path(p).name
+            try:
+                text = read_text(p)
+                title = re.sub(r"[_-]+", " ", Path(p).stem).strip()
+                workplace.add_policy(self.db, title, text, name)
+                added.append(title)
+            except Exception as e:  # noqa: BLE001 - report each file
+                failed.append({"file": name, "error": str(e)[:200]})
+        self.db.log("policy", f"added {len(added)} policies")
+        return {"added": added, "failed": failed, "policies": workplace.policies(self.db)}
+
+    def api_policy_pick(self) -> dict:
+        paths = self.host.pick_files("policies")
+        return self._add_policy_paths(paths) if paths else {"cancelled": True}
+
+    def api_policy_upload(self, files: list) -> dict:
+        import base64
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for f in files[:50]:
+                name = re.sub(r"[^\w.\- ]+", "_", str(f.get("name") or "policy.txt"))[:90]
+                q = Path(tmp) / name
+                q.write_bytes(base64.b64decode(f["b64"]))
+                paths.append(str(q))
+            return self._add_policy_paths(paths)
+
+    def api_policy_paste(self, title: str, text: str, category: str = "") -> dict:
+        from . import workplace
+        workplace.add_policy(self.db, title, text, "", category)
+        return {"policies": workplace.policies(self.db)}
+
+    def api_policy_delete(self, policy_id: int) -> dict:
+        from . import workplace
+        self.db.x("DELETE FROM policies WHERE id=?", (int(policy_id),))
+        return {"policies": workplace.policies(self.db)}
+
+    def api_policy_view(self, policy_id: int) -> dict:
+        r = self.db.q1("SELECT * FROM policies WHERE id=?", (int(policy_id),))
+        if not r:
+            raise ValueError("Policy not found.")
+        return {"id": r["id"], "title": r["title"], "category": r["category"], "passages": json.loads(r["chunks"] or "[]")}
+
+    def api_policy_ask(self, question: str, ai: bool = True) -> dict:
+        from . import workplace
+        return workplace.answer(self.db, self.agent if ai else None, question)
+
+    def api_meetings(self, subject_key: str = "", subject: str = "", store: str = "") -> dict:
+        from . import workplace
+        r = workplace.notes(self.db, subject_key, subject, store)
+        try:
+            ins = self._po()
+            r["overdue_1to1"] = workplace.overdue_one_to_ones(self.db, ins) if not ins.empty else []
+        except Exception:  # noqa: BLE001
+            r["overdue_1to1"] = []
+        return r
+
+    def api_meeting_add(self, subject: str, body: str = "", kind: str = "1:1", store: str = "", subject_key: str = "", follow_up: str = "",
+                     follow_due: str | None = None, mood: int | None = None, when: str | None = None) -> dict:
+        from . import workplace
+        workplace.add_note(self.db, subject, body, kind, store, subject_key, follow_up, follow_due or None, int(mood) if mood else None, when)
+        return self.api_meetings()
+
+    def api_meeting_delete(self, note_id: int) -> dict:
+        from . import workplace
+        workplace.delete_note(self.db, int(note_id))
+        return self.api_meetings()
+
+    def api_goals(self) -> dict:
+        from . import workplace
+        return workplace.goals(self.db)
+
+    def api_goal_add(self, title: str, **kw) -> dict:
+        from . import workplace
+        workplace.add_goal(self.db, title, **{k: v for k, v in kw.items() if k in ("owner", "store", "metric", "unit", "baseline", "target", "due", "level")})
+        return workplace.goals(self.db)
+
+    def api_goal_update(self, goal_id: int, **kw) -> dict:
+        from . import workplace
+        workplace.update_goal(self.db, int(goal_id), **kw)
+        return workplace.goals(self.db)
+
+    def api_goal_delete(self, goal_id: int) -> dict:
+        from . import workplace
+        workplace.delete_goal(self.db, int(goal_id))
+        return workplace.goals(self.db)
+
+    def api_managers(self) -> dict:
+        from . import workplace
+        ins = self._po()
+        return workplace.manager_effectiveness(ins) if not ins.empty else {"rows": [], "managers": 0, "needs_support": 0}
+
+    # ---------------------------------------------------------------- 2.3 engagement, recognition, month close
+    def api_engagement(self, survey_id: int | None = None) -> dict:
+        from . import engage
+        return engage.results(self.db, int(survey_id) if survey_id else None)
+
+    def _add_surveys(self, paths: list[str], title: str = "", wave: str = "") -> dict:
+        from . import engage
+        added, failed = [], []
+        for p in paths:
+            try:
+                added.append(engage.add_survey(self.db, p, title if len(paths) == 1 else "", wave))
+            except Exception as e:  # noqa: BLE001
+                failed.append({"file": Path(p).name, "error": str(e)[:200]})
+        self.db.log("survey", f"imported {len(added)} survey file(s)")
+        r = engage.results(self.db, added[-1] if added else None)
+        return {**r, "added": len(added), "failed": failed}
+
+    def api_survey_pick(self, title: str = "", wave: str = "") -> dict:
+        paths = self.host.pick_files("surveys")
+        return self._add_surveys(paths, title, wave) if paths else {"cancelled": True}
+
+    def api_survey_upload(self, files: list, title: str = "", wave: str = "") -> dict:
+        import base64
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for f in files[:20]:
+                q = Path(tmp) / re.sub(r"[^\w.\- ]+", "_", str(f.get("name") or "survey.csv"))[:90]
+                q.write_bytes(base64.b64decode(f["b64"]))
+                paths.append(str(q))
+            return self._add_surveys(paths, title, wave)
+
+    def api_survey_delete(self, survey_id: int) -> dict:
+        from . import engage
+        engage.delete_survey(self.db, int(survey_id))
+        return engage.results(self.db)
+
+    def api_survey_template(self, save_as: str | None = None, open_after: bool = True) -> dict:
+        from . import engage
+        path = save_as or self.host.save_path("P&O pulse survey.xlsx", "xlsx")
+        if not path:
+            return {"cancelled": True}
+        stores = sorted({s["name"] for s in self.db.q("SELECT name FROM stores")})
+        try:
+            ins = self._po()
+            stores = ins.stores() or stores
+        except Exception:  # noqa: BLE001
+            pass
+        engage.template_xlsx(path, list(stores))
+        if open_after:
+            self.host.open_path(path)
+        return {"path": path}
+
+    def api_engagement_export(self, survey_id: int | None = None, fmt: str = "pdf", save_as: str | None = None, open_after: bool = True) -> dict:
+        from . import engage, exports
+        r = engage.results(self.db, int(survey_id) if survey_id else None)
+        if not r["has_data"]:
+            raise ValueError("Import survey results first.")
+        sections: list[dict] = [{"type": "heading", "text": f"{r['survey']['title']} · {r['survey']['wave']}"},
+                                {"type": "kpis", "items": [{"label": "Answers", "value": str(r["survey"]["n"])},
+                                                           {"label": "Favourable", "value": f"{r['favourable']}%" if r["favourable"] is not None else "—"},
+                                                           {"label": "eNPS", "value": str(r["enps"]) if r["enps"] is not None else "—"}]}]
+        sections.append({"type": "chart", "kind": "hbar", "title": "Favourable answers by question (%)", "labels": [q["question"][:60] for q in r["questions"]],
+                         "series": [{"name": "Favourable %", "values": [q["favourable"] for q in r["questions"]]}]})
+        sections.append({"type": "table", "title": "Questions", "columns": [("Question", "question", ""), ("Answers", "n", "int"), ("Average", "avg", ""),
+                                                                           ("Favourable %", "favourable", "int"), ("Unfavourable %", "unfavourable", "int")], "rows": r["questions"]})
+        shown = [s for s in r["stores"] if not s["hidden"]]
+        if shown:
+            sections.append({"type": "table", "title": f"By store (only groups of {r['min_group']}+ shown)", "columns": [("Store", "name", ""), ("Answers", "n", "int"),
+                             ("Favourable %", "favourable", "int"), ("eNPS", "enps", "int")], "rows": shown})
+        if r["themes"]:
+            sections.append({"type": "table", "title": "What comments are about", "columns": [("Theme", "theme", ""), ("Comments", "n", "int")],
+                             "rows": [{"theme": t, "n": n} for t, n in r["themes"]]})
+        rep = exports.table_report("Engagement pulse survey", [], [], "Anonymous results")
+        rep.update({"pack": "engagement", "title": "Engagement pulse survey", "subtitle": f"{r['survey']['title']} · anonymous results", "sections": sections[1:],
+                    "month_label": r["survey"]["wave"]})
+        path = save_as or self.host.save_path(exports.file_name(rep, fmt), fmt)
+        if not path:
+            return {"cancelled": True}
+        exports.render(rep, fmt, path)
+        if open_after:
+            self.host.open_path(path)
+        return {"path": path}
+
+    def api_stars(self, month: str | None = None) -> dict:
+        from . import engage
+        ins = self._po()
+        mm = None
+        try:
+            mm = engine.model(self.db, month) if (month or analytics.month_list(self.db)) else None
+        except Exception:  # noqa: BLE001
+            mm = None
+        return engage.stars(ins, mm) if not ins.empty or mm else {"stars": [], "month": month}
+
+    def api_certificates(self, people: list, period: str = "", save_as: str | None = None, open_after: bool = True) -> dict:
+        from . import engage
+        if not people:
+            raise ValueError("Choose who to recognise.")
+        path = save_as or self.host.save_path(f"Recognition certificates {date.today():%b %Y}.pdf", "pdf")
+        if not path:
+            return {"cancelled": True}
+        engage.certificates_pdf(path, people, period or date.today().strftime("%B %Y"))
+        self.db.log("export", f"{len(people)} recognition certificates")
+        if open_after:
+            self.host.open_path(path)
+        return {"path": path, "n": len(people)}
+
+    def api_month_close(self, month: str, lock: bool = True, save_as: str | None = None, open_after: bool = True, hide: bool | None = None) -> dict:
+        """The whole month in one zip: Director pack, P&O review, people ranking, one report per store, data health; then lock."""
+        import tempfile
+        import zipfile
+        from . import datahealth, exports
+        from .po.insights import Insights
+        from .po.store import PoStore
+        h = datahealth.report(self.db, Insights(PoStore(self.db), view={"type": "latest"}), month)
+        path = save_as or self.host.save_path(f"P&O month close {month}.zip", "zip")
+        if not path:
+            return {"cancelled": True}
+        hide_names = self._hide() if hide is None else bool(hide)
+        made, skipped = [], []
+        months = {m["value"] for m in analytics.month_list(self.db)}
+        mm_month = month if month in months else None
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z, tempfile.TemporaryDirectory() as tmp:
+            def put(name, rep, fmt):
+                f = Path(tmp) / f"{name}.{fmt}"
+                exports.render(rep, fmt, str(f))
+                z.write(f, f.name if "/" not in name else name + "." + fmt)
+                made.append(f"{name}.{fmt}")
+            for pack, fmt in (("director", "pdf"), ("po", "pdf"), ("people", "xlsx"), ("attendance", "xlsx")):
+                try:
+                    put(exports.PACKS[pack], exports.build_pack(self.db, pack, mm_month, {}, hide=hide_names), fmt)
+                except Exception as e:  # noqa: BLE001 - a pack with no data is skipped, not fatal
+                    skipped.append(f"{exports.PACKS[pack]}: {str(e)[:120]}")
+            if mm_month:
+                mm = engine.model(self.db, mm_month)
+                for sid, st in sorted(mm.stores.items(), key=lambda kv: kv[1]["name"]):
+                    if not any(p.store_id == sid for p in mm.people.values()):
+                        continue
+                    safe = re.sub(r"[^\w\- ()]+", "", f"{st['name']} ({st.get('format') or sid})")
+                    try:
+                        rep = exports.build_pack(self.db, "store", mm_month, {"store_id": sid}, store_id=sid, hide=hide_names)
+                        f = Path(tmp) / f"{safe}.pdf"
+                        exports.render(rep, "pdf", str(f))
+                        z.write(f, f"Stores/{safe}.pdf")
+                        made.append(f"Stores/{safe}.pdf")
+                    except Exception as e:  # noqa: BLE001
+                        skipped.append(f"{st['name']}: {str(e)[:120]}")
+            rows = [{"report": c["name"], "status": c["status"], "detail": c.get("label") or ""} for c in h["checklist"]]
+            put("Data health", exports.table_report(f"Data health · {h['month_label']} · {h['score']}/100", ["Report", "Status", "Detail"],
+                                                   [[r["report"], r["status"], r["detail"]] for r in rows]), "pdf")
+        if lock:
+            datahealth.set_lock(self.db, month, True)
+        self.db.log("month close", f"{month}: {len(made)} files")
+        if open_after:
+            self.host.open_path(path)
+        return {"path": path, "files": made, "skipped": skipped, "locked": lock, "score": h["score"]}
+
     def api_organisation(self, probation_months: int | None = None) -> dict:
         from . import org_health
         if probation_months:
             self.db.set_setting("probation_months", max(1, min(12, int(probation_months))))
-        return org_health.report(self.db, self._po())
+        from . import workplace
+        ins = self._po()
+        r = org_health.report(self.db, ins)
+        r["managers"] = workplace.manager_effectiveness(ins) if not ins.empty else {"rows": [], "managers": 0, "needs_support": 0}
+        return r
 
     def api_data_request(self, month: str, lang: str = "en") -> dict:
         from . import datahealth, org_health
@@ -957,7 +1220,8 @@ class Api:
         leader = next((l for l in ins.leaders() if l.key == key), None)
         if not leader:
             raise ValueError("Leader not found.")
-        return {"key": key, "html": leader_profile_html(ins, leader)}
+        from .po.format import leader_name
+        return {"key": key, "html": leader_profile_html(ins, leader), "name": leader_name(leader), "store": leader.store or ""}
 
     def api_po_turnover(self) -> dict:
         from .po import privacy

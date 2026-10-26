@@ -170,9 +170,51 @@ def _org_answer(tb: Toolbox, q: str) -> str:
     return "\n".join(lines + ["", "Open **Organisation** for names."])
 
 
+_POLICY_RX = re.compile(r"\bpolic(y|ies)\b|entitle|handbook|code of conduct|are (we|staff|employees) allowed|"
+                        r"\b(how (many|much|long)|what is the|rules? (for|on)|can (an? )?(employee|staff|we))\b.*\b(leave|notice|overtime|probation|"
+                        r"late|lateness|absence|resign\w*|maternity|paternity|hajj|warning|uniform|allowance)", re.I)
+_GOAL_RX = re.compile(r"\bgoals?\b|\bokrs?\b|1:1|one[- ]to[- ]one|store visit|manager effectiveness|managers? need support", re.I)
+
+
+def _policy_answer(tb: Toolbox, q: str) -> str:
+    r = tb.t_hr_policy(q)
+    if not r["found"]:
+        return r["note"]
+    c = r["clauses"]
+    lines = [f"**From {c[0]['policy']}{(' · ' + c[0]['section']) if c[0]['section'] else ''}:**", "", "> " + c[0]["text"].replace("\n", "\n> ")]
+    if len(c) > 1:
+        lines += ["", "Also relevant: " + "; ".join(f"{x['policy']}{(' · ' + x['section']) if x['section'] else ''}" for x in c[1:4]) + "."]
+    return "\n".join(lines + ["", "Open **Policy assistant** to read the full policy."])
+
+
+def _goal_answer(tb: Toolbox, q: str) -> str:
+    r = tb.t_goals_and_notes()
+    ql = q.lower()
+    if re.search(r"manager", ql) and r.get("managers"):
+        lines = ["| Manager | Store | Team | Effectiveness | Watch |", "|---|---|---|---|---|"]
+        lines += [f"| {m['manager']} | {m['store']} | {m['team']} | {m['score']:.0f} ({m['band']}) | {', '.join(m['why']) or '—'} |" for m in r["managers"]]
+        return "**Manager effectiveness** (leader index, team rating, people leaving and discipline in each manager's team):\n\n" + "\n".join(lines)
+    if re.search(r"1:1|one[- ]to|visit", ql):
+        if not r["notes"]:
+            return "No 1:1 or visit notes yet. Open **1:1s & visits** to log one."
+        return "**Latest notes:**\n\n" + "\n".join(f"- **{n['who']}** · {n['kind']} · {n['on']}: {n['notes'][:160]}" + (f" → {n['follow_up']} ({n['follow_up_status']})" if n["follow_up"] else "") for n in r["notes"])
+    g = r["goals"]
+    if not g:
+        return "No goals yet. Open **Goals** to set one with a baseline, target and date."
+    behind = [x for x in g if x["state"] in ("at risk", "off track", "missed")]
+    lines = [f"**{len(g)} open goals, {len(behind)} behind.**", "", "| Goal | Store | Now | Target | Progress | State |", "|---|---|---|---|---|---|"]
+    lines += [f"| {x['title']} | {x['store'] or '—'} | {x['current'] if x['current'] is not None else '—'} | {x['target'] if x['target'] is not None else '—'} | "
+              f"{(str(x['progress_pct']) + '%') if x['progress_pct'] is not None else '—'} | {x['state']} |" for x in g]
+    return "\n".join(lines)
+
+
 def answer(tb: Toolbox, question: str) -> str:
     q = question.strip()
     ql = q.lower()
+    if _POLICY_RX.search(ql):
+        return _policy_answer(tb, q)
+    if _GOAL_RX.search(ql):
+        return _goal_answer(tb, q)
     if _ORG_RX.search(ql) and not re.search(r"\b(cv|candidate|course)", ql):
         return _org_answer(tb, q)
     if _STRAT_RX.search(ql):
