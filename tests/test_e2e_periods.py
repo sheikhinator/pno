@@ -114,6 +114,25 @@ def test_period_bar_on_every_po_screen(tmp_path):
             for tab in ("track", "paths", "courses"):
                 page.locator(f"[data-act=l-tab][data-tab={tab}]").click()
                 settle()
+            # 2.0: flight risk, succession, manpower, actions, today inbox
+            page.evaluate("go('talent')")
+            settle()
+            for tab in ("risk", "succ"):
+                page.locator(f"[data-act=po-tab][data-tab={tab}]").click()
+                settle()
+            page.evaluate("go('manpower')")
+            settle()
+            page.evaluate("go('actions')")
+            settle()
+            page.locator("[data-act=act-new]").click()
+            time.sleep(0.4)
+            page.fill("#af-title", "Check the bakery rota")
+            page.locator("#af-save").click()
+            settle()
+            assert "Check the bakery rota" in page.locator(".page").inner_text()
+            page.evaluate("go('home')")
+            settle()
+            time.sleep(1)
             # command palette and table export
             page.locator("#q").click()
             page.keyboard.type(">data health")

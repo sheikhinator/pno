@@ -672,6 +672,57 @@ class Api:
             self.host.open_path(path)
         return {"ok": True, "path": path, "name": Path(path).name}
 
+    # ---------------------------------------------------------------- actions, manpower, today
+    def api_actions(self) -> dict:
+        from . import actions
+        return actions.listing(self.db)
+
+    def api_action_add(self, title: str, owner: str = "", store: str = "", area: str = "", due: str | None = None, priority: str = "Medium",
+                       source: str = "Manual", detail: str = "") -> dict:
+        from . import actions
+        actions.add(self.db, title, owner, store, area, due, priority, source, detail)
+        return actions.listing(self.db)
+
+    def api_action_update(self, action_id: int, **kw) -> dict:
+        from . import actions
+        return actions.update(self.db, int(action_id), **kw)
+
+    def api_action_delete(self, action_id: int) -> dict:
+        from . import actions
+        return actions.delete(self.db, int(action_id))
+
+    def api_actions_from_answer(self, text: str, source: str = "P&O AI") -> dict:
+        from . import actions
+        items = actions.from_text(text)
+        for it in items:
+            actions.add(self.db, it, source=source)
+        return {"added": len(items), **actions.listing(self.db)}
+
+    def api_manpower(self) -> dict:
+        from . import actions
+        return actions.manning(self.db, self._po())
+
+    def api_manpower_save(self, rows: list | None = None, paste: str | None = None) -> dict:
+        from . import actions
+        n = 0
+        if rows:
+            actions.set_manning(self.db, rows)
+            n = len(rows)
+        if paste:
+            n = actions.manning_from_table(self.db, paste)
+        return {"saved": n, **actions.manning(self.db, self._po())}
+
+    def api_today(self) -> dict:
+        from . import actions
+        return actions.today(self)
+
+    def api_po_risk(self) -> dict:
+        from .po.people_risk import flight_risk, succession
+        ins = self._po()
+        if ins.empty:
+            return {"has_data": False}
+        return {"has_data": True, "risk": flight_risk(ins), "succession": succession(ins), "window": ins.leaver_window}
+
     def api_pins(self, add: dict | None = None, remove: int | None = None) -> dict:
         """Answers pinned from the AI chat to the Overview."""
         from .db import now as _now

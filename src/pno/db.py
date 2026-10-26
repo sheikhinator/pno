@@ -87,6 +87,17 @@ CREATE TABLE IF NOT EXISTS learning_paths (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, role_level INTEGER, course_ids TEXT, created_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL, detail TEXT, owner TEXT, store TEXT, area TEXT, due TEXT,
+    status TEXT NOT NULL DEFAULT 'open', priority TEXT, source TEXT,
+    created_at TEXT, updated_at TEXT, done_at TEXT, history TEXT
+);
+CREATE TABLE IF NOT EXISTS manning (
+    store TEXT NOT NULL, department TEXT NOT NULL, approved INTEGER, updated_at TEXT,
+    PRIMARY KEY (store, department)
+);
+
 CREATE TABLE IF NOT EXISTS store_aliases (
     alias TEXT PRIMARY KEY,             -- normalised name as written in a report
     raw TEXT NOT NULL,

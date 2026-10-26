@@ -99,9 +99,48 @@ def _learn_answer(tb: Toolbox, q: str) -> str:
     return "\n".join(lines)
 
 
+_STRAT_RX = re.compile(r"flight risk|might leave|likely to leave|at risk of leaving|succession|successor|manpower|understaff|overstaff|"
+                        r"approved heads|manning|overdue action|open action|action tracker|\bactions\b", re.I)
+
+
+def _strategy_answer(tb: Toolbox, q: str) -> str:
+    r = tb.t_people_strategy()
+    ql = q.lower()
+    lines = []
+    if re.search(r"action", ql):
+        a = r["actions"]
+        lines += [f"**{a['open'] + a['in_progress']} open actions, {a['overdue']} overdue.**", ""]
+        lines += [f"- **{x['title']}** · {x['owner'] or 'no owner'} · due {x['due']}" for x in a["overdue_list"]] or ["Nothing overdue."]
+        return "\n".join(lines + ["", "Open **Actions** in the menu to update them."])
+    if re.search(r"manpower|staff|manning|heads", ql):
+        m = r["manpower"]
+        if not m["has_plan"]:
+            return (f"**{m['headcount']} people on the Basic Sheet.** No approved manning has been entered yet: open **Manpower** and paste "
+                    "Store · Department · Approved heads from Excel to see vacancies and over-staffing.")
+        return (f"**{m['headcount']} people against {m['approved']} approved heads (stores with a plan): {m['vacant']} vacant positions, "
+                f"{m['over']} above plan, {m['open_vacancies']} open vacancies in Hiring.** Open **Manpower** for the store and department detail.")
+    if re.search(r"success", ql):
+        gaps = r.get("succession_gaps", [])
+        lines += [f"**{len(gaps)} leadership roles with no successor or no one in the role.**", "", "| Store | Role | Status |", "|---|---|---|"]
+        lines += [f"| {g['store']} | {g['role']} | {g['status']} |" for g in gaps]
+        if r.get("ready_now"):
+            lines += ["", "### Ready now"] + [f"- {x['store']} · {x['role']}: **{x['successor']}**" for x in r["ready_now"]]
+        return "\n".join(lines)
+    risk = r.get("flight_risk", [])
+    if not risk:
+        return "Import the P&O workbook (Time in role, ratings, turnover) to see flight risk."
+    lines += [f"**{sum(1 for x in risk if x['band'] == 'High')} leaders at high and {sum(1 for x in risk if x['band'] == 'Medium')} at medium risk of leaving.**", "",
+              "| Leader | Store | Risk | Why |", "|---|---|---|---|"]
+    lines += [f"| {x['name']} | {x['store']} | **{x['score']}** {x['band']} | {'; '.join(x['reasons'][:3])} |" for x in risk[:10]]
+    lines += ["", "> **Next step:** hold a stay conversation with the top names this week (Flight risk → + Action)."]
+    return "\n".join(lines)
+
+
 def answer(tb: Toolbox, question: str) -> str:
     q = question.strip()
     ql = q.lower()
+    if _STRAT_RX.search(ql):
+        return _strategy_answer(tb, q)
     if _LEARN_RX.search(ql) and not re.search(r"\b(cv|candidate|vacanc)", ql):
         return _learn_answer(tb, q)
     if _HEALTH_RX.search(ql):

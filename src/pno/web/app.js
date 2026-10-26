@@ -74,6 +74,8 @@ const ICON = {
   nps: '<path d="M12 21s-7-4.4-9.3-9A5.2 5.2 0 0 1 12 6.6 5.2 5.2 0 0 1 21.3 12C19 16.6 12 21 12 21z"/>',
   hiring: '<rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M8.5 7V5.5A2 2 0 0 1 10.5 3.5h3a2 2 0 0 1 2 2V7M3 12.5h18M10.5 12.5v1.5h3v-1.5"/>',
   learning: '<path d="M2.5 8.5 12 4l9.5 4.5L12 13z"/><path d="M6 10.5V16c0 1.4 2.7 3 6 3s6-1.6 6-3v-5.5M21.5 8.5v6"/>',
+  manpower: '<circle cx="8" cy="7" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M2.5 20c.5-3.6 2.8-5.6 5.5-5.6s5 2 5.5 5.6M14.5 15c2.6-.4 5.6 1 6.5 4.5"/><path d="M19 3v3M17.5 4.5h3"/>',
+  actions: '<rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="m8 9 1.8 1.8L13 7.6M8 15.5l1.8 1.8 3.2-3.2M15.5 9.5H17M15.5 16H17"/>',
   health: '<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
 };
@@ -81,12 +83,12 @@ const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" f
 const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
   ["people", "People", "people"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
-  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["ask", "Ask P&O AI", "ask"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
+  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["ask", "Ask P&O AI", "ask"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
 const NAV_GROUP = { retention: "Insights", hiring: "Talent", ask: "Tools" };
 const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
 const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
   talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
-  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", settings: "Settings" };
+  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -378,6 +380,7 @@ PAGES.home = async () => {
       <p>Data up to ${fmtDate(d.as_of)}${d.complete ? " · complete month" : ` · day ${d.data_days}`}${d.compare ? ` · compared with ${esc((S.months.find(m => m.value === d.compare) || {}).label || d.compare)}` : ""}</p></div>
       ${d.provisional ? `<span class="chip warn">Provisional: early in the month</span>` : ""}</div>
     ${d.warnings.map(w => `<div class="banner warn">${esc(w)}</div>`).join("")}
+    <div class="panel today-p slide"><div class="phd"><h2>What needs you today</h2><small>From every screen: alerts, data, actions, flight risk, hiring and training</small></div><div id="today" class="today"><div class="sk" style="height:46px"></div></div></div>
     <div class="kpis stagger k5">${cards}</div>
     <div class="grid g32 slide stagger">
       <div class="panel"><div class="phd"><h2>Store league</h2><small>Average score of everyone in the store · click a store to focus</small></div><div id="ch-league"></div></div>
@@ -402,6 +405,7 @@ PAGES.home = async () => {
     <div class="panel slide"><div class="phd"><h2>Productivity against target</h2><small>Bar = actual (% of target) · black mark = target · green on or above target</small></div><div id="ch-bullet"></div></div>`;
 };
 AFTER.home = () => {
+  drawToday();
   const d = DATA.home;
   if (!d || !$("#ch-league")) return;
   const withSales = d.league.filter(r => r.sales != null && r.sales_pct);
@@ -765,7 +769,7 @@ function renderMsg(m, i) {
     ${(m.followups || []).length && i === S.chat.length - 1 ? `<div class="fups">${m.followups.map(f => `<button class="fup" data-act="ask-sugg" data-q="${esc(f)}">${esc(f)}</button>`).join("")}</div>` : ""}
     <div class="ameta"><button class="mbtn" data-act="msg-copy" data-m="${i}" title="Copy">⧉ Copy</button><button class="mbtn" data-act="msg-retry" data-m="${i}" title="Ask again">↻ Retry</button>
     <button class="mbtn" data-act="msg-export" data-m="${i}" data-f="pdf" title="Save as a PDF report">⤓ PDF</button><button class="mbtn" data-act="msg-export" data-m="${i}" data-f="docx" title="Save as a Word document">⤓ Word</button>
-    <button class="mbtn" data-act="msg-pin" data-m="${i}" title="Pin to the Overview">📌 Pin</button>
+    <button class="mbtn" data-act="msg-pin" data-m="${i}" title="Pin to the Overview">📌 Pin</button><button class="mbtn" data-act="msg-actions" data-m="${i}" title="Add the recommended actions to the tracker">→ Actions</button>
     <span>${esc(m.engine_label || "")}${m.seconds != null ? ` · ${m.seconds}s` : ""}</span></div></div></div>`;
 }
 function actionLine(kind, it) {
@@ -1452,7 +1456,8 @@ PAGES.review = async () => {
     <div class="grid g2 slide">
       <div class="panel"><div class="phd"><h2>What needs attention</h2><small>${d.alerts.length} alerts from every tab, biggest first</small></div>
         <div style="display:flex;flex-direction:column;gap:8px;max-height:520px;overflow:auto">${d.alerts.slice(0, 30).map(a => `<div class="alert ${a.severity === "High" ? "bad" : a.severity === "Medium" ? "warn" : ""}"><span class="ic">${a.severity === "High" ? "!" : a.severity === "Medium" ? "•" : "i"}</span>
-          <span><b>${esc(a.store)}</b> · ${esc(a.message)}<small style="display:block;color:var(--muted)">${esc(a.area)}</small></span></div>`).join("")}</div></div>
+          <span style="flex:1"><b>${esc(a.store)}</b> · ${esc(a.message)}<small style="display:block;color:var(--muted)">${esc(a.area)}</small></span>
+          <button class="btn sm ghost" data-act="act-quick" data-title="${esc(a.area + ": " + a.message)}" data-store="${esc(a.store)}" data-area="${esc(a.area)}" data-source="Business review" title="Make this an action">+ Action</button></div>`).join("")}</div></div>
       <div class="panel"><div class="phd"><h2>Sales vs budget by store</h2><small>% of budget · click a store for its leaders</small></div><div id="ch-po-sales"></div></div>
     </div>
     <small style="color:var(--muted)">Sources · ${d.sources.map(s => `${esc(s.kind)}: ${esc(s.source)}`).join(" · ")}</small>`;
@@ -1469,7 +1474,7 @@ PAGES.talent = async () => {
   const d = DATA.talent = await API.call("po_leaders", { q: S.po.q, store: S.po.store });
   if (!d.has_data) return poEmpty();
   const tab = S.po.tab;
-  const tabs = `<div class="seg">${[["leaders", "Leader 360°"], ["grid", "Talent grid"], ["bench", "Bench strength"], ["weights", "Index weights"]].map(([k, l]) => `<button data-act="po-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join("")}</div>`;
+  const tabs = `<div class="seg">${[["leaders", "Leader 360°"], ["grid", "Talent grid"], ["risk", "Flight risk"], ["succ", "Succession"], ["bench", "Bench strength"], ["weights", "Index weights"]].map(([k, l]) => `<button data-act="po-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join("")}</div>`;
   let body = "";
   if (tab === "leaders") {
     if (!S.po.leader || !d.leaders.some(l => l.key === S.po.leader)) S.po.leader = d.leaders.length ? d.leaders[0].key : null;
@@ -1486,6 +1491,29 @@ PAGES.talent = async () => {
       <div class="po-grid">${d.talent.map(b => `<div class="po-box r${b.row}c${b.col}"><b>${esc(b.name)} <span class="chip">${b.leaders.length}</span></b>
         ${b.leaders.slice(0, 12).map(l => `<button class="po-name" data-act="po-leader" data-key="${esc(l.key)}">${esc(l.name)}<small>${esc(l.store || "")}</small></button>`).join("")}${b.leaders.length > 12 ? `<small>+${b.leaders.length - 12} more</small>` : ""}</div>`).join("")}</div>
       <div class="po-axis"><span>Results low</span><span>Results on plan</span><span>Results strong</span></div></div>`;
+  } else if (tab === "risk") {
+    const r = DATA.risk = await API.call("po_risk");
+    const n = b => r.risk.filter(x => x.band === b).length;
+    body = `<div class="kpis k5"><div class="kpi"><span class="kpi-l">High risk</span><span class="kpi-v t-bad">${n("High")}</span><span class="kpi-s"><span>score 55+</span></span></div>
+        <div class="kpi"><span class="kpi-l">Medium</span><span class="kpi-v">${n("Medium")}</span><span class="kpi-s"><span>35–54</span></span></div><div class="kpi"><span class="kpi-l">Low</span><span class="kpi-v">${n("Low")}</span><span class="kpi-s"><span>below 35</span></span></div>
+        <div class="kpi"><span class="kpi-l">Leaders checked</span><span class="kpi-v">${r.risk.length}</span><span class="kpi-s"><span>leavers window: ${esc(r.window)}</span></span></div>
+        <div class="kpi"><span class="kpi-l">Top reason</span><span class="kpi-v txt">${esc((() => { const c = {}; r.risk.forEach(x => x.reasons.forEach(y => { const k = y.replace(/[\d.]+/g, "#").split("(")[0].trim(); c[k] = (c[k] || 0) + 1; })); return Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0] || "—"; })())}</span><span class="kpi-s"><span>most common signal</span></span></div></div>
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Who might leave, and why</h2><small>Points for each signal in the data: new joiners, years without a move, low or missing ratings, leavers and DA in their area, acting without the title, heavy evening rosters, store turnover. A prompt for a stay conversation, not a verdict.</small></div>
+      <div class="tbl-wrap" style="max-height:calc(100vh - 330px)"><table class="t"><thead><tr><th>Risk</th><th>Leader</th><th>Store</th><th>Leads</th><th>Why</th><th class="n">In role</th><th></th></tr></thead><tbody>
+      ${r.risk.map(x => `<tr><td><div class="hbarw"><div class="hbarv ${x.band === "High" ? "no" : x.band === "Medium" ? "weak" : "strong"}" style="width:${Math.max(3, x.score)}px"></div><b>${x.score}</b></div></td>
+        <td class="click" data-act="po-leader-open" data-key="${esc(x.key)}"><b>${esc(x.name)}</b><span class="sub">${esc(x.role)}</span></td><td>${esc(x.store)}</td><td>${esc(x.leads)}</td>
+        <td><small>${x.reasons.map(esc).join(" · ")}</small></td><td class="n">${x.in_role_months == null ? "—" : Math.floor(x.in_role_months / 12) + "y " + (x.in_role_months % 12) + "m"}</td>
+        <td class="n">${x.band !== "Low" ? `<button class="btn sm" data-act="act-quick" data-title="${esc("Stay conversation with " + x.name)}" data-store="${esc(x.store)}" data-area="Retention" data-detail="${esc(x.reasons.join("; "))}">+ Action</button>` : ""}</td></tr>`).join("")}</tbody></table></div></div>`;
+  } else if (tab === "succ") {
+    const r = DATA.risk = await API.call("po_risk");
+    const sc = r.succession;
+    const tone = { "Ready now": "good", "Ready in a year": "warn", "No successor": "bad", "No one in role": "" };
+    body = `<div class="kpis">${Object.entries(tone).map(([k, t]) => `<div class="kpi"><span class="kpi-l">${k}</span><span class="kpi-v ${t ? "t-" + t : ""}">${sc.summary[k] || 0}</span><span class="kpi-s"><span>roles</span></span></div>`).join("")}</div>
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Succession board</h2><small>Each store's leadership roles and the best people one level below. Hover a cell for the names.</small></div>
+      <div class="tbl-wrap"><table class="t succ"><thead><tr><th>Store</th>${sc.roles.map(x => `<th>${esc(x)}</th>`).join("")}</tr></thead><tbody>
+      ${sc.stores.map(st => `<tr><td><b>${esc(st)}</b></td>${sc.roles.map(role => { const c = sc.cells.find(x => x.store === st && x.role === role) || {}; return `<td class="succ-c ${tone[c.status] || ""}" title="${esc((c.successors || []).map(x => `${x.name} (${x.ready})`).join(", "))}">
+        <span class="chip ${tone[c.status] || ""}">${esc(c.status || "—")}</span><small>${esc((c.holders || []).join(", ") || "role holder not on file")}</small>${(c.successors || []).slice(0, 2).map(x => `<small>→ ${esc(x.name)} · ${esc(x.ready.toLowerCase())}</small>`).join("")}</td>`; }).join("")}</tr>`).join("")}
+      </tbody></table></div></div>`;
   } else if (tab === "bench") {
     body = `<div class="panel flush"><div class="tbl-wrap" style="max-height:calc(100vh - 260px)"><table class="t"><thead><tr><th>Priority</th><th>Leader</th><th>Store</th><th>Leads</th><th>Why flagged</th></tr></thead><tbody>
       ${d.bench.map(f => `<tr class="click" data-act="po-leader" data-key="${esc(f.key)}"><td><span class="chip ${f.severity === "High" ? "bad" : f.severity === "Medium" ? "warn" : ""}">${f.severity}</span></td><td><b>${esc(f.name)}</b><span class="sub">${esc(f.role || "")}</span></td><td>${esc(f.store)}</td><td>${esc(f.leads)}</td><td>${esc(f.reason)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">No roles flagged.</td></tr>`}
@@ -2279,6 +2307,94 @@ const LEARN_ACTS = {
 };
 Object.assign(ACT, LEARN_ACTS);
 
+
+/* ============================================================== Action tracker */
+PAGES.actions = async () => {
+  const d = DATA.actions = await API.call("actions");
+  const F = S.actFilter || "active";
+  const rows = d.rows.filter(r => F === "all" || (F === "active" ? ["open", "in progress"].includes(r.status) : F === "overdue" ? r.overdue : r.status === F));
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  return `<div class="ph"><div><h1>Action tracker</h1><p>Every decision turned into an owner and a date: from alerts, AI answers, flight-risk reviews and meetings.</p></div>
+      <div class="row"><button class="btn primary" data-act="act-new">+ New action</button></div></div>
+    <div class="kpis k5">${k("Open", d.counts.open, "not started")}${k("In progress", d.counts["in progress"], "being worked on")}${k("Overdue", d.overdue, "past the due date", d.overdue ? "t-bad" : "")}${k("Done · 30 days", d.done_30d, "closed this month")}
+      ${k("Busiest owner", d.by_owner.length ? `<span class="txt">${esc(d.by_owner[0][0])}</span>` : "—", d.by_owner.length ? d.by_owner[0][1] + " open" : "")}</div>
+    <div class="panel flush"><div class="row" style="padding:12px 14px 0;justify-content:space-between"><div class="seg">${[["active", "Active"], ["overdue", "Overdue"], ["done", "Done"], ["all", "All"]].map(([v, l]) => `<button data-act="act-filter" data-f="${v}" aria-pressed="${F === v}">${l}</button>`).join("")}</div></div>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Action</th><th>Owner</th><th>Store</th><th>Area</th><th>Due</th><th>Priority</th><th>Status</th><th>Source</th><th></th></tr></thead><tbody>
+      ${rows.map(r => `<tr class="${r.overdue ? "row-bad" : ""}"><td><b>${esc(r.title)}</b>${r.detail ? `<span class="sub">${esc(r.detail.slice(0, 160))}</span>` : ""}${r.history.length > 1 ? `<span class="sub">${esc(r.history[r.history.length - 1].note || "")}</span>` : ""}</td>
+        <td><input class="input sm" data-actf="owner" data-id="${r.id}" value="${esc(r.owner || "")}" placeholder="Owner" style="width:120px"></td><td>${esc(r.store || "—")}</td><td>${esc(r.area || "—")}</td>
+        <td><input class="input sm" type="date" data-actf="due" data-id="${r.id}" value="${esc(r.due || "")}"></td>
+        <td><select class="input sm" data-actf="priority" data-id="${r.id}">${["High", "Medium", "Low"].map(p => `<option ${p === r.priority ? "selected" : ""}>${p}</option>`).join("")}</select></td>
+        <td><select class="input sm" data-actf="status" data-id="${r.id}">${d.statuses.map(st => `<option ${st === r.status ? "selected" : ""}>${st}</option>`).join("")}</select></td>
+        <td><span class="chip">${esc(r.source || "")}</span></td><td class="n"><button class="btn sm ghost" data-act="act-note" data-id="${r.id}">Note</button><button class="btn sm ghost danger" data-act="act-del" data-id="${r.id}">×</button></td></tr>`).join("") || `<tr><td colspan="9"><div class="empty">Nothing here. Add actions from alerts (Business review), AI answers (→ Actions) or Flight risk.</div></td></tr>`}</tbody></table></div></div>`;
+};
+function actionForm(o = {}) {
+  const m = modal(`<h3>New action</h3><div class="hform"><label class="dx-l" style="grid-column:1/-1">What needs to be done<input class="input" id="af-title" value="${esc(o.title || "")}"></label>
+    <label class="dx-l">Owner<input class="input" id="af-owner" value="${esc(o.owner || "")}" placeholder="Name or role"></label><label class="dx-l">Store<input class="input" id="af-store" value="${esc(o.store || "")}"></label>
+    <label class="dx-l">Area<input class="input" id="af-area" value="${esc(o.area || "")}" placeholder="e.g. Turnover, Shrinkage"></label><label class="dx-l">Due<input class="input" type="date" id="af-due" value="${esc(o.due || "")}"></label>
+    <label class="dx-l">Priority<select class="input" id="af-pri"><option>High</option><option selected>Medium</option><option>Low</option></select></label></div>
+    <label class="dx-l" style="margin-top:8px">Details<textarea class="input" id="af-detail" rows="3" style="width:100%">${esc(o.detail || "")}</textarea></label>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="af-save">Add action</button></div>`);
+  $("#af-save", m).onclick = async () => { if (!$("#af-title", m).value.trim()) return toast("Write the action.", { err: true });
+    await call("action_add", { title: $("#af-title", m).value, owner: $("#af-owner", m).value, store: $("#af-store", m).value, area: $("#af-area", m).value,
+      due: $("#af-due", m).value || null, priority: $("#af-pri", m).value, source: o.source || "Manual", detail: $("#af-detail", m).value });
+    closeModal(); toast("Action added", { action: "Open tracker", onAction: () => go("actions") }); if (S.page === "actions") render(); };
+}
+document.addEventListener("change", async e => {
+  const f = e.target.closest && e.target.closest("[data-actf]");
+  if (!f) return;
+  await call("action_update", { action_id: +f.dataset.id, [f.dataset.actf]: f.value }); toast("Saved"); if (f.dataset.actf === "status") render();
+});
+
+/* ============================================================== Manpower: approved vs actual */
+PAGES.manpower = async () => {
+  const d = DATA.manpower = await API.call("manpower");
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  return `<div class="ph"><div><h1>Manpower</h1><p>Approved heads against people on the Basic Sheet, by store and department, with open vacancies from Hiring.</p></div>
+      <div class="row"><button class="btn primary" data-act="mp-paste">Paste approved manning</button></div></div>
+    ${d.has_plan ? "" : `<div class="banner">No approved manning yet. Paste it from Excel (Store · Department · Approved heads) or type it in the table below. Until then, actual headcount is shown.</div>`}
+    <div class="kpis k5">${k("Headcount", d.headcount.toLocaleString("en-US"), "on the Basic Sheet")}${k("Approved", d.has_plan ? d.approved.toLocaleString("en-US") : "—", "stores with a plan")}
+      ${k("Vacant positions", d.has_plan ? d.vacant : "—", "below approved", d.vacant ? "t-bad" : "")}${k("Over plan", d.has_plan ? d.over : "—", "above approved", d.over ? "t-warn" : "")}${k("Open vacancies", d.open_vacancies, "in Hiring")}</div>
+    ${d.has_plan ? `<div class="panel"><div class="phd"><h2>Fill rate by store</h2><small>Actual ÷ approved · black mark = 100%</small></div><div id="ch-mp"></div></div>` : ""}
+    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>By store and department</h2><small>Type an approved number to set the plan</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th>Department</th><th class="n">Approved</th><th class="n">Actual</th><th class="n">Gap</th><th class="n">Fill</th><th class="n">Open vacancies</th></tr></thead><tbody>
+    ${d.rows.map(r => `<tr><td>${esc(r.store)}</td><td>${esc(r.department)}</td><td class="n"><input class="input sm" type="number" min="0" data-mp-store="${esc(r.store)}" data-mp-dept="${esc(r.department)}" value="${r.approved ?? ""}" style="width:80px"></td>
+      <td class="n">${r.actual}</td><td class="n ${r.gap == null ? "" : r.gap < 0 ? "t-bad" : r.gap > 0 ? "t-warn" : "t-good"}">${r.gap == null ? "—" : (r.gap > 0 ? "+" : "") + r.gap}</td><td class="n">${r.fill_pct == null ? "—" : r.fill_pct + "%"}</td><td class="n">${r.open_vacancies || ""}</td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">Import the Basic Sheet to see headcount.</div></td></tr>`}</tbody></table></div></div>`;
+};
+AFTER.manpower = () => {
+  const d = DATA.manpower;
+  if (d && $("#ch-mp")) { const st = d.stores.filter(s => s.has_plan); Charts.bullet($("#ch-mp"), { items: st.map(s => ({ label: s.store, value: s.fill_pct || 0, target: 100, max: Math.max(120, ...st.map(x => x.fill_pct || 0)), fmt: "pct0" })) }); }
+};
+document.addEventListener("change", async e => {
+  const i = e.target.closest && e.target.closest("[data-mp-store]");
+  if (!i) return;
+  await call("manpower_save", { rows: [{ store: i.dataset.mpStore, department: i.dataset.mpDept, approved: i.value === "" ? null : +i.value }] }); toast("Plan saved"); render();
+});
+
+/* ============================================================== What needs you today (Overview) */
+async function drawToday() {
+  const box = $("#today"); if (!box) return;
+  try {
+    const t = await API.call("today");
+    box.innerHTML = t.items.length ? t.items.map(i => `<button class="today-i ${i.level}" data-go="${i.go}" ${i.tab ? `data-tab="${i.tab}"` : ""}><span class="ic">${i.level === "bad" ? "!" : i.level === "warn" ? "•" : "i"}</span><span><b>${esc(i.area)}</b> · ${esc(i.text)}</span><span class="go">›</span></button>`).join("")
+      : `<div class="empty" style="padding:10px">All clear: nothing urgent today 🎉</div>`;
+  } catch (e) { box.innerHTML = ""; }
+}
+const MORE_ACTS = {
+  "act-new": () => actionForm(),
+  "act-quick": b => actionForm({ title: b.dataset.title, store: b.dataset.store, area: b.dataset.area, detail: b.dataset.detail, source: b.dataset.source || "Flight risk" }),
+  "act-filter": b => { S.actFilter = b.dataset.f; render(); },
+  "act-del": async b => { await call("action_delete", { action_id: +b.dataset.id }); render(); },
+  "act-note": b => { const n = prompt("Add a note (progress, blocker, decision):"); if (n) call("action_update", { action_id: +b.dataset.id, note: n }).then(() => { toast("Note added"); render(); }); },
+  "msg-actions": async b => { const m = S.chat[+b.dataset.m]; const r = await call("actions_from_answer", { text: m.content || "" });
+    toast(r.added ? `${r.added} action${r.added > 1 ? "s" : ""} added to the tracker` : "No 'Recommended actions' list in this answer", { err: !r.added, action: r.added ? "Open" : null, onAction: () => go("actions") }); },
+  "mp-paste": () => {
+    const m = modal(`<h3>Paste approved manning</h3><p style="color:var(--muted);margin:0 0 10px">Copy three columns from Excel: <b>Store · Department · Approved heads</b>. Store and department names are matched automatically.</p>
+      <textarea class="input" id="mp-t" rows="10" style="width:100%;font-family:monospace;font-size:12px" placeholder="LAH Fortress\tFresh Food\t42"></textarea>
+      <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="mp-go">Save plan</button></div>`);
+    $("#mp-go", m).onclick = async () => { const r = await call("manpower_save", { paste: $("#mp-t", m).value }); closeModal(); toast(`${r.saved} rows saved`); render(); };
+  },
+  "po-leader-open": b => { S.po.tab = "leaders"; S.po.leader = b.dataset.key; render(); },
+};
+Object.assign(ACT, MORE_ACTS);
 function applyTheme(t) { if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; }
 
 async function boot(keepPage) {

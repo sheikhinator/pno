@@ -85,6 +85,10 @@ TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: s
                              "from_month": {"type": "string", "description": "YYYY-MM, YTD start (default January)"},
                              "to_month": {"type": "string", "description": "YYYY-MM, the month (MTD) or YTD end"}},
                              "required": ["question"]}})
+TOOLS.insert(1, {"name": "people_strategy", "description": "Flight risk (who might leave and why), succession (roles with no successor, "
+              "who is ready now), manpower (approved vs actual heads, vacancies) and the action tracker (open and overdue actions). "
+              "Use for 'who might leave', 'succession gaps', 'are we understaffed', 'what actions are overdue'.",
+              "parameters": {"type": "object", "properties": {"store": {"type": "string"}}}})
 TOOLS.insert(1, {"name": "learning", "description": "Learning Studio: list the training courses, or make a new course for a role and "
               "topic with the hours wanted (full lessons, formulas, charts, quizzes, final assessment). Use for 'make a 3-hour course on "
               "shrink for team leaders', 'what training do we have', 'training completion'.",
@@ -209,6 +213,29 @@ class Toolbox:
         return {"title": v["title"], "rows": v["rows"], "columns": [{k: c.get(k) for k in ("name", "type", "role")} for c in v["columns"]],
                 "grouped_by": v["group"], "measure": v["measure"], "aggregation": v["agg"], "groups": v["series"][:30],
                 "trend": v["trend"][-24:], "insights": v["insights"]}
+
+    def t_people_strategy(self, store: str = "", **kw) -> dict:
+        api = self.svc.api
+        from .. import actions as A
+        out: dict = {}
+        r = api.api_po_risk()
+        if r.get("has_data"):
+            risk = [x for x in r["risk"] if not store or store.lower() in (x["store"] or "").lower()]
+            out["flight_risk"] = [{"name": x["name"], "store": x["store"], "role": x["role"], "score": x["score"], "band": x["band"], "reasons": x["reasons"]}
+                                  for x in risk[:12]]
+            cells = [c for c in r["succession"]["cells"] if not store or store.lower() in c["store"].lower()]
+            out["succession_gaps"] = [{"store": c["store"], "role": c["role"], "status": c["status"]} for c in cells if c["status"] in ("No successor", "No one in role")][:15]
+            out["ready_now"] = [{"store": c["store"], "role": c["role"], "successor": c["successors"][0]["name"]} for c in cells if c["status"] == "Ready now" and c["successors"]][:10]
+            top = [x for x in risk if x["band"] != "Low"][:8]
+            if top:
+                self.blocks.append({"type": "chart", "kind": "hbar", "title": "Flight risk (0-100)", "labels": [x["name"] for x in top],
+                                    "series": [{"name": "Risk", "values": [x["score"] for x in top]}]})
+        m = api.api_manpower()
+        out["manpower"] = {k: m[k] for k in ("has_plan", "headcount", "approved", "vacant", "over", "open_vacancies")}
+        a = A.listing(api.db)
+        out["actions"] = {"open": a["counts"]["open"], "in_progress": a["counts"]["in progress"], "overdue": a["overdue"],
+                          "overdue_list": [{"title": x["title"], "owner": x["owner"], "due": x["due"]} for x in a["rows"] if x["overdue"]][:10]}
+        return out
 
     def t_learning(self, make: bool = False, topic: str = "", role: str = "", hours: float = 3, **kw) -> dict:
         L = self.svc.api.learning
