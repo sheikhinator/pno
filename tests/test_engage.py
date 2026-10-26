@@ -109,3 +109,18 @@ def test_month_close(tmp_path, monkeypatch):
     names = zipfile.ZipFile(out).namelist()
     assert any(n.startswith("Stores/") for n in names) and "Data health.pdf" in names and any("Director" in n for n in names)
     assert month in api.dispatch("data_health", {"month": month}).get("locked_months", [month])
+
+
+def test_app_lock(api):
+    assert api.dispatch("lock_status", {})["enabled"] is False
+    assert "4 to 8 digits" in api.dispatch("lock_set", {"pin": "12"})["error"]
+    assert api.dispatch("lock_set", {"pin": "2468", "minutes": 5})["enabled"]
+    assert api.dispatch("init", {})["lock"] == {"enabled": True, "minutes": 5}
+    assert api.dispatch("unlock", {"pin": "1111"})["ok"] is False
+    assert api.dispatch("unlock", {"pin": "2468"})["ok"] is True
+    assert "current PIN is wrong" in api.dispatch("lock_set", {"pin": "1357", "old_pin": "0000"})["error"]
+    for _ in range(5):
+        api.dispatch("unlock", {"pin": "0000"})
+    assert "Too many" in api.dispatch("unlock", {"pin": "2468"})["error"]
+    assert api.dispatch("lock_off", {"pin": "2468"})["enabled"] is False
+    assert "2468" not in str(api.db.get_setting("app_lock", {}))

@@ -7,6 +7,7 @@ import sqlite3
 from typing import Any
 
 from .. import analytics, engine
+from ..stores import FORMAT_LABEL
 from ..org import ROLE_LABEL
 from ..util import norm, parse_date
 
@@ -168,10 +169,15 @@ class Toolbox:
     @staticmethod
     def find_store(mm, name: str) -> dict | None:
         n = norm(name)
+        want_hb = bool(re.search(r"\bH AND B\b|\bHB\b|MYLI|HEALTH (AND )?BEAUTY", n))
+        n = re.sub(r"\bH AND B\b|\bHB\b|\bMYLI\b|\bHEALTH (AND )?BEAUTY\b|\bHM\b|\bSM\b", " ", n).strip()
+        n = " ".join(n.split())
         best, score = None, 0
         for s in mm.stores.values():
             sn = norm(s["name"])
             sc = 3 if sn == n else 2 if n in sn or sn in n else len(set(n.split()) & set(sn.split())) / 2
+            if sc and (s.get("format") == "HB") == want_hb:
+                sc += 0.25
             if sc > score:
                 best, score = s, sc
         return best if score >= 0.5 else None
@@ -383,16 +389,18 @@ class Toolbox:
                 "manager": d["manager"]["name"], "team_size": len(d["team"]),
                 "history": [{h["month"]: h["score"]} for h in d["history"]]}
 
-    def t_store(self, name, month=None) -> dict:
+    def t_store(self, name, month=None, store_id=None, **kw) -> dict:
         mm = self._mm(month)
-        st = self.find_store(mm, name)
+        st = mm.stores.get(int(store_id)) if store_id else self.find_store(mm, name)
         if not st:
             return {"not_found": name, "stores": sorted(s["name"] for s in mm.stores.values())}
         d = analytics.store_detail(self.db, mm.month, st["id"], self.anon)
         return {"store": d["store"], "format": d["format_label"], "city": d["city"], "store_score": d["score"],
                 "gm": d["gm"] and {"name": d["gm"]["name"], "score": d["gm"]["score"]}, "total": d["total"],
-                "departments": [{k: r[k] for k in ("code", "name", "sales_pct", "growth", "waste", "oos", "prod_pct", "managers")}
+                "departments": [{k: r.get(k) for k in ("code", "name", "actual", "budget", "sales_pct", "growth", "margin", "waste", "oos", "prod_pct", "managers")}
                                 for r in d["departments"]],
+                "other_formats": [FORMAT_LABEL.get(o["format"], o["format"]) for o in mm.stores.values()
+                                  if o["id"] != st["id"] and o["name"] == st["name"] and o.get("city") == st.get("city")],
                 "sections": [{k: r[k] for k in ("code", "name", "sales_pct", "growth", "waste", "oos", "prod_pct", "managers")}
                              for r in d["sections"]],
                 "attendance": {k: d["attendance"][k] for k in ("absence_pct", "system_absence_pct", "fixes", "compliance_pct", "long_absence")},

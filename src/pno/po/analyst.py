@@ -77,6 +77,8 @@ class PoAnalyst:
         if self.i.empty:
             return None
         q = f" {question.casefold().strip()} "
+        if re.search(r"\bh\s*&\s*b\b|\bhb\b|myli|health\s*(and|&)\s*beauty", q) and not any(s.endswith("· Myli") for s in self.i.stores()):
+            return None                              # H&B (Myli) stores are only in the sales report: answered from there
         stores = self._stores_in(q)
         leader = self._leader_in(question)
         wants_rank = bool(re.search(r"\b(top|best|bottom|worst|weakest|strongest|lowest|highest|rank|ranking|league|most|least)\b", q))

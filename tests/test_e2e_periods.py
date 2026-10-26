@@ -80,7 +80,7 @@ def test_period_bar_on_every_po_screen(tmp_path):
             settle()
             page.evaluate("go('health')")
             settle()
-            for pg_ in ("goals", "notes", "policies"):
+            for pg_ in ("goals", "notes", "policies", "engagement", "recognition", "forecast"):
                 page.evaluate(f"go('{pg_}')")
                 settle()
             page.evaluate("go('health')")

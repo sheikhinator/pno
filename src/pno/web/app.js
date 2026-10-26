@@ -75,6 +75,9 @@ const ICON = {
   hiring: '<rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M8.5 7V5.5A2 2 0 0 1 10.5 3.5h3a2 2 0 0 1 2 2V7M3 12.5h18M10.5 12.5v1.5h3v-1.5"/>',
   learning: '<path d="M2.5 8.5 12 4l9.5 4.5L12 13z"/><path d="M6 10.5V16c0 1.4 2.7 3 6 3s6-1.6 6-3v-5.5M21.5 8.5v6"/>',
   manpower: '<circle cx="8" cy="7" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M2.5 20c.5-3.6 2.8-5.6 5.5-5.6s5 2 5.5 5.6M14.5 15c2.6-.4 5.6 1 6.5 4.5"/><path d="M19 3v3M17.5 4.5h3"/>',
+  engagement: '<path d="M12 20.5s-7.5-4.4-7.5-10A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.9c0 5.6-7.5 10-7.5 10z"/><path d="M8 12h2l1.2-2 1.6 4 1.2-2h2"/>',
+  recognition: '<circle cx="12" cy="9" r="5.5"/><path d="M8.5 13.3 7 21l5-2.6 5 2.6-1.5-7.7"/>',
+  forecast: '<path d="M3.5 19.5h17M5 15l4-4 3.5 3 6.5-7"/><path d="M15 7h4v4"/>',
   goals: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>',
   notes: '<path d="M5 4h10l4 4v12H5z"/><path d="M15 4v4h4M8.5 12h7M8.5 15.5h5"/>',
   policies: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12l2.2 2.2 4.2-4.4"/>',
@@ -87,12 +90,12 @@ const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" f
 const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
   ["people", "People", "people"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
-  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
+  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["forecast", "Workforce plan", "forecast"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["engagement", "Engagement", "engagement"], ["recognition", "Recognition", "recognition"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
 const NAV_GROUP = { retention: "Insights", hiring: "Talent", ask: "Tools" };
 const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
 const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
   talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
-  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", goals: "Goals", notes: "1:1s & visits", policies: "Policy assistant", settings: "Settings" };
+  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", forecast: "Workforce plan", goals: "Goals", notes: "1:1s & visits", engagement: "Engagement", recognition: "Recognition", policies: "Policy assistant", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -888,9 +891,9 @@ PAGES.health = async () => {
       <div class="row"><label class="pv-l">Month<select class="input sm" id="h-month">${months.map(m => `<option value="${m.value}" ${m.value === d.month ? "selected" : ""}>${esc(m.label)}</option>`).join("")}</select></label>
       <button class="btn ${d.locked ? "" : "ghost"}" data-act="h-lock" data-locked="${d.locked ? 0 : 1}" title="A locked month cannot be changed by later imports">${d.locked ? "🔒 Locked · unlock" : "🔓 Lock month"}</button></div></div>
     <div class="grid hgrid">
-      <div class="panel hscore"><div class="row" style="gap:18px;align-items:center">${ring(d.score)}<div><span class="kpi-l">Data health · ${esc(d.month_label)}</span>
+      <div class="panel hcard"><div class="row" style="gap:18px;align-items:center">${ring(d.score)}<div><span class="kpi-l">Data health · ${esc(d.month_label)}</span>
         <h2 style="margin:4px 0">${esc(d.verdict)}</h2><small style="color:var(--muted)">${d.ready} of ${d.expected} reports in · ${d.checks.length} thing${d.checks.length === 1 ? "" : "s"} to check</small></div></div></div>
-      <div class="panel"><div class="phd"><h2>Monthly checklist</h2><div class="row"><button class="btn sm" data-act="h-request">✉ Ask for missing reports</button><button class="btn sm primary" data-go="import">${ic("import", 14)}Import missing</button></div></div>
+      <div class="panel"><div class="phd"><h2>Monthly checklist</h2><div class="row"><button class="btn sm" data-act="h-request">✉ Ask for missing reports</button><button class="btn sm" data-act="month-close">✓ Close the month</button><button class="btn sm primary" data-go="import">${ic("import", 14)}Import missing</button></div></div>
         <div class="hlist">${d.checklist.map(c => `<div class="hrow"><span class="chip ${HSTAT[c.status][1]}">${HSTAT[c.status][0]}</span><b>${esc(c.name)}</b>
           <small>${esc(c.label || "")}${c.detail && c.detail !== "latest is " + c.label ? ` · ${esc(c.detail)}` : ""}</small></div>`).join("")}</div></div></div>
     <div class="panel"><div class="phd"><h2>Checks</h2><small>Reconciliation across tabs, store names, conflicting files, totals and outliers</small></div>
@@ -1105,7 +1108,8 @@ SETTINGS.data = async () => {
 SETTINGS.look = async () => {
   const s = await API.call("settings");
   return `<div class="panel"><div class="setting"><div><b>Theme</b><small>Follow Windows, or always light / dark</small></div><div class="seg">${[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button data-act="theme" data-theme="${k}" aria-pressed="${s.theme === k}">${l}</button>`).join("")}</div></div>
-    <div class="setting"><div><b>Hide names</b><small>Show employee codes instead of names everywhere and in exports (for screen-sharing)</small></div><label class="switch"><input type="checkbox" id="hide-names" ${s.hide_names ? "checked" : ""}><span></span></label></div></div>`;
+    <div class="setting"><div><b>Hide names</b><small>Show employee codes instead of names everywhere and in exports (for screen-sharing)</small></div><label class="switch"><input type="checkbox" id="hide-names" ${s.hide_names ? "checked" : ""}><span></span></label></div><div class="setting"><div><b>App lock</b><small>${S.init.lock && S.init.lock.enabled ? `On: asks for your PIN when P&O opens and after ${S.init.lock.minutes} minutes idle` : "Ask for a PIN when P&O opens and after it is left idle"}</small></div><button class="btn" data-act="lock-set">${S.init.lock && S.init.lock.enabled ? "Change PIN…" : "Set a PIN…"}</button></div>
+    </div>`;
 };
 AFTER.settings = () => {
   const sum = ro => { const t = $$(`[data-w="${ro}"]`).reduce((a, i) => a + (+i.value || 0), 0); const b = $(`[data-total="${ro}"]`); if (b) b.textContent = t; };
@@ -2120,10 +2124,11 @@ function quizHtml(qs, prefix) {
 
 PAGES.learning = async () => {
   const L = S.learn;
-  const tabs = `<div class="seg">${[["courses", "Courses"], ["track", "Tracking"], ["paths", "Learning paths"]].map(([k, l]) => `<button data-act="l-tab" data-tab="${k}" aria-pressed="${L.tab === k && !L.cid}">${l}</button>`).join("")}</div>`;
+  const tabs = `<div class="seg">${[["courses", "Courses"], ["needs", "Training needs"], ["track", "Tracking"], ["paths", "Learning paths"]].map(([k, l]) => `<button data-act="l-tab" data-tab="${k}" aria-pressed="${L.tab === k && !L.cid}">${l}</button>`).join("")}</div>`;
   if (L.cid) return learnCourse(tabs);
   const d = DATA.learn = await API.call("learn_list");
   const head = (t, p, right = "") => `<div class="ph"><div><h1>${t}</h1><p>${p}</p></div><div class="row">${right}${tabs}</div></div>`;
+  if (L.tab === "needs") return trainingNeedsHtml(head);
   if (L.tab === "track") {
     const st = d.stats;
     const k = (l, v, s) => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
@@ -2225,6 +2230,7 @@ function learnDrawCharts() {
   });
 }
 AFTER.learning = async () => {
+  const thr = $("#tn-thr"); if (thr) thr.onchange = () => { S.tnThr = +thr.value; render(); };
   learnDrawCharts();
   const q = $("#la-q");
   if (q) {
@@ -2536,6 +2542,171 @@ const WORK_ACTS = {
 };
 Object.assign(ACT, WORK_ACTS);
 
+/* ============================================================== 2.3 Engagement pulse surveys */
+PAGES.engagement = async () => {
+  const d = DATA.eng = await API.call("engagement", { survey_id: S.engSurvey || null });
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  const head = `<div class="ph"><div><h1>Engagement</h1><p>Anonymous pulse surveys: how people feel about their work, manager, schedule, pay and future, by store, with eNPS and comment themes.</p></div>
+      <div class="row"><button class="btn" data-act="eng-template">${ic("export", 14)}Survey template</button>${d.has_data ? `<button class="btn" data-act="eng-export">Export</button>` : ""}<button class="btn primary" data-act="eng-import">${ic("import", 14)}Import results</button></div></div>`;
+  if (!d.has_data) return head + `<div class="panel"><div class="empty" style="padding:30px"><b>No survey results yet.</b><br>1. Download the survey template (English + Urdu, 12 questions + eNPS).<br>2. Collect answers on paper, Google Forms or MS Forms (no names).<br>3. Import the results file here. Results for a group are only shown when ${d.min_group}+ people answered.</div></div>`;
+  const fcls = v => v == null ? "" : v >= 70 ? "t-good" : v >= 50 ? "" : "t-bad";
+  const heat = v => v == null ? "var(--line-2)" : `hsl(${Math.round(v * 1.2)}, 55%, ${88 - v * 0.25}%)`;
+  return head + `<div class="row" style="margin-bottom:10px;gap:8px"><small>Survey</small><select class="input sm" id="eng-s">${d.surveys.map(s => `<option value="${s.id}" ${s.id === d.survey.id ? "selected" : ""}>${esc(s.title)} · ${esc(s.wave)} · ${s.n} answers</option>`).join("")}</select>
+      <button class="btn sm ghost danger" data-act="eng-del" data-id="${d.survey.id}">Remove survey</button></div>
+    <div class="kpis k5">${k("Answers", d.survey.n, `${d.response_counts.with_comment} with a comment`)}${k("Favourable", d.favourable == null ? "—" : d.favourable + "%", "agree or strongly agree", fcls(d.favourable))}
+      ${k("eNPS", d.enps == null ? "—" : (d.enps > 0 ? "+" : "") + d.enps, "promoters − detractors", d.enps == null ? "" : d.enps >= 10 ? "t-good" : d.enps < 0 ? "t-bad" : "")}
+      ${k("Strongest", d.strengths[0] ? d.strengths[0].favourable + "%" : "—", d.strengths[0] ? d.strengths[0].question.slice(0, 48) : "")}${k("Weakest", d.concerns[0] ? d.concerns[0].favourable + "%" : "—", d.concerns[0] ? d.concerns[0].question.slice(0, 48) : "", "t-bad")}</div>
+    <div class="grid g2" style="grid-template-columns:1.4fr 1fr">
+      <div class="panel"><div class="phd"><h2>By question</h2><small>Share answering 4–5 (favourable)</small></div><div id="ch-engq"></div></div>
+      <div class="panel"><div class="phd"><h2>Trend</h2><small>${d.trend.length} survey${d.trend.length > 1 ? "s" : ""}</small></div>${d.trend.length > 1 ? `<div id="ch-engt"></div>` : `<div class="empty">Import the next survey to see the trend.</div>`}
+        <h4 style="margin-top:14px">What comments are about</h4>${d.themes.length ? `<div id="ch-ength"></div>` : `<div class="empty">No comments.</div>`}</div></div>
+    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Heatmap by store</h2><small>Favourable % per question · groups under ${d.min_group} answers are hidden to protect anonymity</small></div>
+      <div class="tbl-wrap"><table class="t heat"><thead><tr><th>Store</th><th class="n">Answers</th><th class="n">eNPS</th>${d.questions.map((q, i) => `<th class="n" title="${esc(q.question)}">Q${i + 1}</th>`).join("")}</tr></thead><tbody>
+      ${d.stores.map(s => s.hidden ? `<tr><td>${esc(s.name)}</td><td class="n">${s.n}</td><td colspan="${d.questions.length + 1}"><small style="color:var(--muted)">Too few answers to show (protects anonymity)</small></td></tr>`
+        : `<tr><td><b>${esc(s.name)}</b></td><td class="n">${s.n}</td><td class="n">${s.enps ?? "—"}</td>${s.by_q.map(v => `<td class="n" style="background:${heat(v)}">${v ?? "—"}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${d.questions.length + 3}"><div class="empty">The file had no Store column.</div></td></tr>`}
+      </tbody></table></div><div style="padding:8px 16px 14px">${d.questions.map((q, i) => `<small style="display:inline-block;margin-right:14px"><b>Q${i + 1}</b> ${esc(q.question)}</small>`).join("")}</div></div>
+    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Comments</h2><small>${d.comments.length} · never linked to a person</small></div><div class="note-list" style="max-height:420px">
+      ${d.comments.map(c => `<div class="note"><div class="note-b" style="margin:0">“${esc(c.text)}”</div><div>${c.themes.map(t => `<span class="chip">${esc(t)}</span>`).join(" ")}</div></div>`).join("") || `<div class="empty">No comments.</div>`}</div></div>`;
+};
+AFTER.engagement = () => {
+  const d = DATA.eng; if (!d || !d.has_data) { engDrop(); return; }
+  const s = $("#eng-s"); if (s) s.onchange = () => { S.engSurvey = +s.value; render(); };
+  if ($("#ch-engq")) Charts.hbar($("#ch-engq"), { labels: d.questions.map((q, i) => `Q${i + 1} ${q.question.slice(0, 44)}${q.question.length > 44 ? "…" : ""}`), values: d.questions.map(q => q.favourable), fmt: "pct0", max: 100 });
+  if ($("#ch-engt")) Charts.line($("#ch-engt"), { labels: d.trend.map(t => t.wave), series: [{ name: "Favourable %", values: d.trend.map(t => t.favourable) }, { name: "eNPS", values: d.trend.map(t => t.enps) }], height: 180 });
+  if ($("#ch-ength")) Charts.hbar($("#ch-ength"), { labels: d.themes.map(t => t[0]), values: d.themes.map(t => t[1]) });
+  engDrop();
+};
+function engDrop() { const page = $(".page"); if (page) { page.ondragover = e => e.preventDefault(); page.ondrop = async e => { e.preventDefault(); if (e.dataTransfer.files.length) engAfter(await call("survey_upload", { files: await filesToB64(e.dataTransfer.files) })); }; } }
+function engAfter(r) { if (!r || r.cancelled) return; if (r.added) { toast(`Survey imported: ${r.survey.n} answers`); S.engSurvey = r.survey.id; } (r.failed || []).forEach(f => toast(`${f.file}: ${f.error}`, { err: true })); render(); }
+
+/* ============================================================== 2.3 Recognition */
+PAGES.recognition = async () => {
+  const d = DATA.stars = await API.call("stars", { month: S.month });
+  S.starSel = S.starSel || new Set(d.stars.map((_, i) => i).filter(i => i < 15));
+  const icon = a => a.startsWith("Country") ? "🏆" : a === "Perfect attendance" ? "⏱" : "⭐";
+  return `<div class="ph"><div><h1>Recognition</h1><p>Stars of the month picked from the data: best leader in every store, the country's top three, perfect attendance. Print certificates in one click.</p></div>
+      <div class="row"><button class="btn primary" data-act="star-cert">${ic("export", 14)}Certificates for selected</button></div></div>
+    <div class="star-grid">${d.stars.map((s, i) => `<label class="star ${S.starSel.has(i) ? "on" : ""}"><input type="checkbox" data-star="${i}" ${S.starSel.has(i) ? "checked" : ""}><span class="star-i">${icon(s.award)}</span>
+      <span><small>${esc(s.award)}</small><b>${esc(s.name)}</b><span class="sub">${esc([s.role, s.store].filter(Boolean).join(" · "))}</span><span class="why">${esc(s.why)}</span></span></label>`).join("") || `<div class="panel"><div class="empty">Import the P&O workbook (leaders) or attendance to pick stars.</div></div>`}</div>`;
+};
+AFTER.recognition = () => { $$("[data-star]").forEach(c => c.onchange = () => { const i = +c.dataset.star; c.checked ? S.starSel.add(i) : S.starSel.delete(i); c.closest(".star").classList.toggle("on", c.checked); }); };
+
+/* ============================================================== 2.3 Month close */
+function monthCloseForm() {
+  const m = modal(`<h3>Close ${esc(((S.months || []).find(x => x.value === (S.healthMonth || S.month)) || {}).label || S.healthMonth || S.month || "")}</h3><p style="color:var(--muted);margin:0 0 10px">One zip with everything for the month, then the month is locked so its numbers can't change by accident.</p>
+    <ul class="mc-list"><li>Monthly HR Director Pack (PDF)</li><li>P&O Review Pack (PDF)</li><li>People Ranking and Attendance Exceptions (Excel)</li><li>One Store Report per store (PDF)</li><li>Data health checklist (PDF)</li></ul>
+    <div class="setting"><div><b>Lock the month</b><small>You can unlock it on Data health</small></div><label class="switch"><input type="checkbox" id="mc-lock" checked><span></span></label></div>
+    <div class="setting"><div><b>Hide names</b><small>Employee codes only</small></div><label class="switch"><input type="checkbox" id="mc-hide" ${S.init.hide_names ? "checked" : ""}><span></span></label></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="mc-go">Close the month</button></div>`);
+  $("#mc-go", m).onclick = async () => { const b = $("#mc-go", m); b.disabled = true; b.innerHTML = `<span class="spin" style="width:13px;height:13px"></span> Building…`;
+    try { const r = await call("month_close", { month: S.healthMonth || S.month, lock: $("#mc-lock", m).checked, hide: $("#mc-hide", m).checked });
+      closeModal(); if (r.cancelled) return; toast(`Month closed: ${r.files.length} files${r.skipped.length ? `, ${r.skipped.length} skipped` : ""}`, { ms: 8000 }); render(); }
+    catch (e) { b.disabled = false; b.textContent = "Close the month"; } };
+}
+
+/* ============================================================== 2.3 App lock */
+function showLock() {
+  if ($("#lockscr")) return;
+  const el = document.createElement("div"); el.id = "lockscr";
+  el.innerHTML = `<div class="lock-box"><div class="lock-logo">${ic("policies", 30)}</div><h2>P&O is locked</h2><p>Enter your PIN</p>
+    <input class="input" id="lock-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"><div class="lock-err" id="lock-err"></div><button class="btn primary" id="lock-go">Unlock</button></div>`;
+  document.body.appendChild(el);
+  const pin = $("#lock-pin", el); setTimeout(() => pin.focus(), 50);
+  const go = async () => { try { const r = await API.call("unlock", { pin: pin.value }); if (r.ok) { el.remove(); S.lastActive = Date.now(); } else { $("#lock-err", el).textContent = `Wrong PIN (${r.left} tries left)`; pin.value = ""; el.querySelector(".lock-box").classList.add("shake"); setTimeout(() => el.querySelector(".lock-box").classList.remove("shake"), 400); } }
+    catch (e) { $("#lock-err", el).textContent = e.message; } };
+  $("#lock-go", el).onclick = go; pin.onkeydown = e => { if (e.key === "Enter") go(); };
+}
+function lockWatch() {
+  S.lastActive = Date.now();
+  ["mousemove", "keydown", "click", "wheel"].forEach(ev => document.addEventListener(ev, () => { S.lastActive = Date.now(); }, { passive: true }));
+  setInterval(() => { const l = S.init && S.init.lock; if (l && l.enabled && Date.now() - S.lastActive > l.minutes * 60000) showLock(); }, 15000);
+}
+function lockForm() {
+  const on = S.init.lock && S.init.lock.enabled;
+  const m = modal(`<h3>${on ? "Change PIN" : "Set a PIN"}</h3><p style="color:var(--muted);margin:0 0 10px">P&O asks for the PIN when it opens and after it has been idle. (It locks the screen; keep Windows locked too.)</p>
+    <div class="hform">${on ? `<label class="dx-l" style="grid-column:1/-1">Current PIN<input class="input" id="lk-old" type="password" inputmode="numeric" maxlength="8"></label>` : ""}
+    <label class="dx-l">New PIN (4–8 digits)<input class="input" id="lk-pin" type="password" inputmode="numeric" maxlength="8"></label><label class="dx-l">Lock after idle (minutes)<input class="input" id="lk-min" type="number" min="1" max="240" value="${(S.init.lock && S.init.lock.minutes) || 10}"></label></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">${on ? `<button class="btn danger" id="lk-off">Turn off</button>` : ""}<button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="lk-save">Save</button></div>`);
+  $("#lk-save", m).onclick = async () => { S.init.lock = await call("lock_set", { pin: $("#lk-pin", m).value, minutes: +$("#lk-min", m).value, old_pin: on ? $("#lk-old", m).value : "" }); closeModal(); toast("PIN saved"); render(); };
+  if (on) $("#lk-off", m).onclick = async () => { S.init.lock = await call("lock_off", { pin: $("#lk-old", m).value }); closeModal(); toast("App lock turned off"); render(); };
+}
+
+const ENG_ACTS = {
+  "eng-import": async () => engAfter(await call("survey_pick")),
+  "eng-template": async () => { const r = await call("survey_template"); if (!r.cancelled) toast("Survey template saved"); },
+  "eng-export": () => { const m = modal(`<h3>Export survey results</h3><div class="seg" id="ee-f">${[["pdf", "PDF"], ["docx", "Word"], ["pptx", "PowerPoint"], ["xlsx", "Excel"]].map(([v, l], i) => `<button data-v="${v}" aria-pressed="${i === 0}">${l}</button>`).join("")}</div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="ee-go">Export</button></div>`);
+    let f = "pdf"; $$("#ee-f button", m).forEach(b => b.onclick = () => { f = b.dataset.v; $$("#ee-f button", m).forEach(x => x.setAttribute("aria-pressed", x === b)); });
+    $("#ee-go", m).onclick = async () => { const r = await call("engagement_export", { survey_id: DATA.eng.survey.id, fmt: f }); closeModal(); if (!r.cancelled) toast("Exported"); }; },
+  "eng-del": async b => { if (!confirm("Remove this survey's results?")) return; await call("survey_delete", { survey_id: +b.dataset.id }); S.engSurvey = null; render(); },
+  "star-cert": async () => { const ppl = DATA.stars.stars.filter((_, i) => S.starSel.has(i)); if (!ppl.length) return toast("Select at least one person.", { err: true });
+    const r = await call("certificates", { people: ppl }); if (!r.cancelled) toast(`${r.n} certificates ready`); },
+  "month-close": () => monthCloseForm(),
+  "lock-set": () => lockForm(),
+};
+Object.assign(ACT, ENG_ACTS);
+
+/* ============================================================== 2.4 Workforce plan: forecast and what-if */
+S.fc = S.fc || { months: 6, turnover_change: 0, hires_per_month: "", growth_heads: 0, replacement_cost: "" };
+PAGES.forecast = async () => {
+  const p = S.fc;
+  const d = DATA.fc = await API.call("forecast", { months: p.months, turnover_change: p.turnover_change, hires_per_month: p.hires_per_month === "" ? null : +p.hires_per_month,
+    growth_heads: p.growth_heads, replacement_cost: p.replacement_cost === "" ? null : +p.replacement_cost });
+  const b = d.baseline, pk = v => "PKR " + Math.round(v).toLocaleString("en-US");
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  const last = a => a[a.length - 1];
+  return `<div class="ph"><div><h1>Workforce plan</h1><p>Where headcount is heading at today's leaver rate, and what changes if turnover falls, hiring speeds up or new heads are added.</p></div></div>
+    <div class="kpis k5">${k("Headcount now", b.headcount.toLocaleString("en-US"), b.approved ? `${b.approved.toLocaleString("en-US")} approved` : "no approved manning yet")}
+      ${k("Leavers a month", b.leavers_per_month, `last 12 months · ${b.voluntary_share}% resigned`)}${k("Yearly turnover", b.annual_rate == null ? "—" : b.annual_rate + "%", "leavers ÷ headcount")}
+      ${k(`Headcount in ${d.labels.length} months`, last(d.series.scenario).toLocaleString("en-US"), `today's trend: ${last(d.series.today).toLocaleString("en-US")}`, last(d.series.scenario) < last(d.series.today) ? "t-warn" : "")}
+      ${k("Saving from scenario", d.cost.saving > 0 ? pk(d.cost.saving) : "—", `${d.leavers.today - d.leavers.scenario} fewer leavers × ${pk(b.replacement_cost)}`, d.cost.saving > 0 ? "t-good" : "")}</div>
+    <div class="grid g2" style="grid-template-columns:320px 1fr">
+      <div class="panel fc-ctl"><div class="phd"><h2>What if…</h2></div>
+        <label class="dx-l">Months ahead <b id="fc-mv">${p.months}</b><input type="range" min="3" max="18" step="1" value="${p.months}" data-fc="months"></label>
+        <label class="dx-l">Turnover change <b id="fc-tv">${p.turnover_change > 0 ? "+" : ""}${p.turnover_change}%</b><input type="range" min="-60" max="60" step="5" value="${p.turnover_change}" data-fc="turnover_change"></label>
+        <label class="dx-l">Hires a month<input class="input" type="number" min="0" step="1" placeholder="Replace leavers (${d.scenario.leavers_per_month})" value="${esc(p.hires_per_month)}" data-fc="hires_per_month"></label>
+        <label class="dx-l">New heads to add (store openings, growth)<input class="input" type="number" min="0" step="5" value="${p.growth_heads}" data-fc="growth_heads"></label>
+        <label class="dx-l">Cost to replace one leaver (PKR)<input class="input" type="number" min="0" step="5000" placeholder="${b.replacement_cost}" value="${esc(p.replacement_cost)}" data-fc="replacement_cost"><small>Hiring, onboarding and training time</small></label>
+        <button class="btn sm ghost" data-act="fc-reset">Reset</button></div>
+      <div class="panel"><div class="phd"><h2>Headcount projection</h2><small>${d.scenario.leavers_per_month} leavers and ${d.scenario.hires_per_month} hires a month in the scenario</small></div><div id="ch-fc"></div>
+        <div class="fc-sum">${[["Leavers over the period", `${d.leavers.scenario}`, `today's rate: ${d.leavers.today}`], ["Cost of turnover", pk(d.cost.scenario), `today's rate: ${pk(d.cost.today)}`],
+          ["Hires needed", d.hires_needed, `${d.hires_per_month_needed} a month to stay at plan`], ["Open vacancies", b.open_vacancies, "in Hiring"]].map(([l, v, s]) => `<div><small>${l}</small><b>${v}</b><span>${esc(s)}</span></div>`).join("")}</div></div></div>
+    ${b.monthly.length ? `<div class="panel"><div class="phd"><h2>Leavers by month</h2><small>the base for the forecast</small></div><div id="ch-fcm"></div></div>` : ""}`;
+};
+AFTER.forecast = () => {
+  const d = DATA.fc; if (!d) return;
+  const s = [{ name: "Today's trend", values: d.series.today }, { name: "Scenario", values: d.series.scenario }];
+  if (d.series.target) s.push({ name: "Plan with new heads", values: d.series.target });
+  Charts.line($("#ch-fc"), { labels: d.labels, series: s, height: 260 });
+  if ($("#ch-fcm")) Charts.columns($("#ch-fcm"), { labels: d.baseline.monthly.map(m => m.month), series: [{ name: "Leavers", values: d.baseline.monthly.map(m => m.leavers) }], height: 180 });
+  $$("[data-fc]").forEach(i => {
+    const set = () => { S.fc[i.dataset.fc] = i.type === "range" ? +i.value : i.value; if (i.dataset.fc === "months") $("#fc-mv").textContent = i.value; if (i.dataset.fc === "turnover_change") $("#fc-tv").textContent = (+i.value > 0 ? "+" : "") + i.value + "%"; };
+    i.oninput = set; i.onchange = () => { set(); render(); };
+  });
+};
+
+/* ============================================================== 2.4 Training needs */
+async function trainingNeedsHtml(head) {
+  const d = DATA.tn = await API.call("training_needs", { threshold: S.tnThr || 60 });
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  const stc = { "not assigned": "bad", assigned: "warn", "in progress": "warn", completed: "good" };
+  return head("Training needs", "Every leader's weak measures from the P&O review, matched to a course. Build one targeted course per topic and assign it to everyone who needs it.") +
+    (d.empty ? `<div class="panel"><div class="empty">Import the P&O workbook to see training needs.</div></div>` :
+    `<div class="row" style="margin-bottom:10px;gap:8px"><small>A measure is weak below</small><select class="input sm" id="tn-thr">${[50, 60, 70].map(v => `<option value="${v}" ${v === (S.tnThr || 60) ? "selected" : ""}>${v / 10}/10</option>`).join("")}</select></div>
+    <div class="kpis">${k("Leaders with a need", d.leaders_with_needs, "at least one weak measure")}${k("Needs not covered", d.open_needs, "no course assigned", d.open_needs ? "t-warn" : "")}${k("Already covered", d.covered, "course assigned or done", "t-good")}${k("Topics", d.topics.length, "to build")}</div>
+    <div class="tn-topics">${d.topics.map(t => `<div class="tn-t"><div><b>${esc(t.title)}</b><span class="sub">${t.n} leader${t.n > 1 ? "s" : ""} · ${esc(t.stores.slice(0, 4).join(", "))}${t.stores.length > 4 ? "…" : ""}</span></div>
+      <button class="btn sm primary" data-act="tn-build" data-t="${esc(t.topic)}">Build & assign</button></div>`).join("") || `<div class="panel"><div class="empty">Every need is covered by an assigned course. 🎉</div></div>`}</div>
+    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>By leader</h2></div><div class="tbl-wrap" style="max-height:560px"><table class="t"><thead><tr><th>Leader</th><th>Store</th><th class="n">Index</th><th>Weak measures → course</th></tr></thead><tbody>
+      ${d.rows.map(r => `<tr><td><b>${esc(r.name)}</b><span class="sub">${esc(r.role)}</span></td><td>${esc(r.store)}</td><td class="n">${r.index == null ? "—" : (r.index / 10).toFixed(1)}</td>
+        <td>${r.needs.map(n => `<div class="tn-n"><span>${esc(n.measure)} <b>${n.score}</b> → ${esc(n.topic_title)}</span><span class="chip ${stc[n.status] || ""}">${esc(n.status)}</span></div>`).join("")}</td></tr>`).join("")}</tbody></table></div></div>`);
+}
+Object.assign(ACT, {
+  "fc-reset": () => { S.fc = { months: 6, turnover_change: 0, hires_per_month: "", growth_heads: 0, replacement_cost: "" }; render(); },
+  "tn-build": async b => { const t = DATA.tn.topics.find(x => x.topic === b.dataset.t); if (!confirm(`Build "${t.title}" (about 3 hours) and assign it to ${t.n} leader${t.n > 1 ? "s" : ""}?`)) return;
+    b.disabled = true; b.innerHTML = `<span class="spin" style="width:13px;height:13px"></span>`;
+    const r = await call("training_build", { topic: t.topic, hours: 3, threshold: S.tnThr || 60 }); toast(`Course built and assigned to ${r.assigned}`, { action: "Open course", onAction: () => { S.learn = { ...S.learn, cid: r.course_id, mod: 0, les: 0, view: "lesson" }; render(); } }); render(); },
+});
+
 /* ============================================================== Organisation health */
 PAGES.organisation = async () => {
   const d = DATA.org = await API.call("organisation", {});
@@ -2590,6 +2761,7 @@ async function boot(keepPage) {
   await refreshOptions();
   render();
   if (S.init.notice) toast(S.init.notice, { ms: 15000 });
+  if (!S.lockWatching) { S.lockWatching = true; lockWatch(); if (S.init.lock && S.init.lock.enabled) showLock(); }
   window.PNO_ready = true;
 }
 boot(false).catch(e => { $("#app").innerHTML = `<div class="errbox" style="margin:40px">P&O could not start: ${esc(e.message || e)}</div>`; });

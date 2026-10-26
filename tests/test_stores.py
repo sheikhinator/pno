@@ -16,10 +16,10 @@ GROUPS = [
 
 def test_parse_name():
     p = parse_name("HB PK KCH H&B PAK KCH LUK (MYLI)")
-    assert (p.format, p.city) == ("HB", "KCH") and "LUK" in p.tokens
+    assert (p.format, p.city) == ("HB", "KCH") and "LUCKY" in p.tokens and p.canon == "KCH Lucky One"
     p = parse_name("652 LAH High Street Paragon Ci")
     assert (p.code, p.format, p.city) == ("652", "", "LAH")
-    assert parse_name("SM PK LAH DHA 7").name == "DHA 7"
+    assert parse_name("SM PK LAH DHA 7").name == "DHA Phase 7"
     assert parse_name("PK Head Office Lahore").is_ho
 
 
@@ -54,4 +54,4 @@ def test_display_name_upgrades_from_truncated(empty_db):
     r = StoreResolver(empty_db)
     sid = r.resolve("652 LAH High Street Paragon Ci")
     r.resolve("SM PK LAH High Street Paragon City")
-    assert empty_db.val("SELECT name FROM stores WHERE id=?", (sid,)) == "High Street Paragon City"
+    assert empty_db.val("SELECT name FROM stores WHERE id=?", (sid,)) == "Paragon City"      # known stores use the catalogue name

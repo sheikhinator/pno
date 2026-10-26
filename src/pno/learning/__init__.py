@@ -210,7 +210,7 @@ class Learning:
         content = {"title": title, "audience": aud, "level": level, "summary": f"{len(modules)} modules · {sum(len(m['lessons']) for m in modules)} lessons · "
                    f"about {round(total_min / 60, 1)} hours · {len(exam)}-question final assessment",
                    "objectives": objectives[:8], "modules": modules, "exam": exam, "pass_mark": 70, "language": language,
-                   "notes": notes, "made": now()}
+                   "notes": notes, "made": now(), "topics": list(dict.fromkeys(p["key"] for p in plan if p.get("key") in library.TOPICS))}
         cid = self.db.x("""INSERT INTO courses(title, audience, role_level, language, hours, lecture_min, focus, source, content, created_at, updated_at)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (title, aud, level, language, float(hours), int(lecture_min), focus_text[:500],
                                                              "Library + AI" if ai_engine else "Library", json.dumps(content), now(), now())).lastrowid

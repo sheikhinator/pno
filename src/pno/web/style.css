@@ -756,3 +756,40 @@ table.po-shifts th .sub{display:block;font-size:10px;color:var(--muted)}
 .note-f{margin-top:6px;font-size:13px;font-weight:600;color:var(--brand)}
 .goal .sub,.note .sub{display:block;margin-top:2px;font-size:12px;color:var(--muted);font-weight:500}
 .note .chip{margin:0 4px}
+
+/* ---- 2.3 engagement, recognition, lock ---- */
+.t.heat td.n{font-variant-numeric:tabular-nums;font-weight:600;color:#2A1A11}
+.star-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.star{display:grid;grid-template-columns:auto auto 1fr;gap:12px;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;cursor:pointer;transition:all .15s;animation:rise .35s ease both}
+.star:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.06)}
+.star.on{border-color:var(--brand);background:linear-gradient(180deg,var(--gold-soft),var(--card))}
+.star input{margin-top:4px;accent-color:var(--brand)}
+.star-i{font-size:26px;line-height:1}
+.star small{display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--brand)}
+.star b{display:block;font-size:15px;margin-top:2px}
+.star .sub{display:block;font-size:12px;color:var(--muted)}
+.star .why{display:block;font-size:12.5px;margin-top:6px;color:var(--ink-2)}
+.mc-list{margin:0 0 12px;padding-left:18px;line-height:1.8;font-size:13.5px}
+#lockscr{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:radial-gradient(circle at 50% 30%,#3a2416,#140c07 70%);animation:rise .25s ease}
+.lock-box{width:320px;text-align:center;color:#F6ECD4;display:grid;gap:10px;justify-items:center}
+.lock-box h2{margin:6px 0 0;font-size:22px}.lock-box p{margin:0;opacity:.7}
+.lock-logo{width:64px;height:64px;border-radius:20px;display:grid;place-items:center;background:rgba(201,162,75,.15);color:#E7C27A}
+.lock-box .input{width:200px;text-align:center;font-size:24px;letter-spacing:.4em;padding:10px;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.2);color:#fff}
+.lock-err{min-height:18px;font-size:13px;color:#F2A385}
+.shake{animation:shake .35s}
+@keyframes shake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+
+/* ---- 2.4 workforce plan, training needs ---- */
+.fc-ctl{display:grid;gap:14px;align-content:start}
+.fc-ctl .dx-l b{float:right;color:var(--brand)}
+.fc-ctl input[type=range]{width:100%;accent-color:var(--brand)}
+.fc-ctl small{color:var(--muted);font-weight:500}
+.fc-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+.fc-sum div{background:var(--bg);border:1px solid var(--line-2);border-radius:12px;padding:10px 12px;display:grid;gap:2px}
+.fc-sum small{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.fc-sum b{font-size:18px}.fc-sum span{font-size:12px;color:var(--muted)}
+.tn-topics{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-bottom:14px}
+.tn-t{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:12px;padding:12px 14px}
+.tn-t .sub{display:block;font-size:12px;color:var(--muted)}
+.tn-n{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:3px 0;font-size:13px}
+@media (max-width:1100px){.fc-sum{grid-template-columns:repeat(2,1fr)}}

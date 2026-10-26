@@ -76,6 +76,22 @@ class Api:
         self.sessions: dict[str, dict] = {}
         self._agent = None
         self._lock = threading.RLock()
+        self._repair_stores(db)
+
+    @staticmethod
+    def _repair_stores(db: Database) -> None:
+        """2.4: split H&B stores that older versions merged into the hypermarket of the same name."""
+        if db.get_setting("repair_stores_v2"):
+            return
+        try:
+            from .stores import repair_formats
+            fixed = repair_formats(db)
+            db.set_setting("repair_stores_v2", True)
+            if fixed:
+                db.notice = ("Store list fixed: H&B (Myli) stores were mixed into the hypermarket of the same name and some stores "
+                             "were listed twice. Import the latest Sales report again so every department shows in every store.")
+        except Exception:  # noqa: BLE001 - never block start-up
+            traceback.print_exc()
 
     # ---------------------------------------------------------------- plumbing
     def dispatch(self, method: str, params: dict) -> Any:
@@ -293,7 +309,7 @@ class Api:
         return {"version": __version__, "months": months, "month": default, "demo": self.demo,
                 "options": analytics.options(mm, {}) if mm else {"cities": [], "formats": [], "stores": [], "depts": [], "sections": []},
                 "counts": counts, "has_data": any(counts.values()), "hide_names": self._hide(),
-                "theme": self.db.get_setting("theme", "auto"), "ai": self.agent.public_status(),
+                "theme": self.db.get_setting("theme", "auto"), "ai": self.agent.public_status(), "lock": self.api_lock_status(),
                 "unsure_stores": self.db.val("SELECT COUNT(*) FROM store_aliases WHERE confirmed=0", (), 0),
                 "notice": self._take_notice()}
 
@@ -867,6 +883,74 @@ class Api:
         from . import workplace
         ins = self._po()
         return workplace.manager_effectiveness(ins) if not ins.empty else {"rows": [], "managers": 0, "needs_support": 0}
+
+    # ---------------------------------------------------------------- 2.4 training needs and workforce forecast
+    def api_training_needs(self, threshold: float = 60) -> dict:
+        from . import planning
+        ins = self._po()
+        if ins.empty:
+            return {"rows": [], "topics": [], "threshold": threshold, "leaders_with_needs": 0, "open_needs": 0, "covered": 0, "empty": True}
+        return planning.training_needs(self.db, ins, float(threshold))
+
+    def api_training_build(self, topic: str, hours: float = 3, due: str | None = None, threshold: float = 60) -> dict:
+        from . import planning
+        tn = planning.training_needs(self.db, self._po(), float(threshold))
+        t = next((x for x in tn["topics"] if x["topic"] == topic), None)
+        if not t:
+            raise ValueError("Nobody needs this topic now.")
+        r = planning.build_for_topic(self, topic, t["people"], hours, due)
+        self.db.log("learning", f"targeted course {topic} for {r['assigned']}")
+        return {**r, **planning.training_needs(self.db, self._po(), float(threshold))}
+
+    def api_forecast(self, months: int = 6, turnover_change: float = 0, hires_per_month: float | None = None, growth_heads: int = 0,
+                     replacement_cost: float | None = None) -> dict:
+        from . import planning
+        ins = self._po()
+        return planning.forecast(self.db, ins, months, float(turnover_change or 0), hires_per_month, int(growth_heads or 0), replacement_cost)
+
+    # ---------------------------------------------------------------- app lock
+    def _pin_hash(self, pin: str, salt: str) -> str:
+        import hashlib
+        return hashlib.pbkdf2_hmac("sha256", str(pin).encode(), salt.encode(), 120_000).hex()
+
+    def api_lock_status(self) -> dict:
+        c = self.db.get_setting("app_lock", {}) or {}
+        return {"enabled": bool(c.get("hash")), "minutes": c.get("minutes", 10)}
+
+    def api_lock_set(self, pin: str, minutes: int = 10, old_pin: str = "") -> dict:
+        import secrets
+        c = self.db.get_setting("app_lock", {}) or {}
+        if c.get("hash") and self._pin_hash(old_pin, c["salt"]) != c["hash"]:
+            raise ValueError("The current PIN is wrong.")
+        if not re.fullmatch(r"\d{4,8}", str(pin or "")):
+            raise ValueError("Use a PIN of 4 to 8 digits.")
+        salt = secrets.token_hex(8)
+        self.db.set_setting("app_lock", {"hash": self._pin_hash(pin, salt), "salt": salt, "minutes": max(1, min(240, int(minutes or 10)))})
+        self.db.log("settings", "app lock PIN set")
+        return self.api_lock_status()
+
+    def api_lock_off(self, pin: str) -> dict:
+        c = self.db.get_setting("app_lock", {}) or {}
+        if c.get("hash") and self._pin_hash(pin, c["salt"]) != c["hash"]:
+            raise ValueError("Wrong PIN.")
+        self.db.set_setting("app_lock", {})
+        self.db.log("settings", "app lock turned off")
+        return self.api_lock_status()
+
+    def api_unlock(self, pin: str) -> dict:
+        import time as _t
+        c = self.db.get_setting("app_lock", {}) or {}
+        if not c.get("hash"):
+            return {"ok": True}
+        fails = getattr(self, "_pin_fails", [])
+        fails = [t for t in fails if _t.time() - t < 300]
+        if len(fails) >= 5:
+            raise ValueError("Too many wrong PINs. Wait 5 minutes.")
+        if self._pin_hash(pin, c["salt"]) == c["hash"]:
+            self._pin_fails = []
+            return {"ok": True}
+        self._pin_fails = fails + [_t.time()]
+        return {"ok": False, "left": 5 - len(self._pin_fails)}
 
     # ---------------------------------------------------------------- 2.3 engagement, recognition, month close
     def api_engagement(self, survey_id: int | None = None) -> dict:

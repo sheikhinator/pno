@@ -339,7 +339,7 @@ def answer(tb: Toolbox, question: str) -> str:
 
     # --- a store
     if store and not re.search(r"\bstores\b", ql):
-        d = tb.t_store(store["name"])
+        d = tb.t_store(store["name"], store_id=store["id"])
         t = d["total"] or {}
         rows = [{"Section": f"{s['code']} {s['name']}", "Manager": ", ".join(s["managers"]) or "—",
                  "vs budget %": round(s["sales_pct"]) if s["sales_pct"] is not None else "—",
@@ -347,10 +347,24 @@ def answer(tb: Toolbox, question: str) -> str:
         if rows:
             tb.blocks.append({"type": "table", "title": "Sections", "columns": list(rows[0].keys()), "rows": rows})
         gm = d["gm"]
-        return (f"**{d['store']}** ({d['format']}, {d['city']}): store score **{(d['store_score'] or 0):.1f}/10**" +
-                (f", GM {gm['name']} **{gm['score']}/10**" if gm and gm["score"] is not None else "") +
-                (f". Sales **{t['sales_pct']:.0f}% of budget**, {t['growth']:+.1f}% vs last year" if t.get("sales_pct") is not None else "") +
-                f". Real absence {d['attendance']['absence_pct'] or 0:.1f}%, {d['attendance']['fixes']} punches to fix.")
+        tot = sum(x.get("actual") or 0 for x in d["departments"]) or 1
+        deps = [x for x in d["departments"] if (x.get("actual") or 0) >= 0.002 * tot]
+        out = (f"**{d['store']}** ({d['format']}, {d['city']})" +
+               (f": store score **{d['store_score']:.1f}/10**" if d.get("store_score") is not None else "") +
+               (f", GM {gm['name']} **{gm['score']}/10**" if gm and gm["score"] is not None else "") +
+               (f". Sales **{t['sales_pct']:.0f}% of budget**, {t['growth']:+.1f}% vs last year" if t.get("sales_pct") is not None else "") +
+               (f". Real absence {d['attendance']['absence_pct']:.1f}%, {d['attendance']['fixes']} punches to fix." if d["attendance"].get("absence_pct") is not None else "."))
+        if deps:
+            pc = lambda v: "—" if v is None else f"{v:.0f}%"  # noqa: E731
+            out += "\n\n| Department | Sales | vs budget | vs last year | Margin | OOS |\n|---|---|---|---|---|---|\n" + "\n".join(
+                f"| {x['name']} | {(x.get('actual') or 0) / 1e6:,.1f} M | {pc(x.get('sales_pct'))} | {(x.get('growth') or 0):+.1f}% | "
+                f"{(x.get('margin') or 0):.1f}% | {(x.get('oos') or 0):.1f}% |" for x in deps)
+        other = [f for f in d.get("other_formats", []) if f != d["format"]]
+        if other and d["format"] != "Health & Beauty":
+            out += f"\n\n{d['store']} also has a **Health & Beauty (Myli)** store, reported separately: ask about \"{d['store']} H&B\"."
+        elif other:
+            out += f"\n\nThis is the Myli (H&B) store. For the {other[0].lower()}, ask about \"{d['store']}\"."
+        return out
 
     # --- stores league / overview
     if re.search(r"\bstores?\b|league|compare|overview|summary|how are we|how is|doing", ql) or city:
@@ -418,13 +432,23 @@ def _number(ql: str, default: int) -> int:
 
 
 def _find_store(tb, mm, ql: str):
-    best = None
+    """The store named in the question. 'Packages' and 'Packages Mall' both work; the H&B (Myli) store only when asked for."""
+    from ..stores import canon_store
+    want_hb = bool(re.search(r"\bh\s*&\s*b\b|\bhb\b|myli|health\s*(and|&)\s*beauty", ql))
+    hits = []
     for s in mm.stores.values():
         n = s["name"].lower()
-        if len(n) >= 3 and re.search(rf"\b{re.escape(n)}\b", ql):
-            if not best or len(n) > len(best["name"]):
-                best = s
-    return best
+        words = [w for w in re.split(r"[^a-z0-9]+", n) if len(w) >= 3 and w not in ("mall", "city", "phase", "the")]
+        full = len(n) >= 3 and re.search(rf"\b{re.escape(n)}\b", ql)
+        part = words and all(re.search(rf"\b{re.escape(w)}\b", ql) for w in words[:1])
+        if full or part:
+            hits.append((2 if full else 1, len(n), s))
+    if not hits:
+        return None
+    top = max(h[0] for h in hits)
+    hits = [h for h in hits if h[0] == top]
+    pref = [h for h in hits if (h[2].get("format") == "HB") == want_hb] or hits
+    return max(pref, key=lambda h: h[1])[2]
 
 
 def _find_city(ql: str):
