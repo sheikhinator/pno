@@ -24,7 +24,19 @@ const API = (() => {
       document.head.appendChild(sc);
     } else res();
   });
+  const CHANGE = /(^|_)(add|make|open|advance|delete|commit|save|set|update|create|undo|remove|apply|import|close|restore|build|assign|move|lock|clear|rename|merge|pin)(_|$)/;
+  const inflight = new Map();
   async function call(method, params = {}) {
+    if (CHANGE.test(method) && !params._idem) {
+      const key = method + JSON.stringify(params);          // the same change sent twice while the first is running: one request
+      if (inflight.has(key)) return inflight.get(key);
+      const p = raw(method, { ...params, _idem: method + "-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) });
+      inflight.set(key, p); p.finally(() => inflight.delete(key)).catch(() => {});
+      return p;
+    }
+    return raw(method, params);
+  }
+  async function raw(method, params) {
     await ready;
     let out;
     if (bridge) {
@@ -135,7 +147,7 @@ function sideHtml() {
   return `
     <div class="brand"><div class="logo maf"><img src="maf-mark.png" alt="Majid Al Futtaim"></div><div><b>P&amp;O</b><small>People &amp; Organisation</small></div></div>
     <nav class="nav" id="nav">${NAV.map(([k, l, i]) => (NAV_GROUP[k] ? `<div class="nav-label">${NAV_GROUP[k]}</div>` : "") +
-      `<button data-go="${k}" ${S.page === k || (S.page === "store" && k === "stores") ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "settings" && S.init && S.init.unsure_stores ? `<span class="badge">${S.init.unsure_stores}</span>` : ""}</button>`).join("")}</nav>
+      `<button data-go="${k}" ${KEY_OF[k] ? `title="${esc(l)}  ·  G then ${KEY_OF[k].toUpperCase()}"` : ""} ${S.page === k || (S.page === "store" && k === "stores") ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "settings" && S.init && S.init.unsure_stores ? `<span class="badge">${S.init.unsure_stores}</span>` : ""}</button>`).join("")}</nav>
     <div class="side-foot">
       ${S.init && S.init.demo ? `<button class="demo-pill" data-act="demo-off" title="Return to your own data">DEMO DATA · exit</button>` : ""}
       <button class="ai-pill" data-go="settings" data-tab="ai"><span class="dot ${S.init && S.init.ai.active === "basic" ? "off" : ""}"></span><span>${esc(S.init ? S.init.ai.label : "AI")}</span></button>
@@ -176,7 +188,7 @@ function topbar() {
       ${filters ? "" : `<div class="crumbs"><span class="ptitle">${esc(PAGE_TITLE[S.page] || "")}</span></div>`}
       <div class="crumbs" ${filters ? "" : 'style="display:none"'}>${crumbs.map((c, i) => i === 0 ? `<button data-act="scope-clear">🇵🇰 Pakistan</button>` : `<span class="sep">›</span>${i === crumbs.length - 1 ? `<span>${esc(c[1])}</span>` : `<button data-act="scope-up" data-key="${c[0]}">${esc(c[1])}</button>`}`).join("")}</div>
       <div class="spacer"></div>
-      <div class="search hide-present">${ic("search", 16)}<input id="q" placeholder="Search people, stores or commands  (Ctrl+K)" autocomplete="off"><div id="sugg"></div></div>
+      <div class="search hide-present">${ic("search", 16)}<input id="q" placeholder="Search people, stores or commands" autocomplete="off"><kbd>Ctrl K</kbd><div id="sugg"></div></div>
       ${["ask", "import", "settings", "data"].includes(S.page) ? "" : `<button class="btn" data-act="export">${ic("export", 16)}Export</button>
       <button class="btn gold hide-present" data-act="present">${ic("play", 14)}Present</button>`}
     </div>
@@ -328,7 +340,12 @@ async function render() {
   const cur = view.firstElementChild;
   const same = cur && cur.dataset.page === page && S.shownArg === arg;   // a refresh of the screen already shown
   // keep what is on screen while the data loads; only a slow load shows a spinner (no blank flash)
-  if (cur) cur.classList.add("stale");
+  const snapKey = `${page}|${arg ?? ""}|${S.month}|${JSON.stringify(S.scope || {})}`;
+  flushDeletes();
+  if (cur && !same) SNAP.set(cur.dataset.snap || "", cur.outerHTML);
+  if (!same && SNAP.has(snapKey) && SNAP_OK.includes(page)) {          // stale-while-revalidate: last view at once, fresh data replaces it
+    view.innerHTML = SNAP.get(snapKey); view.firstElementChild.classList.add("stale", "swr"); view.scrollTop = 0;
+  } else if (cur) cur.classList.add("stale");
   const slow = setTimeout(() => { if (token === S.busy && !same) view.innerHTML = `<div class="page"><div class="skel"><div class="sk sk-h"></div><div class="sk sk-p"></div><div class="sk-row">${"<div class='sk sk-k'></div>".repeat(5)}</div><div class="sk-row"><div class="sk sk-c"></div><div class="sk sk-c sm"></div></div></div></div>`; }, 260);
   try {
     if (PERIOD_PAGES.includes(page)) DATA[page] = null;
@@ -340,7 +357,9 @@ async function render() {
       if (!pd.has_data && pd.period.view && pd.period.view.type !== "latest")
         html = `<div class="ph"><div><h1>${esc(PAGE_TITLE[page] || "")}</h1></div></div><div class="panel"><div class="empty">Nothing in this tab for <b>${esc(pd.period.label)}</b>. Pick another period above, or import data for it.</div></div>`;
     }
-    view.innerHTML = `<div class="page${same ? "" : " enter"}" data-page="${page}">${html}</div>`;
+    const swap = () => { view.innerHTML = `<div class="page${same || SNAP.has(snapKey) ? "" : " enter"}" data-page="${page}" data-snap="${esc(snapKey)}">${html}</div>`; };
+    if (!same && !SNAP.has(snapKey) && document.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) await document.startViewTransition(swap).updateCallbackDone;
+    else swap();
     if (pd && pd.period) {
       const pg = view.firstElementChild, ph = pg.querySelector(":scope > .ph");
       if (ph) ph.insertAdjacentHTML("afterend", periodBar(pd.period)); else pg.insertAdjacentHTML("afterbegin", periodBar(pd.period));
@@ -355,6 +374,34 @@ async function render() {
     clearTimeout(slow);
   }
 }
+
+/* ---------------------------------------------------------------- snapshots, pre-render, undo */
+const SNAP = new Map();
+const SNAP_OK = ["home", "review", "stores", "people", "performance", "attendance", "talent", "retention", "nps", "shifts", "insights", "relations",
+  "brain", "organisation", "forecast", "goals", "notes", "engagement", "recognition", "policies", "manpower", "actions", "hiring", "learning"];
+// pre-render: hovering a menu item warms that screen's data so the click opens it instantly
+let warmT = null; const warmed = new Map();
+// read-only requests each screen starts with: warming them fills the server caches without touching what is on screen
+const WARM_CALL = { home: "dashboard", people: "people", stores: "stores", attendance: "attendance", insights: "people_insights", relations: "er_cases", brain: "brain_graph", organisation: "organisation", goals: "goals", forecast: "forecast" };
+const WARM = Object.keys(WARM_CALL);
+document.addEventListener("pointerover", e => {
+  const b = e.target.closest && e.target.closest("#nav [data-go]"); if (!b) return;
+  const k = b.dataset.go; clearTimeout(warmT);
+  if (k === S.page || !WARM.includes(k) || (warmed.get(k) || 0) > Date.now() - 60000) return;
+  warmT = setTimeout(() => { warmed.set(k, Date.now()); API.call(WARM_CALL[k], ["home", "people", "stores", "attendance"].includes(k) ? req() : {}).catch(() => {}); }, 140);
+});
+// undo toasts: a delete hides the item at once and only happens after the toast is gone
+const PENDING = new Map();
+function softDelete(label, el, run, after) {
+  const id = Math.random().toString(36).slice(2);
+  const rows = [].concat(el || []).filter(Boolean); rows.forEach(r => r.classList.add("gone"));
+  const t = setTimeout(() => doIt(), 5200);
+  const doIt = async () => { clearTimeout(t); if (!PENDING.has(id)) return; PENDING.delete(id); try { await run(); SNAP.clear(); after && after(); } catch (e) { rows.forEach(r => r.classList.remove("gone")); fail(e); } };
+  PENDING.set(id, doIt);
+  toast(`${label} deleted`, { action: "Undo", ms: 5000, onAction: () => { clearTimeout(t); PENDING.delete(id); rows.forEach(r => r.classList.remove("gone")); toast("Restored"); } });
+}
+function flushDeletes() { for (const f of [...PENDING.values()]) f(); }
+window.addEventListener("beforeunload", flushDeletes);
 
 /* ---------------------------------------------------------------- pages */
 const PAGES = {}, AFTER = {};
@@ -1808,7 +1855,23 @@ document.addEventListener("click", e => {
   const p = e.target.closest("[data-person]");
   if (p && !e.target.closest("input")) { e.preventDefault(); openPerson(p.dataset.person); }
 });
+const GO_KEYS = { h: "home", r: "review", s: "stores", p: "people", b: "brain", t: "talent", a: "attendance", i: "insights", e: "relations", n: "hiring", l: "learning", d: "import", k: "ask", o: "organisation", g: "goals", x: "settings" };
+const KEY_OF = Object.fromEntries(Object.entries(GO_KEYS).map(([k, v]) => [v, k]));
+let gArmed = 0;
+function shortcutHelp() {
+  const rows = [["Ctrl K", "Search people, stores and commands"], ["?", "This list"], ["Esc", "Close a window"], ["Alt ←", "Back"], ["Ctrl Z", "Undo the last delete (while its message shows)"]]
+    .concat(Object.entries(GO_KEYS).map(([k, v]) => [`G ${k.toUpperCase()}`, "Go to " + (PAGE_TITLE[v] || v)]));
+  modal(`<h3>Keyboard shortcuts</h3><div class="kbgrid">${rows.map(([k, l]) => `<div><span>${k.split(" ").map(x => `<kbd>${esc(x)}</kbd>`).join(" ")}</span><small>${esc(l)}</small></div>`).join("")}</div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Close</button></div>`);
+}
 document.addEventListener("keydown", e => {
+  const typing = /INPUT|TEXTAREA|SELECT/.test((e.target.tagName || "")) || e.target.isContentEditable;
+  if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (e.key === "?") { e.preventDefault(); shortcutHelp(); return; }
+    if (gArmed > Date.now() - 900 && GO_KEYS[e.key.toLowerCase()]) { e.preventDefault(); gArmed = 0; closeModal && $(".modal") && closeModal(); go(GO_KEYS[e.key.toLowerCase()]); return; }
+    if (e.key.toLowerCase() === "g") { gArmed = Date.now(); return; }
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !typing) { const u = [...document.querySelectorAll(".toast button")].find(b => b.textContent === "Undo"); if (u) { e.preventDefault(); u.click(); return; } }
   if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); ACT.back(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); const q = $("#q"); if (q) q.focus(); }
   if (e.key === "Escape") { if ($(".modal")) closeModal(); else if ($(".sheet")) closeSheet(); else if (document.body.classList.contains("present")) document.body.classList.remove("present"); }
@@ -2987,7 +3050,7 @@ const WORK_ACTS = {
       <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="pp-save">Add</button></div>`);
     $("#pp-save", m).onclick = async () => { await call("policy_paste", { title: $("#pp-t", m).value, text: $("#pp-x", m).value }); closeModal(); toast("Policy added"); render(); }; },
   "pol-try": b => { S.polQ = b.dataset.q; const i = $("#pol-q"); if (i) { i.value = b.dataset.q; $("#pol-f").requestSubmit(); } },
-  "pol-del": async b => { if (!confirm("Remove this policy from the library?")) return; await call("policy_delete", { policy_id: +b.dataset.id }); render(); },
+  "pol-del": b => softDelete("Policy", b.closest("tr,.panel,.pol,li,.card"), () => API.call("policy_delete", { policy_id: +b.dataset.id }), render),
   "pol-view": async b => { const p = await call("policy_view", { policy_id: +b.dataset.id });
     modal(`<h3>${esc(p.title)}</h3><div class="pol-read">${p.passages.map(c => `${c.heading ? `<h4>${esc(c.heading)}</h4>` : ""}<p>${esc(c.text).replace(/\n/g, "<br>")}</p>`).join("")}</div><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-act="modal-close">Close</button></div>`); },
   "goal-new": b => goalForm(b.dataset.t != null ? DATA.goals.templates[+b.dataset.t] : {}),
@@ -2995,11 +3058,12 @@ const WORK_ACTS = {
     const m = modal(`<h3>Update: ${esc(g.title)}</h3><div class="hform"><label class="dx-l">${esc(g.metric || "Value")} now<input class="input" id="gu-v" type="number" step="any" value="${g.current ?? ""}"></label><label class="dx-l">Due<input class="input" type="date" id="gu-due" value="${esc(g.due || "")}"></label></div>
       <label class="dx-l" style="margin-top:8px">Note<input class="input" id="gu-n" placeholder="What changed?"></label><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="gu-save">Save</button></div>`);
     $("#gu-save", m).onclick = async () => { await call("goal_update", { goal_id: g.id, value: $("#gu-v", m).value, note: $("#gu-n", m).value, due: $("#gu-due", m).value || null }); closeModal(); toast("Goal updated"); render(); }; },
-  "goal-done": async b => { await call("goal_update", { goal_id: +b.dataset.id, status: "done" }); render(); },
-  "goal-del": async b => { if (!confirm("Delete this goal?")) return; await call("goal_delete", { goal_id: +b.dataset.id }); render(); },
+  "goal-done": b => { const row = b.closest("tr,.goal,.card,li"); if (row) row.classList.add("opt-done"); b.disabled = true; b.textContent = "✓ Done";   // optimistic
+    API.call("goal_update", { goal_id: +b.dataset.id, status: "done" }).then(() => { SNAP.clear(); render(); }, e => { if (row) row.classList.remove("opt-done"); b.disabled = false; b.textContent = "Done"; fail(e); }); },
+  "goal-del": b => softDelete("Goal", b.closest("tr,.goal,.card,li"), () => API.call("goal_delete", { goal_id: +b.dataset.id }), render),
   "note-new": b => noteForm({ subject: b.dataset.subject, key: b.dataset.key, store: b.dataset.store }),
   "note-kind": b => { S.noteKind = b.dataset.k; render(); },
-  "note-del": async b => { if (!confirm("Delete this note?")) return; await call("meeting_delete", { note_id: +b.dataset.id }); render(); },
+  "note-del": b => softDelete("Note", b.closest("tr,.note,.card,li,.tl"), () => API.call("meeting_delete", { note_id: +b.dataset.id }), render),
 };
 Object.assign(ACT, WORK_ACTS);
 
@@ -3099,7 +3163,7 @@ const ENG_ACTS = {
       <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="ee-go">Export</button></div>`);
     let f = "pdf"; $$("#ee-f button", m).forEach(b => b.onclick = () => { f = b.dataset.v; $$("#ee-f button", m).forEach(x => x.setAttribute("aria-pressed", x === b)); });
     $("#ee-go", m).onclick = async () => { const r = await call("engagement_export", { survey_id: DATA.eng.survey.id, fmt: f }); closeModal(); if (!r.cancelled) toast("Exported"); }; },
-  "eng-del": async b => { if (!confirm("Remove this survey's results?")) return; await call("survey_delete", { survey_id: +b.dataset.id }); S.engSurvey = null; render(); },
+  "eng-del": b => { const el = $(".page"); S.engSurvey = null; softDelete("Survey", null, () => API.call("survey_delete", { survey_id: +b.dataset.id }), render); render(); },
   "star-cert": async () => { const ppl = DATA.stars.stars.filter((_, i) => S.starSel.has(i)); if (!ppl.length) return toast("Select at least one person.", { err: true });
     const r = await call("certificates", { people: ppl }); if (!r.cancelled) toast(`${r.n} certificates ready`); },
   "month-close": () => monthCloseForm(),

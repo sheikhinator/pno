@@ -114,8 +114,21 @@ class Api:
         fn = getattr(self, f"api_{method}", None)
         if fn is None:
             return {"error": f"Unknown request: {method}"}
+        params = dict(params or {})
+        idem = params.pop("_idem", None)
+        # idempotency key: a double click or a retried request does the change once and gets the same answer back
+        if idem:
+            seen = self.__dict__.setdefault("_idem_seen", {})
+            if idem in seen:
+                return seen[idem]
         try:
-            return fn(**(params or {}))
+            out = fn(**params)
+            if idem and not (isinstance(out, dict) and out.get("error")):
+                seen[idem] = out
+                if len(seen) > 300:
+                    for k in list(seen)[:100]:
+                        seen.pop(k, None)
+            return out
         except Exception as e:                       # every error reaches the screen as a readable message
             if not isinstance(e, (ValueError, KeyError)):
                 traceback.print_exc()

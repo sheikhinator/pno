@@ -935,3 +935,31 @@ table.po-shifts th .sub{display:block;font-size:10px;color:var(--muted)}
 .drv-r.pos i{background:#0EA5E9}.drv-r.neg i{background:#7A5C9E}
 .muted{color:var(--muted)}
 @media (max-width:1200px){.gm{grid-template-columns:140px 1fr 100px}}
+
+/* ---- 2.9 UX details ---- */
+/* tabular numbers everywhere figures line up */
+table,.kpi,.kpis,svg text,.chip,.hbarw b,.gm small,.stp i{font-variant-numeric:tabular-nums}
+/* balanced headlines, no orphan words in paragraphs */
+h1,h2,h3,h4,.kpi-v .txt{text-wrap:balance}
+p,.il,.banner,small{text-wrap:pretty}
+/* continuous (squircle) corners where the engine supports them */
+@supports (corner-shape:squircle){.panel,.kpi,.btn,.modal,.chip,.input,.ltype,.toast,.seg,.seg button{corner-shape:squircle}}
+/* hit slop: small targets get a bigger invisible click area */
+.btn.sm,.lnk,.pinx,.seg button,[data-act=modal-close].x{position:relative}
+.btn.sm::after,.lnk::after,.pinx::after{content:"";position:absolute;inset:-6px -4px}
+/* stale-while-revalidate: last view shown at once, a thin bar says fresh data is coming */
+.page.swr{position:relative}
+.page.swr::before{content:"";position:sticky;top:0;display:block;height:2px;margin:-2px 0 0;background:linear-gradient(90deg,transparent,var(--brand),transparent);background-size:40% 100%;background-repeat:no-repeat;animation:swr 1s linear infinite;z-index:5}
+@keyframes swr{from{background-position:-40% 0}to{background-position:140% 0}}
+/* optimistic delete: the item leaves at once (undo brings it back) */
+.gone{opacity:0;transform:translateX(-8px);pointer-events:none;transition:opacity .2s,transform .2s;}
+tr.gone{display:none}
+/* view transitions: quick cross-fade between screens, interruptible by the next click */
+::view-transition-old(root),::view-transition-new(root){animation-duration:.16s}
+/* interruptible motion: hovers use transitions (reverse mid-way), never one-shot keyframes */
+.btn,.kpi,.ltype,.panel,.chip,.seg button{transition:transform .15s ease,box-shadow .15s ease,background-color .15s ease,border-color .15s ease}
+kbd{display:inline-block;min-width:22px;padding:2px 6px;border-radius:6px;border:1px solid var(--line);border-bottom-width:2px;background:var(--card);font:600 11px/1.4 inherit;color:var(--ink);text-align:center}
+.kbgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px}.kbgrid div{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:4px 0;border-bottom:1px dashed var(--line)}.kbgrid small{color:var(--muted)}
+.search kbd{position:absolute;right:10px;top:50%;transform:translateY(-50%);pointer-events:none;opacity:.8}
+@media (prefers-reduced-motion:reduce){.page.swr::before{animation:none}.gone{transition:none}}
+.opt-done{opacity:.55;transition:opacity .2s}.opt-done td,.opt-done b{text-decoration:line-through}
