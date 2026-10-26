@@ -563,7 +563,8 @@ def parse_turnover(rows: list[list[Any]], sheet: str) -> PackSheet:
     c = lambda *n: _column(header, *n)  # noqa: E731
     cols = {"id": c("Emp. No.", "Employee Number"), "name": c("Emp. Name", "Employee Name"),
             "date": c("Requested Date"), "store": c("Business Unit"), "dept": c("Dept."), "section": c("Sect."),
-            "type": c("End of Service Type"), "reason": c("Reason"), "salary": c("Salary Period")}
+            "type": c("End of Service Type"), "reason": c("Reason"), "salary": c("Salary Period"),
+            "joining": c("Joining Date", "Date of Joining", "DOJ", "Hire Date")}
     records = []
     odd_periods = 0
     for row in rows[header_index + 1:]:
@@ -585,6 +586,7 @@ def parse_turnover(rows: list[list[Any]], sheet: str) -> PackSheet:
         if exit_date and re.fullmatch(r"\d{6}", salary) and salary != f"{exit_date:%Y%m}":
             odd_periods += 1
         exit_type = _t(_cell(row, cols["type"]))
+        joined = parse_date(_cell(row, cols["joining"])) if cols["joining"] is not None else None
         records.append({
             "employee_id": emp, "employee_name": canon.repair_name(name).rstrip(" ."),
             "date": exit_date.isoformat() if exit_date else None,
@@ -592,6 +594,7 @@ def parse_turnover(rows: list[list[Any]], sheet: str) -> PackSheet:
             "section": section, "section_raw": section_raw,
             "exit_type": exit_type, "reason": reason, "salary_period": salary,
             "voluntary": exit_type.casefold() == "resignation",
+            "joining_date": joined.isoformat() if joined else None,
         })
     warnings = []
     if odd_periods:

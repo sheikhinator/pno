@@ -18,7 +18,7 @@ hiddenimports = [
     "pno.importers.roster", "pno.importers.attendance", "pno.importers.productivity", "pno.importers.sales",
     "pno.importers.leave", "pno.importers.po_tabs", "pno.po", "pno.po.tabs", "pno.po.canon", "pno.po.insights",
     "pno.po.store", "pno.po.explorer", "pno.importers.generic", "pno.po.analyst", "pno.po.format", "pno.po.privacy", "python_calamine", "reportlab.graphics.charts.linecharts", "reportlab.graphics.barcode",
-    "pno.hiring", "pno.hiring.cvparse", "pno.hiring.scoring", "pno.hiring.templates", "pno.learning", "pno.learning.library", "pno.learning.export", "pno.datahealth", "pno.actions", "pno.org_health", "pno.workplace", "pno.engage", "pno.planning", "pno.smart", "pno.smart.profile", "pno.smart.schema", "pno.smart.mapper", "pno.smart.checks", "pno.hiring.internal", "pno.brain", "pno.po.people_risk", "pno.period", "pno.po.derive",
+    "pno.hiring", "pno.hiring.cvparse", "pno.hiring.scoring", "pno.hiring.templates", "pno.learning", "pno.learning.library", "pno.learning.export", "pno.datahealth", "pno.actions", "pno.org_health", "pno.workplace", "pno.engage", "pno.planning", "pno.smart", "pno.smart.profile", "pno.smart.schema", "pno.smart.mapper", "pno.smart.checks", "pno.hiring.internal", "pno.brain", "pno.relations", "pno.people_insights", "pno.po.people_risk", "pno.period", "pno.po.derive",
     "pypdf", "docx",
     "PySide6.QtWebChannel", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
 ]

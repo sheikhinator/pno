@@ -1164,6 +1164,13 @@ class Api:
                                                                          "would_return", "recommend", "comments")})
         return relations.exits(self.db, self)
 
+    def api_people_insights(self) -> dict:
+        from . import people_insights
+        key = ("pi", self.db.version)
+        if getattr(self, "_pi_cache", (None,))[0] != key:
+            self._pi_cache = (key, people_insights.report(self))
+        return self._pi_cache[1]
+
     def api_people_pick(self, q: str = "") -> dict:
         return {"rows": self._brain().find(q, 15)}
 

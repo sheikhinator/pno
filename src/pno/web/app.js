@@ -77,6 +77,8 @@ const ICON = {
   manpower: '<circle cx="8" cy="7" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M2.5 20c.5-3.6 2.8-5.6 5.5-5.6s5 2 5.5 5.6M14.5 15c2.6-.4 5.6 1 6.5 4.5"/><path d="M19 3v3M17.5 4.5h3"/>',
   engagement: '<path d="M12 20.5s-7.5-4.4-7.5-10A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.9c0 5.6-7.5 10-7.5 10z"/><path d="M8 12h2l1.2-2 1.6 4 1.2-2h2"/>',
   recognition: '<circle cx="12" cy="9" r="5.5"/><path d="M8.5 13.3 7 21l5-2.6 5 2.6-1.5-7.7"/>',
+  insights: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/><circle cx="19" cy="8" r="1.5"/>',
+  relations: '<path d="M12 3v18M5 7h14M5 7l-2.5 6a3 3 0 0 0 5 0zM19 7l-2.5 6a3 3 0 0 0 5 0zM8 21h8"/>',
   brain: '<circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="17" r="2.8"/><circle cx="19" cy="15" r="1.8"/><path d="M8.3 8.2 10.6 15M15.7 7.2 13 14.5M8.4 7.3l7.2-1M14.7 16.4l2.6-.9"/>',
   forecast: '<path d="M3.5 19.5h17M5 15l4-4 3.5 3 6.5-7"/><path d="M15 7h4v4"/>',
   goals: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>',
@@ -90,13 +92,13 @@ const ICON = {
 const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[n] || ""}</svg>`;
 const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
   ["people", "People", "people"], ["brain", "People Brain", "brain"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
-  ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
-  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["forecast", "Workforce plan", "forecast"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["engagement", "Engagement", "engagement"], ["recognition", "Recognition", "recognition"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
-const NAV_GROUP = { retention: "Insights", hiring: "Talent", ask: "Tools" };
+  ["insights", "People insights", "insights"], ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
+  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["forecast", "Workforce plan", "forecast"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["relations", "Employee relations", "relations"], ["engagement", "Engagement", "engagement"], ["recognition", "Recognition", "recognition"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
+const NAV_GROUP = { insights: "Insights", hiring: "Talent", ask: "Tools" };
 const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
 const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
   talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
-  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", forecast: "Workforce plan", brain: "People Brain", goals: "Goals", notes: "1:1s & visits", engagement: "Engagement", recognition: "Recognition", policies: "Policy assistant", settings: "Settings" };
+  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", forecast: "Workforce plan", brain: "People Brain", relations: "Employee relations", insights: "People insights", goals: "Goals", notes: "1:1s & visits", engagement: "Engagement", recognition: "Recognition", policies: "Policy assistant", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -2011,7 +2013,7 @@ async function drawBrainPerson() {
   box.innerHTML = `<div class="brhead"><div class="av lg" style="--c:${LVL_COLOR[Math.min(6, p.level || 0)]}">${esc(initials(p.name))}</div>
       <div style="flex:1;min-width:0"><h2>${esc(p.name)}</h2><div class="sub">${esc(p.designation || "—")}${p.leads ? ` · leads ${esc(p.leads)}` : ""} · <button class="lnk" data-act="br-store" data-s="${esc(p.store)}">${esc(p.store || "—")}</button> · #${esc(p.emp)}</div>
         <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${p.left ? `<span class="chip bad">Left ${esc(p.left.date || "")}</span>` : `<span class="chip good">Active</span>`}${p.acting ? `<span class="chip warn">Acting in a bigger role</span>` : ""}${ins.flight_risk ? `<span class="chip ${ins.flight_risk === "High" ? "bad" : ins.flight_risk === "Medium" ? "warn" : "good"}">Flight risk: ${esc(ins.flight_risk)}</span>` : ""}${p.corrections.some(c => c.active) ? `<span class="chip gold">✎ corrected</span>` : ""}${p.sources.map(s => `<span class="chip">${esc(s)}</span>`).join("")}</div></div>
-      <div class="row" style="gap:6px;align-self:start"><button class="btn sm" data-act="note-new" data-subject="${esc(p.name)}" data-key="${esc(p.emp)}" data-store="${esc(p.store || "")}">✎ Log 1:1</button><button class="btn sm primary" data-act="br-export">${ic("export", 14)}Profile sheet</button></div></div>
+      <div class="row" style="gap:6px;align-self:start"><button class="btn sm" data-act="note-new" data-subject="${esc(p.name)}" data-key="${esc(p.emp)}" data-store="${esc(p.store || "")}">✎ Log 1:1</button><button class="btn sm" data-act="lt-new" data-k="experience" data-emp="${esc(p.emp)}">✉️ Letter</button><button class="btn sm primary" data-act="br-export">${ic("export", 14)}Profile sheet</button></div></div>
     <div class="kpis k5">${k("With Carrefour", yrs(p.service_months), p.facts.find(f => f.field === "joining_date") ? "since " + fmtDate(p.facts.find(f => f.field === "joining_date").value) : "")}${k("In current role", yrs(p.in_role_months), p.facts.find(f => f.field === "role_since") ? "since " + fmtDate(p.facts.find(f => f.field === "role_since").value) : "")}
       ${k("Leader index", p.index != null ? (p.index / 10).toFixed(1) + "<small>/10</small>" : "—", p.index_percentile != null ? `better than ${p.index_percentile}% of ${p.peers} peers` : "", p.index == null ? "" : p.index >= 70 ? "t-good" : p.index < 50 ? "t-bad" : "")}
       ${k(last ? `${last.cycle} rating` : "Rating", last ? last.rating + "<small>/5</small>" : "—", last ? last.label || "" : "no rating on file", last ? (last.rating >= 4 ? "t-good" : last.rating <= 2 ? "t-bad" : "") : "")}
@@ -2124,6 +2126,184 @@ const BRAIN_ACTS = {
       <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="pe-go">Export</button></div>`);
     let f = "pdf"; $$("#pe-f button", m).forEach(b => b.onclick = () => { f = b.dataset.v; $$("#pe-f button", m).forEach(x => x.setAttribute("aria-pressed", x === b)); });
     $("#pe-go", m).onclick = async () => { const r = await call("profile_export", { emp: p.emp, fmt: f, include_notes: $("#pe-n", m).checked }); closeModal(); if (!r.cancelled) toast("Profile sheet saved"); }; },
+};
+
+/* ============================================================== 2.8 Employee relations */
+S.er = S.er || { tab: "cases", status: "open", cid: null };
+function personPicker(m, id, onPick) {
+  const inp = $("#" + id, m), box = $("#" + id + "-r", m);
+  let t;
+  inp.oninput = () => { clearTimeout(t); t = setTimeout(async () => { const r = await API.call("people_pick", { q: inp.value });
+    box.innerHTML = r.rows.map(p => `<button type="button" data-emp="${esc(p.emp)}" data-name="${esc(p.name)}"><b>${esc(p.name)}</b><small>${esc(p.designation || "")} · ${esc(p.store || "")} · #${esc(p.emp)}</small></button>`).join("") || `<small style="padding:6px">Nobody found: type the name as it should appear.</small>`;
+    box.hidden = false; $$("button", box).forEach(b => b.onclick = () => { inp.value = b.dataset.name; inp.dataset.emp = b.dataset.emp; box.hidden = true; onPick && onPick(b.dataset.emp, b.dataset.name); }); }, 220); };
+}
+const pickerHtml = (id, label, val = "") => `<label class="dx-l ppick">${label}<input class="input" id="${id}" autocomplete="off" placeholder="Name or employee number" value="${esc(val)}"><div class="ppick-r" id="${id}-r" hidden></div></label>`;
+PAGES.relations = async () => {
+  const E = S.er;
+  const tabs = `<div class="seg">${[["cases", "Cases"], ["letters", "HR letters"], ["exits", "Exit interviews"]].map(([k, l]) => `<button data-act="er-tab" data-t="${k}" aria-pressed="${E.tab === k}">${l}</button>`).join("")}</div>`;
+  const head = (p, right = "") => `<div class="ph"><div><h1>Employee relations</h1><p>${p}</p></div><div class="row">${right}${tabs}</div></div>`;
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  if (E.tab === "letters") {
+    const d = DATA.lt = await API.call("letter_types");
+    const icons = { offer: "📨", appointment: "📝", confirmation: "✅", probation_extension: "⏳", transfer: "🔁", promotion: "🚀", show_cause: "❗", warning: "⚠️", experience: "🎓", relieving: "👋" };
+    return head("Every standard HR letter, filled in from the person's record, numbered and filed on their page.") +
+      `<div class="ltypes">${d.types.map(t => `<button class="ltype" data-act="lt-new" data-k="${t.kind}"><span>${icons[t.kind] || "✉️"}</span><b>${esc(t.title)}</b><small>${t.fields.length} details to check</small></button>`).join("")}</div>
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Letters issued</h2><small>${d.letters.length}</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Date</th><th>Reference</th><th>Letter</th><th>To</th><th></th></tr></thead><tbody>
+      ${d.letters.map(l => `<tr><td class="nw">${esc(l.created_at.slice(0, 10))}</td><td><code>${esc(l.ref)}</code></td><td>${esc((d.types.find(t => t.kind === l.kind) || {}).title || l.kind)}</td><td><button class="lnk" data-act="br-open" data-emp="${esc(l.emp)}">${esc(l.name)}</button></td><td>${l.case_id ? `<span class="chip">case #${l.case_id}</span>` : ""}</td></tr>`).join("") || `<tr><td colspan="5"><div class="empty">No letters yet.</div></td></tr>`}</tbody></table></div></div>`;
+  }
+  if (E.tab === "exits") {
+    const d = DATA.ex = await API.call("exits");
+    return head("Why people leave, in their own words: reasons, how they rate their manager, pay, culture and growth, and who we should not have lost.", `<button class="btn primary" data-act="ex-new">+ Exit interview</button>`) +
+      `<div class="kpis k5">${k("Interviews", d.n, "recorded")}${k("Top reason", d.main.length ? `<span class="txt">${esc(d.main[0][0])}</span>` : "—", d.main.length ? d.main[0][1] + " people" : "")}${k("Would come back", d.would_return == null ? "—" : d.would_return + "%", "of those asked", d.would_return >= 50 ? "t-good" : "")}
+        ${k("Leaver eNPS", d.enps == null ? "—" : (d.enps > 0 ? "+" : "") + d.enps, "would recommend us", d.enps == null ? "" : d.enps >= 0 ? "t-good" : "t-bad")}${k("Regrettable", d.regrettable.length, "strong performers who left", d.regrettable.length ? "t-bad" : "")}</div>
+      ${d.n ? `<div class="grid g2"><div class="panel"><div class="phd"><h2>Why they left</h2><small>main and other reasons</small></div><div id="ch-exr"></div></div><div class="panel"><div class="phd"><h2>How leavers rate us</h2><small>1-5</small></div><div id="ch-exs"></div></div></div>` : ""}
+      ${d.regrettable.length ? `<div class="panel"><div class="phd"><h2>Regrettable leavers</h2><small>rated 4+ or leader index 7+</small></div>${d.regrettable.map(r => `<div class="il bad">${esc(r.name)} · ${esc(r.store || "")} · ${esc(r.why)} · left for: <b>${esc(r.reason)}</b></div>`).join("")}</div>` : ""}
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Interviews</h2></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Left</th><th>Name</th><th>Store</th><th>Main reason</th><th class="n">Manager</th><th class="n">Pay</th><th class="n">Growth</th><th class="n">Recommend</th><th>Comments</th></tr></thead><tbody>
+      ${d.rows.map(r => `<tr><td class="nw">${r.leave_date ? fmtDate(r.leave_date) : ""}</td><td><button class="lnk" data-act="br-open" data-emp="${esc(r.emp)}">${esc(r.name)}</button><span class="sub">${esc(r.designation || "")}</span></td><td>${esc(r.store || "")}</td><td><span class="chip">${esc(r.main_reason)}</span></td><td class="n">${r.manager_score ?? "—"}</td><td class="n">${r.pay_score ?? "—"}</td><td class="n">${r.growth_score ?? "—"}</td><td class="n">${r.recommend ?? "—"}</td><td><small>${esc((r.comments || "").slice(0, 120))}</small></td></tr>`).join("") || `<tr><td colspan="9"><div class="empty">No exit interviews yet.</div></td></tr>`}</tbody></table></div></div>`;
+  }
+  const d = DATA.er = await API.call("er_cases", { status: E.status });
+  return head("Disciplinary cases, grievances, investigations and improvement plans: every step with its deadline, letters attached, consistent outcomes.", `<button class="btn primary" data-act="er-new">+ New case</button>`) +
+    `<div class="kpis k5">${k("Open cases", d.open, "in progress")}${k("Overdue steps", d.overdue, "past their deadline", d.overdue ? "t-bad" : "")}${k("Closed", d.closed, "all time")}${k("Days to close", d.avg_days_to_close ?? "—", "average")}${k("Most common", d.by_category.length ? `<span class="txt">${esc(d.by_category[0][0])}</span>` : "—", d.by_category.length ? d.by_category[0][1] + " cases" : "")}</div>
+    <div class="grid g2" style="grid-template-columns:1.6fr 1fr"><div class="panel flush"><div class="row" style="padding:12px 14px 0"><div class="seg">${[["open", "Open"], ["overdue", "Overdue"], ["closed", "Closed"], ["all", "All"]].map(([v, l]) => `<button data-act="er-status" data-s="${v}" aria-pressed="${E.status === v}">${l}</button>`).join("")}</div></div>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th>Person</th><th>Type</th><th>Step</th><th>Next due</th><th>Outcome</th></tr></thead><tbody>
+      ${d.rows.map(r => `<tr class="click ${r.overdue ? "row-bad" : ""}" data-act="er-open" data-id="${r.id}"><td>${r.id}</td><td><b>${esc(r.confidential ? "Confidential case" : r.name)}</b><span class="sub">${esc(r.designation || "")} · ${esc(r.store || "")}</span></td><td>${esc(r.kind)}<span class="sub">${esc(r.category)}</span></td><td><span class="chip ${r.stage === "Closed" ? "" : "info"}">${esc(r.stage)}</span></td><td class="nw ${r.overdue ? "t-bad" : ""}">${r.stage_due ? fmtDate(r.stage_due) : "—"}</td><td>${esc(r.outcome || "")}</td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">No cases here.</div></td></tr>`}</tbody></table></div></div>
+      <div class="panel"><div class="phd"><h2>By category</h2></div>${d.by_category.length ? `<div id="ch-erc"></div>` : `<div class="empty">No cases yet.</div>`}${d.by_outcome.length ? `<h4 class="ih">Outcomes</h4><div id="ch-ero"></div>` : ""}</div></div>`;
+};
+AFTER.relations = () => {
+  const E = S.er;
+  if (E.tab === "cases" && DATA.er) { const d = DATA.er;
+    if ($("#ch-erc")) Charts.hbar($("#ch-erc"), { labels: d.by_category.map(x => x[0]), values: d.by_category.map(x => x[1]), colors: d.by_category.map((_, i) => Charts.PAL[i % Charts.PAL.length]) });
+    if ($("#ch-ero")) Charts.hbar($("#ch-ero"), { labels: d.by_outcome.map(x => x[0]), values: d.by_outcome.map(x => x[1]), color: "#7A5C9E" }); }
+  if (E.tab === "exits" && DATA.ex && DATA.ex.n) { const d = DATA.ex;
+    Charts.hbar($("#ch-exr"), { labels: d.reasons.map(x => x[0]), values: d.reasons.map(x => x[1]), colors: d.reasons.map((_, i) => Charts.PAL[i % Charts.PAL.length]) });
+    const sc = Object.entries(d.scores).filter(([, v]) => v != null);
+    Charts.hbar($("#ch-exs"), { labels: sc.map(x => x[0]), values: sc.map(x => x[1]), max: 5, fmt: "score", colors: sc.map(([, v]) => v >= 4 ? "#16A34A" : v >= 3 ? "#F59E0B" : "#DC2626"), ref: 3 }); }
+};
+async function erDrawer(id) {
+  const c = await call("er_case", { case_id: id });
+  const i = c.steps.indexOf(c.stage), next = c.steps[i + 1];
+  const m = modal(`<div class="row" style="justify-content:space-between;align-items:flex-start"><div><h3 style="margin:0">${esc(c.kind)} case #${c.id} · ${esc(c.name)}</h3><small style="color:var(--muted)">${esc(c.designation || "")} · ${esc(c.store || "")} · ${esc(c.category)} · opened ${fmtDate(c.opened_on)}</small></div>${c.overdue ? `<span class="chip bad">Step overdue</span>` : ""}</div>
+    <div class="stepper">${c.steps.map((s, j) => `<div class="stp ${j < i ? "done" : j === i ? "now" : ""}"><i>${j < i ? "✓" : j + 1}</i><small>${esc(s)}</small></div>`).join("")}</div>
+    ${c.description ? `<div class="il">${esc(c.description)}</div>` : ""}
+    ${c.suggest ? `<div class="banner">⚖️ <b>Consistent next step: ${esc(c.suggest.outcome)}</b><br><small>${esc(c.suggest.why)}</small></div>` : ""}
+    ${c.prior.length ? `<h4 class="ih">Earlier cases (12 months)</h4>${c.prior.map(p => `<div class="il">#${p.id} · ${fmtDate(p.opened_on)} · ${esc(p.category)} · ${esc(p.outcome || p.stage)}</div>`).join("")}` : ""}
+    <h4 class="ih">History</h4><div class="tline" style="max-height:200px">${c.history.slice().reverse().map(h => `<div class="tl"><span class="tl-ic">•</span><div><small>${esc(h.at.slice(0, 16).replace("T", " "))}</small><div><b>${esc(h.stage)}</b>${h.outcome ? " · " + esc(h.outcome) : ""}${h.note ? " · " + esc(h.note) : ""}</div></div></div>`).join("")}</div>
+    ${c.letters.length ? `<h4 class="ih">Letters</h4>${c.letters.map(l => `<div class="il">✉️ ${esc(l.kind)} · <code>${esc(l.ref)}</code></div>`).join("")}` : ""}
+    ${c.stage !== "Closed" ? `<div class="hform" style="margin-top:10px"><label class="dx-l">Move to<select class="input" id="ec-st">${c.steps.slice(i + 1).map(s => `<option ${s === next ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></label>
+      <label class="dx-l">Outcome<select class="input" id="ec-out"><option value="">—</option>${DATA.er.outcomes.map(o => `<option ${o === c.outcome ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></label>
+      <label class="dx-l" style="grid-column:1/-1">Note<input class="input" id="ec-note" placeholder="What happened at this step"></label></div>` : ""}
+    <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px">${c.kind === "Disciplinary" ? `<button class="btn sm" data-act="lt-new" data-k="show_cause" data-emp="${esc(c.emp)}" data-case="${c.id}">❗ Show cause letter</button><button class="btn sm" data-act="lt-new" data-k="warning" data-emp="${esc(c.emp)}" data-case="${c.id}">⚠️ Warning letter</button>` : ""}<button class="btn sm ghost" data-act="br-open" data-emp="${esc(c.emp)}">🧠 Profile</button></div>
+      <div class="row" style="gap:6px"><button class="btn" data-act="modal-close">Close</button>${c.stage !== "Closed" ? `<button class="btn primary" id="ec-go">Save step</button>` : ""}</div></div>`);
+  m.classList.add("wide");
+  const go = $("#ec-go", m); if (go) go.onclick = async () => { await call("er_advance", { case_id: c.id, stage: $("#ec-st", m).value, outcome: $("#ec-out", m).value || null, note: $("#ec-note", m).value }); closeModal(); toast("Case updated"); render(); };
+}
+function erNew() {
+  const d = DATA.er;
+  const m = modal(`<h3>New case</h3><div class="hform">${pickerHtml("en-p", "Employee")}
+    <label class="dx-l">Type<select class="input" id="en-k">${d.kinds.map(x => `<option>${esc(x)}</option>`).join("")}</select></label>
+    <label class="dx-l">Category<select class="input" id="en-c">${d.categories.map(x => `<option>${esc(x)}</option>`).join("")}</select></label>
+    <label class="dx-l">Date of incident / complaint<input class="input" type="date" id="en-d" value="${new Date().toISOString().slice(0, 10)}"></label>
+    <label class="dx-l" style="grid-column:1/-1">What happened<textarea class="input" id="en-t" rows="4" style="width:100%" placeholder="Facts only: what, when, where, who saw it"></textarea></label></div>
+    <div class="setting"><div><b>Confidential</b><small>Shows as 'Confidential case' in lists (e.g. harassment)</small></div><label class="switch"><input type="checkbox" id="en-x"><span></span></label></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="en-go">Open case</button></div>`);
+  personPicker(m, "en-p");
+  $("#en-go", m).onclick = async () => { const p = $("#en-p", m); if (!p.value.trim()) return toast("Who is the case about?", { err: true });
+    const c = await call("er_open", { kind: $("#en-k", m).value, emp: p.dataset.emp || "", name: p.value, category: $("#en-c", m).value, description: $("#en-t", m).value, opened_on: $("#en-d", m).value, confidential: $("#en-x", m).checked });
+    closeModal(); toast(`Case #${c.id} opened · next step due ${fmtDate(c.stage_due)}`); render(); };
+}
+async function letterForm(kind, emp = "", caseId = null) {
+  const types = (DATA.lt || await API.call("letter_types")).types, t = types.find(x => x.kind === kind);
+  const m = modal(`<h3>${esc(t.title)}</h3><div class="hform">${pickerHtml("lf-p", "Employee")}<div id="lf-f" style="display:contents"></div></div>
+    <div class="row" style="justify-content:space-between;margin-top:12px"><div class="seg" id="lf-fmt"><button data-v="docx" aria-pressed="true">Word</button><button data-v="pdf" aria-pressed="false">PDF</button></div>
+    <div class="row" style="gap:6px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="lf-go">Create letter</button></div></div>`);
+  m.classList.add("wide");
+  let fmt = "docx", cur = null;
+  $$("#lf-fmt button", m).forEach(b => b.onclick = () => { fmt = b.dataset.v; $$("#lf-fmt button", m).forEach(x => x.setAttribute("aria-pressed", x === b)); });
+  const fill = async e => { cur = await API.call("letter_defaults", { kind, emp: e, case_id: caseId });
+    $("#lf-p", m).value = cur.name; $("#lf-p", m).dataset.emp = e;
+    $("#lf-f", m).innerHTML = Object.entries(cur.fields).map(([k, v]) => `<label class="dx-l ${["allegation", "areas", "expected"].includes(k) ? "wide2" : ""}">${esc(k.replace(/_/g, " ").replace(/^./, c => c.toUpperCase()))}<input class="input" data-lf="${k}" value="${esc(v)}"></label>`).join("") + `<small style="grid-column:1/-1;color:var(--muted)">Reference ${esc(cur.ref)} · filed on the person's page</small>`; };
+  personPicker(m, "lf-p", (e) => fill(e));
+  if (emp) fill(emp); else $("#lf-f", m).innerHTML = `<small style="grid-column:1/-1;color:var(--muted)">Choose the employee to fill in the letter.</small>`;
+  $("#lf-go", m).onclick = async () => { if (!cur) return toast("Choose the employee first.", { err: true });
+    const f = {}; $$("[data-lf]", m).forEach(i => f[i.dataset.lf] = i.value);
+    const r = await call("letter_make", { kind, emp: $("#lf-p", m).dataset.emp || "", name: $("#lf-p", m).value, fields: f, fmt, case_id: caseId });
+    if (r.cancelled) return; closeModal(); toast(`Letter ${r.ref} created`); if (S.page === "relations") render(); };
+}
+function exitForm() {
+  const d = DATA.ex;
+  const sc = (id, l) => `<label class="dx-l">${l}<div class="seg sc5" id="${id}">${[1, 2, 3, 4, 5].map(n => `<button type="button" data-v="${n}" aria-pressed="false">${n}</button>`).join("")}</div></label>`;
+  const m = modal(`<h3>Exit interview</h3><div class="hform">${pickerHtml("xf-p", "Employee leaving")}<label class="dx-l">Last day<input class="input" type="date" id="xf-d"></label>
+    <label class="dx-l">Main reason<select class="input" id="xf-r">${d.reasons_all.map(x => `<option>${esc(x)}</option>`).join("")}</select></label>
+    <label class="dx-l">Other reasons<select class="input" id="xf-o" multiple size="4">${d.reasons_all.map(x => `<option>${esc(x)}</option>`).join("")}</select></label>
+    ${sc("xf-m", "Their manager (1-5)")}${sc("xf-c", "Culture & team (1-5)")}${sc("xf-pay", "Pay & benefits (1-5)")}${sc("xf-g", "Growth & training (1-5)")}
+    <label class="dx-l">Would they come back?<select class="input" id="xf-w"><option value="">—</option><option value="1">Yes</option><option value="0">No</option></select></label>
+    <label class="dx-l">Recommend us to a friend (0-10)<input class="input" type="number" min="0" max="10" id="xf-n"></label>
+    <label class="dx-l" style="grid-column:1/-1">In their words<textarea class="input" id="xf-t" rows="3" style="width:100%"></textarea></label></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="xf-go">Save</button></div>`);
+  m.classList.add("wide"); personPicker(m, "xf-p");
+  const v = {}; $$(".sc5", m).forEach(g => $$("button", g).forEach(b => b.onclick = () => { v[g.id] = +b.dataset.v; $$("button", g).forEach(x => x.setAttribute("aria-pressed", x === b)); }));
+  $("#xf-go", m).onclick = async () => { const p = $("#xf-p", m); if (!p.value.trim()) return toast("Who is leaving?", { err: true });
+    await call("exit_add", { emp: p.dataset.emp || "", name: p.value, leave_date: $("#xf-d", m).value || null, main_reason: $("#xf-r", m).value, reasons: [...$("#xf-o", m).selectedOptions].map(o => o.value),
+      manager_score: v["xf-m"] || null, culture_score: v["xf-c"] || null, pay_score: v["xf-pay"] || null, growth_score: v["xf-g"] || null,
+      would_return: $("#xf-w", m).value === "" ? null : $("#xf-w", m).value === "1", recommend: $("#xf-n", m).value === "" ? null : +$("#xf-n", m).value, comments: $("#xf-t", m).value });
+    closeModal(); toast("Exit interview saved"); render(); };
+}
+const ER_ACTS = {
+  "er-tab": b => { S.er.tab = b.dataset.t; render(); },
+  "er-status": b => { S.er.status = b.dataset.s; render(); },
+  "er-new": () => erNew(),
+  "er-open": b => erDrawer(+b.dataset.id),
+  "lt-new": b => { closeModal(); letterForm(b.dataset.k, b.dataset.emp || "", b.dataset.case ? +b.dataset.case : null); },
+  "ex-new": () => exitForm(),
+};
+
+/* ============================================================== 2.8 People insights */
+PAGES.insights = async () => {
+  const d = DATA.pi = await API.call("people_insights");
+  const A = d.absence || {}, W = d.wellbeing || {}, T = d.attrition || {}, G = d.gender || {}, K = d.week || {}, R = d.drivers || {};
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  const none = msg => `<div class="empty" style="padding:22px">${esc(msg)}</div>`;
+  const who = r => `<button class="lnk" data-act="br-open" data-emp="${esc(r.emp)}">${esc(r.name)}</button><span class="sub">${esc(r.designation || "")}${r.store ? " · " + esc(r.store) : ""}</span>`;
+  return `<div class="ph"><div><h1>People insights</h1><p>Patterns behind the numbers: when people are absent, who is overworked, who leaves early, who we should not have lost, and what moves with turnover.</p></div></div>
+  <div class="kpis k5">${k("Absence rate", A.available ? A.average + "%" : "—", A.month ? "of scheduled days · " + A.month : "needs attendance", A.average > 5 ? "t-bad" : "")}
+    ${k("Pattern absence", A.available ? A.bradford_high : "—", "Bradford score 125+", A.bradford_high ? "t-bad" : "")}
+    ${k("Overworked", W.available ? W.n : "—", "long days or no rest", W.n ? "t-warn" : "")}
+    ${k("Leave in 90 days", T.early_pct != null ? T.early_pct + "%" : "—", T.early_pct != null ? `${T.early} of ${T.known_tenure} leavers` : "needs joining dates", T.early_pct >= 20 ? "t-bad" : "")}
+    ${k("Women in leadership", G.leaders_women_pct != null ? G.leaders_women_pct + "%" : "—", G.women_pct != null ? `${G.women_pct}% of all staff` : "needs gender in roster")}</div>
+  <div class="grid g2">
+    <div class="panel"><div class="phd"><h2>This week</h2><small>${K.from ? fmtDate(K.from) + " – " + fmtDate(K.to) : ""}</small></div>
+      <h4 class="ih">🎉 Work anniversaries</h4>${(K.anniversaries || []).length ? K.anniversaries.slice(0, 8).map(a => `<div class="il ${a.milestone ? "good" : ""}"><b>${a.years} year${a.years > 1 ? "s" : ""}</b> · ${esc(a.name)} · ${esc(a.designation || "")} · ${esc(a.store || "")} · ${fmtDate(a.on)}${a.milestone ? " · milestone" : ""}</div>`).join("") : `<small class="muted">None in the next 7 days (or no joining dates).</small>`}
+      <h4 class="ih">🌴 Away on leave</h4>${(K.off || []).length ? K.off.slice(0, 10).map(o => `<div class="il ${o.level >= 3 ? "warn" : ""}">${esc(o.name)} · ${esc(o.designation || "")} · ${esc(o.store || "")} · ${esc(o.type)} ${fmtDate(o.from)} – ${fmtDate(o.to)}</div>`).join("") : `<small class="muted">Nobody on recorded leave this week.</small>`}</div>
+    <div class="panel"><div class="phd"><h2>When people are absent</h2><small>% of scheduled days, by weekday</small></div>
+      ${A.available && Object.keys(A.by_weekday).length ? `<div id="ch-wd"></div>${A.peak ? `<div class="banner">📅 <b>${esc(A.peak.day)}</b> absence is ${A.peak.x}× the average (${A.peak.rate}% vs ${A.average}%). Check rosters and leave approvals for that day.</div>` : ""}${A.next_to_off_share != null ? `<small class="muted">${A.next_to_off_share}% of absences sit right next to a day off or holiday.</small>` : ""}` : none("Import attendance to see absence patterns.")}</div></div>
+  <div class="grid g2">
+    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Pattern absence</h2><small>Bradford factor = spells² × days</small></div>
+      ${(A.bradford || []).length ? `<div class="tbl-wrap"><table class="t"><thead><tr><th>Person</th><th class="n">Days</th><th class="n">Spells</th><th class="n">Next to off</th><th class="n">Bradford</th></tr></thead><tbody>
+      ${A.bradford.slice(0, 12).map(r => `<tr><td>${who(r)}</td><td class="n">${r.days}</td><td class="n">${r.spells}</td><td class="n">${r.next_to_off}</td><td class="n"><span class="chip ${r.bradford >= 250 ? "bad" : r.bradford >= 125 ? "warn" : ""}">${r.bradford}</span></td></tr>`).join("")}</tbody></table></div>
+      <small class="muted" style="display:block;padding:8px 16px 14px">Many short absences disrupt a store more than one long one. 125+ deserves a return-to-work talk; 250+ a formal review.</small>` : none("No absences recorded.")}</div>
+    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Wellbeing watch</h2><small>11h+ days, 12+ days without rest, 40h+ over</small></div>
+      ${(W.rows || []).length ? `<div class="tbl-wrap"><table class="t"><thead><tr><th>Person</th><th class="n">Avg day</th><th class="n">11h+ days</th><th class="n">Longest run</th><th>Why</th></tr></thead><tbody>
+      ${W.rows.slice(0, 12).map(r => `<tr><td>${who(r)}</td><td class="n">${r.avg_h}h</td><td class="n">${r.long_days}</td><td class="n">${r.streak}</td><td><small>${esc(r.flags.join(" · "))}</small></td></tr>`).join("")}</tbody></table></div>` : none(W.available ? "Nobody is working unusually long hours or without rest. 👍" : "Import attendance with punch times to check working hours.")}</div></div>
+  <div class="grid g2">
+    <div class="panel"><div class="phd"><h2>How long leavers stayed</h2><small>${T.known_tenure || 0} of ${T.n || 0} with a joining date</small></div>
+      ${T.known_tenure ? `<div id="ch-ten"></div>${T.early_by_store.length ? `<h4 class="ih">Early leavers by store</h4><div id="ch-early"></div>` : ""}` : none(T.available ? "Leavers' joining dates are missing. Add a 'Joining Date' column to the turnover sheet, or import the Basic Sheet with past employees." : "Import the turnover sheet.")}</div>
+    <div class="panel"><div class="phd"><h2>Regrettable losses</h2><small>${T.regrettable_n || 0} strong performers left · ${T.regrettable_voluntary || 0} resigned</small></div>
+      ${(T.regrettable || []).length ? T.regrettable.slice(0, 10).map(r => `<div class="il bad">${esc(r.name)} · ${esc(r.store || "")} · ${esc(r.section || "")} · ${r.date ? fmtDate(r.date) : ""} · ${esc(r.regrettable)}${r.reason ? ` · <b>${esc(r.reason)}</b>` : ""}</div>`).join("") : none("No leaver had a rating of 4+ or a leader index of 7+.")}</div></div>
+  <div class="grid g2">
+    <div class="panel"><div class="phd"><h2>Gender mix by level</h2><small>current staff · groups under ${G.min_group || 5} not split</small></div>
+      ${(G.rows || []).length ? `<div class="gmix">${G.rows.map(r => r.women_pct == null ? `<div class="gm"><span>${esc(r.band)}</span><div class="gbar"><i style="width:100%;background:var(--line-2)"></i></div><small>${r.n} people</small></div>`
+        : `<div class="gm"><span>${esc(r.band)}</span><div class="gbar"><i class="w" style="width:${r.women_pct}%"></i><i class="m" style="width:${100 - r.women_pct}%"></i></div><small><b>${r.women_pct}%</b> women · ${r.n}</small></div>`).join("")}
+        <div class="legend"><span><i style="background:#C2410C"></i>Women</span><span><i style="background:#1E3A8A"></i>Men</span></div></div>${G.note ? `<div class="banner">⚖️ ${esc(G.note)}</div>` : ""}` : none("Gender is not in the imported roster.")}</div>
+    <div class="panel"><div class="phd"><h2>What moves together across stores</h2><small>${R.stores || 0} stores · links, not causes</small></div>
+      ${(R.drivers || []).length ? R.drivers.map(x => `<div class="drv"><div class="drv-r ${x.r > 0 ? "pos" : "neg"}"><i style="width:${Math.abs(x.r) * 100}%"></i></div><div><b>${x.r > 0 ? "+" : ""}${x.r.toFixed(2)}</b> ${esc(x.text)}</div></div>`).join("") + `<small class="muted">Correlation across stores: a lead to look into, not proof. A strong link with only a few stores can be chance.</small>` : none("No strong links between turnover, absence, leadership, sales and NPS across stores yet.")}</div></div>`;
+};
+AFTER.insights = () => {
+  const d = DATA.pi; if (!d) return;
+  const A = d.absence || {}, T = d.attrition || {};
+  if ($("#ch-wd")) { const L = Object.keys(A.by_weekday), V = L.map(x => A.by_weekday[x]);
+    Charts.columns($("#ch-wd"), { labels: L.map(x => x.slice(0, 3)), tipLabels: L, series: [{ name: "Absence %", values: V, colors: V.map(v => v >= A.average * 1.25 ? "#DC2626" : v >= A.average ? "#F59E0B" : "#16A34A") }], fmt: "pct" }); }
+  if ($("#ch-ten")) Charts.columns($("#ch-ten"), { labels: T.tenure_bands.map(x => x[0]), series: [{ name: "Leavers", values: T.tenure_bands.map(x => x[1]), colors: ["#DC2626", "#F59E0B", "#0EA5E9", "#16A34A"] }] });
+  if ($("#ch-early")) Charts.hbar($("#ch-early"), { labels: T.early_by_store.map(x => x[0]), values: T.early_by_store.map(x => x[1]), color: "#DC2626" });
 };
 
 async function hireVacancy(head) {
@@ -2702,6 +2882,7 @@ Object.assign(ACT, MORE_ACTS);
 Object.assign(ACT, IMP_ACTS);
 Object.assign(ACT, INT_ACTS);
 Object.assign(ACT, BRAIN_ACTS);
+Object.assign(ACT, ER_ACTS);
 ACT["tpl-forget"] = async b => { await call("import_templates", { forget: b.dataset.k }); toast("Forgotten"); render(); };
 
 /* ============================================================== 2.2 Policy assistant */

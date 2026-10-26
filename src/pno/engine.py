@@ -410,6 +410,7 @@ def attendance_summary(days: dict[str, Any], m_start: date, as_of: date, joining
             cand = next((c for c in weeks[wk] if c["kind"] == "none"), None)
             if cand:
                 cand["kind"] = "off"
+                cand["implied"] = True
     for c in cal:
         if c["kind"] == "none":
             c["kind"] = "absent"

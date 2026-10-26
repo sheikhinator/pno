@@ -114,7 +114,7 @@ KINDS: dict[str, dict] = {
                     never=["exit_date", "rating", "leave_from"], label="Time in current role"),
     "po_rating": dict(need=[("employee_id", "employee_name"), "rating"], want=["cycle", "rating_label", "designation", "store", "manager_name"],
                       min_want=1, never=["exit_date", "leave_from", "time_in"], label="Performance ratings"),
-    "po_turnover": dict(need=[("employee_id", "employee_name"), "exit_date"], want=["exit_type", "reason", "store", "section"], min_want=1,
+    "po_turnover": dict(need=[("employee_id", "employee_name"), "exit_date"], want=["exit_type", "reason", "store", "section", "joining_date"], min_want=1,
                         never=["rating", "leave_from", "time_in"], label="Turnover (leavers)"),
     "leave": dict(need=["employee_id", "leave_from"], want=["leave_to", "leave_type", "status", "employee_name"], min_want=1,
                   never=["exit_date", "rating", "time_in"], label="Leave register"),

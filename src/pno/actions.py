@@ -216,6 +216,19 @@ def today(api) -> dict:
             items.append({"level": "info", "area": "1:1 follow-ups", "text": f"{fu} follow-up{'s' if fu > 1 else ''} from 1:1s past due", "go": "notes"})
     except Exception:  # noqa: BLE001
         pass
+    try:
+        from . import people_insights
+        wk = people_insights.this_week(api)
+        ms = [a for a in wk["anniversaries"] if a["milestone"]]
+        if ms:
+            items.append({"level": "info", "area": "Anniversaries", "text": ", ".join(f"{a['name']} {a['years']} yrs" for a in ms[:3]) +
+                          (f" and {len(ms) - 3} more" if len(ms) > 3 else "") + " this week: a note from you goes a long way", "go": "insights"})
+        lead = [o for o in wk["off"] if o["level"] >= 3]
+        if lead:
+            items.append({"level": "info", "area": "Cover", "text": f"{len(lead)} leader{'s' if len(lead) > 1 else ''} on leave this week, e.g. {lead[0]['name']} "
+                          f"({lead[0]['store']}, back {lead[0]['to']})", "go": "insights"})
+    except Exception:  # noqa: BLE001
+        pass
     od = db.q1("SELECT COUNT(*) FROM assignments WHERE status!='completed' AND due IS NOT NULL AND due < ?", (t,))[0]
     if od:
         items.append({"level": "info", "area": "Training", "text": f"{od} training assignment{'s' if od > 1 else ''} past due", "go": "learning"})

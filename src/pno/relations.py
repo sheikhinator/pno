@@ -109,7 +109,7 @@ def suggest_outcome(prev: list[dict]) -> dict:
     nxt = LADDER[min(top + 1, len(LADDER) - 1)]
     why = (f"{len(done)} earlier warning{'s' if len(done) != 1 else ''} in 12 months, the highest being {LADDER[top].lower()}"
            if top >= 0 else "No warnings in the last 12 months")
-    return {"outcome": nxt, "why": why + f". Consistent next step: {nxt.lower()} (if the allegation is proven)."}
+    return {"outcome": nxt, "why": why + ". Applies only if the allegation is proven; the panel decides."}
 
 
 def cases(db, status: str = "open") -> dict:
@@ -376,9 +376,11 @@ def exits(db, api=None) -> dict:
                     continue
                 rated = [x for x in p["ratings"] if x.get("rating") is not None]
                 idx = p["leader"].score if p.get("leader") else None
-                if (rated and rated[-1]["rating"] >= 4) or (idx is not None and idx >= 70):
-                    regrettable.append({"name": r["name"], "store": r["store"], "reason": r["main_reason"],
-                                        "why": f"rated {rated[-1]['rating']:g}" if rated else f"leader index {idx / 10:.1f}"})
+                why = [f"rated {rated[-1]['rating']:g}"] if rated and rated[-1]["rating"] >= 4 else []
+                if idx is not None and idx >= 70:
+                    why.append(f"leader index {idx / 10:.1f}")
+                if why:
+                    regrettable.append({"name": r["name"], "store": r["store"], "reason": r["main_reason"], "why": " and ".join(why)})
         except Exception:  # noqa: BLE001
             pass
     return {"rows": rows, "n": n, "reasons": reasons.most_common(), "main": Counter(r["main_reason"] for r in rows).most_common(),
