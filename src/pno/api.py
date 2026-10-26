@@ -57,6 +57,16 @@ class Host:
         pass
 
 
+def template_key(name: str) -> str:
+    """'Out of Stock & Stock Days YTDSEP 2026.xlsx' and next month's 'Out of Stock & Stock Days YTDOCT' → the same key."""
+    n = str(name or "").lower()
+    n = re.sub(r"\.(xlsx|xlsm|xls|csv|txt|tsv)$", "", n)
+    n = re.sub(r"(ytd|mtd)(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*", " ", n)
+    n = re.sub(r"\b(ytd|mtd|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sep(t(ember)?)?|oct(ober)?|nov(ember)?|dec(ember)?|week|wk)\b", " ", n)
+    n = re.sub(r"[^a-z]+", " ", n)
+    return " ".join(w for w in n.split() if len(w) > 1 and w not in ("and", "the", "of", "for", "to", "copy", "final", "new"))[:80]
+
+
 class Api:
     def __init__(self, db: Database, host: Host | None = None):
         self.real_db = db
@@ -378,8 +388,24 @@ class Api:
         known = self.db.q1("""SELECT MAX(period_to) FROM imports WHERE active=1 AND period_type IN ('ytd','mtd')
                               AND kind NOT IN ('po_turnover','po_shift','attendance')""")
         line_up([r for f in files for r in f["results"]], known[0] if known else None)
+        tpls = self.db.get_setting("import_templates", {}) or {}
+        for f in files:
+            for r in f["results"]:
+                t = tpls.get(template_key(r["sheet"])) or tpls.get(template_key(f["file"]))
+                if not t:
+                    continue
+                r["remembered"] = t
+                if t.get("kind") and t["kind"] != r["kind"]:
+                    r["kind_hint"] = t["kind"]
+                pt = t.get("period_type")
+                if pt and pt != r["period"]["type"]:
+                    p = r["period"]
+                    to = p.get("to") or (r.get("month") or self._suggest_month())
+                    p.update(type=pt, why=f"Remembered from last time ({pt.upper() if pt != 'general' else 'general'}).",
+                             **({"from": None, "to": None} if pt == "general" else {"to": to, "from": to if pt == "mtd" else (p.get("from") if p.get("from") and p["type"] == "ytd" else f"{to[:4]}-01")}))
         for f, a in zip(files, analyses):
             a["period_hint"] = {(r["sheet"], r["kind"]): r["period"] for r in f["results"]}
+            a["kind_hint"] = {r["sheet"]: r["kind_hint"] for r in f["results"] if r.get("kind_hint")}
         return files
 
     def api_import_commit(self, token: str, options: dict | None = None) -> dict:
@@ -394,10 +420,34 @@ class Api:
             except Exception as e:
                 out.append({"file": a["file"], "error": str(e)})
         self.sessions.pop(token, None)
+        self._remember_templates(sess["analyses"], out)
         new_sets = [r["import_id"] for f in out for r in f.get("results", []) if r.get("kind") == "dataset" and r.get("status") == "ok"]
         if new_sets:
             threading.Thread(target=self._ai_label_datasets, args=(new_sets,), daemon=True).start()
         return {"done": out, "months": analytics.month_list(self.db)}
+
+    def _remember_templates(self, analyses: list[dict], out: list[dict]) -> None:
+        """Remember what each sheet was (report type and period type) so next month's file is set up the same way."""
+        tpls = self.db.get_setting("import_templates", {}) or {}
+        for f in out:
+            for r in f.get("results", []):
+                if r.get("status") != "ok":
+                    continue
+                row = self.db.q1("SELECT kind, period_type FROM imports WHERE id=?", (r["import_id"],))
+                if row and template_key(r["sheet"]):
+                    tpls[template_key(r["sheet"])] = {"kind": row["kind"], "period_type": row["period_type"], "sheet": r["sheet"], "at": now()[:10]}
+        if len(tpls) > 300:
+            tpls = dict(sorted(tpls.items(), key=lambda kv: kv[1].get("at", ""))[-300:])
+        self.db.set_setting("import_templates", tpls)
+
+    def api_import_templates(self, forget: str | None = None) -> dict:
+        tpls = self.db.get_setting("import_templates", {}) or {}
+        if forget and forget in tpls:
+            tpls.pop(forget)
+            self.db.set_setting("import_templates", tpls)
+        from .importers import KIND_LABEL
+        return {"templates": [{"key": k, **v, "example": v.get("sheet"), "used": v.get("at"), "kind_label": KIND_LABEL.get(v.get("kind"), v.get("kind"))}
+                              for k, v in sorted(tpls.items())]}
 
     def api_imports(self) -> dict:
         from .period import label as period_label
@@ -715,6 +765,50 @@ class Api:
     def api_today(self) -> dict:
         from . import actions
         return actions.today(self)
+
+    def api_organisation(self, probation_months: int | None = None) -> dict:
+        from . import org_health
+        if probation_months:
+            self.db.set_setting("probation_months", max(1, min(12, int(probation_months))))
+        return org_health.report(self.db, self._po())
+
+    def api_data_request(self, month: str, lang: str = "en") -> dict:
+        from . import datahealth, org_health
+        from .po.insights import Insights
+        from .po.store import PoStore
+        h = datahealth.report(self.db, Insights(PoStore(self.db), view={"type": "latest"}), month)
+        missing = [c["name"] + (f" (we only have {c['label']})" if c["status"] == "older" else "") for c in h["checklist"] if c["status"] in ("missing", "older", "stale")]
+        return {"missing": missing, "text": org_health.request_message(self.db, h["month"], missing, lang) if missing else ""}
+
+    def api_export_batch(self, pack: str = "store", fmt: str = "pdf", month=None, hide=None, save_as=None, open_after: bool = True) -> dict:
+        """One report per store (or per manager), zipped, ready to send to each store manager."""
+        import io
+        import tempfile
+        import zipfile
+        from . import exports
+        hide_names = self._hide() if hide is None else bool(hide)
+        mm = engine.model(self.db, month)
+        stores = sorted(mm.stores.items(), key=lambda kv: kv[1]["name"])
+        stores = [(sid, st) for sid, st in stores if any(p.store_id == sid for p in mm.people.values())]
+        if not stores:
+            raise ValueError("No stores with people in this month.")
+        path = save_as or self.host.save_path(f"P&O {exports.PACKS.get(pack, pack)} per store {mm.month}.zip", "zip")
+        if not path:
+            return {"cancelled": True}
+        n = 0
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z, tempfile.TemporaryDirectory() as tmp:
+            for sid, st in stores:
+                rep = exports.build_pack(self.db, pack, month, {"store_id": sid}, store_id=sid, hide=hide_names)
+                dup = sum(1 for _, o in stores if o["name"] == st["name"]) > 1
+                safe = re.sub(r"[^\w\- ()]+", "", st["name"] + (f" ({st.get('format') or sid})" if dup else "")) or f"store-{sid}"
+                f = Path(tmp) / f"{safe}.{fmt}"
+                exports.render(rep, fmt, str(f))
+                z.write(f, f.name)
+                n += 1
+        self.db.log("export", f"batch {pack} {fmt} x{n} {path}")
+        if open_after:
+            self.host.open_path(path)
+        return {"ok": True, "path": path, "name": Path(path).name, "files": n}
 
     def api_po_risk(self) -> dict:
         from .po.people_risk import flight_risk, succession

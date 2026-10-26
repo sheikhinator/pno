@@ -85,6 +85,10 @@ TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: s
                              "from_month": {"type": "string", "description": "YYYY-MM, YTD start (default January)"},
                              "to_month": {"type": "string", "description": "YYYY-MM, the month (MTD) or YTD end"}},
                              "required": ["question"]}})
+TOOLS.insert(1, {"name": "organisation", "description": "Organisation health: who joined, left, transferred or was promoted since the last "
+              "Basic Sheet, span of control (direct reports per manager), people ending probation, and rating calibration and fairness "
+              "(by store, manager and gender). Use for 'who joined this month', 'span of control', 'probation', 'are ratings fair'.",
+              "parameters": {"type": "object", "properties": {}}})
 TOOLS.insert(1, {"name": "people_strategy", "description": "Flight risk (who might leave and why), succession (roles with no successor, "
               "who is ready now), manpower (approved vs actual heads, vacancies) and the action tracker (open and overdue actions). "
               "Use for 'who might leave', 'succession gaps', 'are we understaffed', 'what actions are overdue'.",
@@ -213,6 +217,16 @@ class Toolbox:
         return {"title": v["title"], "rows": v["rows"], "columns": [{k: c.get(k) for k in ("name", "type", "role")} for c in v["columns"]],
                 "grouped_by": v["group"], "measure": v["measure"], "aggregation": v["agg"], "groups": v["series"][:30],
                 "trend": v["trend"][-24:], "insights": v["insights"]}
+
+    def t_organisation(self, **kw) -> dict:
+        r = self.svc.api.api_organisation()
+        ch, sp, pr, ca = r["changes"], r["span"], r["probation"], r["calibration"]
+        out = {"headcount": r["headcount"], "probation": {"ending_30_days": pr["due_30"], "overdue": pr["overdue"], "people": pr["rows"][:15]},
+               "span_of_control": {k: sp[k] for k in ("managers", "avg", "median", "too_wide", "narrow")} | {"widest": sp["rows"][:8]}}
+        out["changes"] = ({k: ch[k] for k in ("from", "to", "headcount_old", "headcount_new", "promotions")} |
+                          {k: ch[k][:15] for k in ("joiners", "leavers", "unexplained_leavers", "transfers", "roles")}) if ch["has_data"] else {"note": ch["note"]}
+        out["calibration"] = {k: ca.get(k) for k in ("n", "avg", "top_share", "distribution", "by_store", "by_gender", "flags")} if ca["has_data"] else {"note": "No ratings imported"}
+        return out
 
     def t_people_strategy(self, store: str = "", **kw) -> dict:
         api = self.svc.api

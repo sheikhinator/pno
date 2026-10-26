@@ -24,7 +24,7 @@ FILTERS = {
     "cvs": "CVs (*.pdf *.docx *.doc *.txt *.rtf);;All files (*)",
     "gguf": "AI model (*.gguf)",
     "docx": "Word (*.docx)",
-    "zip": "Learning pack (*.zip)",
+    "zip": "Zip archive (*.zip)",
     "backup": "P&O backup (*.sqlite3 *.db);;All files (*)",
     "pdf": "PDF (*.pdf)",
     "pptx": "PowerPoint (*.pptx)",

@@ -126,6 +126,12 @@ def reparse(analysis: dict, res: ParseResult, kind: str) -> ParseResult:
 
 
 def _commit_one(db: Database, res: ParseResult, analysis: dict, opt: dict, source: str) -> dict:
+    hint = (analysis.get("kind_hint") or {}).get(res.sheet)
+    if hint and not opt.get("kind"):
+        try:                                    # what this sheet was last time (saved template)
+            res = reparse(analysis, res, hint)
+        except ValueError:
+            pass
     if opt.get("kind") and opt["kind"] != res.kind:
         res = reparse(analysis, res, opt["kind"])
     if res.kind == "dataset" and (opt.get("title") or opt.get("note")):

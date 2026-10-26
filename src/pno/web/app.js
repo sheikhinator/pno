@@ -75,6 +75,7 @@ const ICON = {
   hiring: '<rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M8.5 7V5.5A2 2 0 0 1 10.5 3.5h3a2 2 0 0 1 2 2V7M3 12.5h18M10.5 12.5v1.5h3v-1.5"/>',
   learning: '<path d="M2.5 8.5 12 4l9.5 4.5L12 13z"/><path d="M6 10.5V16c0 1.4 2.7 3 6 3s6-1.6 6-3v-5.5M21.5 8.5v6"/>',
   manpower: '<circle cx="8" cy="7" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M2.5 20c.5-3.6 2.8-5.6 5.5-5.6s5 2 5.5 5.6M14.5 15c2.6-.4 5.6 1 6.5 4.5"/><path d="M19 3v3M17.5 4.5h3"/>',
+  organisation: '<rect x="9" y="2.5" width="6" height="5" rx="1.2"/><rect x="2.5" y="16.5" width="6" height="5" rx="1.2"/><rect x="15.5" y="16.5" width="6" height="5" rx="1.2"/><path d="M12 7.5V12M5.5 16.5V12h13v4.5"/>',
   actions: '<rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="m8 9 1.8 1.8L13 7.6M8 15.5l1.8 1.8 3.2-3.2M15.5 9.5H17M15.5 16H17"/>',
   health: '<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
@@ -83,12 +84,12 @@ const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" f
 const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
   ["people", "People", "people"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
-  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["ask", "Ask P&O AI", "ask"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
+  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["organisation", "Organisation", "organisation"], ["ask", "Ask P&O AI", "ask"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
 const NAV_GROUP = { retention: "Insights", hiring: "Talent", ask: "Tools" };
 const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
 const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
   talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
-  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", settings: "Settings" };
+  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -886,7 +887,7 @@ PAGES.health = async () => {
     <div class="grid hgrid">
       <div class="panel hscore"><div class="row" style="gap:18px;align-items:center">${ring(d.score)}<div><span class="kpi-l">Data health · ${esc(d.month_label)}</span>
         <h2 style="margin:4px 0">${esc(d.verdict)}</h2><small style="color:var(--muted)">${d.ready} of ${d.expected} reports in · ${d.checks.length} thing${d.checks.length === 1 ? "" : "s"} to check</small></div></div></div>
-      <div class="panel"><div class="phd"><h2>Monthly checklist</h2><button class="btn sm primary" data-go="import">${ic("import", 14)}Import missing</button></div>
+      <div class="panel"><div class="phd"><h2>Monthly checklist</h2><div class="row"><button class="btn sm" data-act="h-request">✉ Ask for missing reports</button><button class="btn sm primary" data-go="import">${ic("import", 14)}Import missing</button></div></div>
         <div class="hlist">${d.checklist.map(c => `<div class="hrow"><span class="chip ${HSTAT[c.status][1]}">${HSTAT[c.status][0]}</span><b>${esc(c.name)}</b>
           <small>${esc(c.label || "")}${c.detail && c.detail !== "latest is " + c.label ? ` · ${esc(c.detail)}` : ""}</small></div>`).join("")}</div></div></div>
     <div class="panel"><div class="phd"><h2>Checks</h2><small>Reconciliation across tabs, store names, conflicting files, totals and outliers</small></div>
@@ -900,6 +901,16 @@ PAGES.health = async () => {
 };
 AFTER.health = () => { const m = $("#h-month"); if (m) m.onchange = () => { S.healthMonth = m.value; render(); }; };
 const HEALTH_ACTS = {};
+HEALTH_ACTS["h-request"] = async () => {
+  const r = await call("data_request", { month: S.healthMonth, lang: "en" });
+  if (!r.missing.length) return toast("Nothing is missing for this month.");
+  const m = modal(`<h3>Ask for the missing reports</h3><p style="color:var(--muted);margin:0 0 10px">${r.missing.length} report${r.missing.length > 1 ? "s" : ""} to request. Copy into WhatsApp or email.</p>
+    <div class="seg" style="margin-bottom:8px"><button data-l="en" aria-pressed="true">English</button><button data-l="ur" aria-pressed="false">اردو</button></div>
+    <textarea class="input" id="dr-t" rows="12" style="width:100%">${esc(r.text)}</textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-act="modal-close">Close</button><button class="btn primary" id="dr-copy">Copy</button></div>`);
+  $$(".seg button", m).forEach(b => b.onclick = async () => { $$(".seg button", m).forEach(x => x.setAttribute("aria-pressed", x === b)); const t = await call("data_request", { month: S.healthMonth, lang: b.dataset.l }); $("#dr-t", m).value = t.text; $("#dr-t", m).dir = b.dataset.l === "ur" ? "rtl" : "ltr"; });
+  $("#dr-copy", m).onclick = () => { const t = $("#dr-t", m); try { navigator.clipboard.writeText(t.value); } catch (e) { t.select(); document.execCommand("copy"); } toast("Copied"); };
+};
 HEALTH_ACTS["h-lock"] = async b => { await call("lock_month", { month: S.healthMonth, locked: b.dataset.locked === "1" }); toast(b.dataset.locked === "1" ? "Month locked" : "Month unlocked"); render(); };
 
 /* import */
@@ -927,10 +938,10 @@ PAGES.import = async () => {
   const kindIcon = { roster: "👥", attendance: "🕘", productivity: "📈", sales: "🧾", leave: "🏖️", po_rating: "⭐", po_role: "🪪", po_shift: "🗓️", po_turnover: "🚪", po_da: "⚖️", po_nps: "💬", po_shrink: "📦", dataset: "📊" };
   const preview = sess ? sess.files.map((f, fi) => `<div class="fcard"><div class="kind">${ic("file", 18)}<b>${esc(f.file)}</b>${f.results.length ? "" : `<span class="chip bad">Not recognised</span>`}</div>
       ${f.results.map(r => `<div style="display:flex;flex-direction:column;gap:6px;padding-left:4px;border-left:3px solid var(--gold-2);padding:4px 10px">
-        <div class="row"><b>${kindIcon[r.kind] || ""} ${esc(r.label)}</b><span class="chip">${esc(r.sheet)}</span><span class="chip good">${r.rows.toLocaleString("en-US")} rows</span>${r.month ? `<span class="chip info">${esc(r.month)}</span>` : ""}</div>
+        <div class="row"><b>${kindIcon[r.kind] || ""} ${esc(r.label)}</b><span class="chip">${esc(r.sheet)}</span><span class="chip good">${r.rows.toLocaleString("en-US")} rows</span>${r.remembered ? `<span class="chip gold" title="Set up the way you imported it last time">✓ remembered</span>` : ""}${r.month ? `<span class="chip info">${esc(r.month)}</span>` : ""}</div>
         <small style="color:var(--muted)">${esc(r.summary)}</small>
         <div class="imp-opts">
-          <label class="dx-l">This sheet is<select class="input" data-opt="kind" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}">${(f.kinds || []).map(k => `<option value="${k.value}" ${k.value === r.kind ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select></label>
+          <label class="dx-l">This sheet is<select class="input" data-opt="kind" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}">${(f.kinds || []).map(k => `<option value="${k.value}" ${k.value === (r.kind_hint || r.kind) ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select></label>
           ${impPeriod(f, r, sess)}
           <label class="dx-l">${r.kind === "roster" ? "Roster as of" : "Last day (optional)"}<input class="input" type="date" data-opt="as_of" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" value="${r.kind === "roster" ? (r.as_of || new Date().toISOString().slice(0, 10)) : esc(r.as_of || "")}"></label>
           <details class="imp-more"><summary>Name and description (optional, helps the AI)</summary><div class="imp-more-b">
@@ -1076,7 +1087,12 @@ SETTINGS.leave = async () => {
 SETTINGS.data = async () => {
   const s = await API.call("settings");
   const a = await API.call("audit");
-  return `<div class="panel"><div class="phd"><h2>Your data</h2></div>
+  const tp = (await API.call("import_templates")).templates;
+  const tpl = `<div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Remembered import layouts</h2><small>P&O remembers how each recurring file was read (type and period) and applies it next time</small></div>
+    <div class="tbl-wrap" style="max-height:300px"><table class="t"><thead><tr><th>File pattern</th><th>Read as</th><th>Period</th><th>Last used</th><th></th></tr></thead><tbody>
+    ${tp.map(t => `<tr><td><b>${esc(t.key)}</b>${t.example ? `<span class="sub">${esc(t.example)}</span>` : ""}</td><td>${esc(t.kind_label || t.kind || "")}</td><td>${esc((t.period_type || "").toUpperCase())}</td><td class="nw">${esc((t.used || "").slice(0, 10))}</td>
+      <td><button class="btn sm ghost" data-act="tpl-forget" data-k="${esc(t.key)}">Forget</button></td></tr>`).join("") || `<tr><td colspan="5"><div class="empty">Nothing yet: layouts are remembered after your first import.</div></td></tr>`}</tbody></table></div></div>`;
+  return tpl + `<div class="panel"><div class="phd"><h2>Your data</h2></div>
     <div class="setting"><div><b>Database</b><small>${esc(s.db_path)}</small></div></div>
     <div class="setting"><div><b>Back up</b><small>Save a copy of everything (keep it secure: it contains staff data)</small></div><button class="btn" data-act="backup">Back up…</button></div>
     <div class="setting"><div><b>Restore</b><small>Replace the data with a backup (the current data is kept as a safety copy)</small></div><button class="btn danger" data-act="restore">Restore…</button></div>
@@ -1238,13 +1254,15 @@ function openExport(o = {}) {
     <div style="display:flex;flex-direction:column;gap:6px">${PACKS.map(([k, l, d]) => `<label class="setting" style="cursor:pointer;padding:8px 4px"><span><b>${l}</b><small>${d}</small></span><input type="radio" name="pack" value="${k}" ${k === def ? "checked" : ""}></label>`).join("")}</div>
     <div class="setting"><div><b>Format</b></div><div class="seg" id="fmtseg">${[["pdf", "PDF"], ["docx", "Word"], ["pptx", "PowerPoint"], ["xlsx", "Excel"]].map(([k, l], i) => `<button data-fmt="${k}" aria-pressed="${i === 0}">${l}</button>`).join("")}</div></div>
     <div class="setting"><div><b>Hide names</b><small>Employee codes only, for packs going beyond HR</small></div><label class="switch"><input type="checkbox" id="exp-hide" ${S.init.hide_names ? "checked" : ""}><span></span></label></div>
+    <div class="setting"><div><b>One file per store</b><small>The chosen report for every store (Store Report, Attendance Exceptions or People Ranking), zipped, ready to send to each store manager</small></div><label class="switch"><input type="checkbox" id="exp-batch"><span></span></label></div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="exp-go">${ic("export", 16)}Export</button></div>`);
   $$("#fmtseg button", m).forEach(b => b.onclick = () => $$("#fmtseg button", m).forEach(x => x.setAttribute("aria-pressed", x === b)));
   $("#exp-go", m).onclick = async () => {
     const pack = $("input[name=pack]:checked", m).value, fmt = $("#fmtseg button[aria-pressed=true]", m).dataset.fmt;
     const btn = $("#exp-go", m); btn.disabled = true; btn.innerHTML = `<span class="spin" style="width:14px;height:14px"></span> Preparing…`;
     try {
-      const r = await API.call("export", { pack, fmt, month: S.month, scope: S.scope, emp: o.emp || null, store_id: o.store || S.scope.store_id || null, hide: $("#exp-hide", m).checked });
+      const r = $("#exp-batch", m).checked ? await API.call("export_batch", { pack: ["store", "attendance", "people"].includes(pack) ? pack : "store", fmt, month: S.month, hide: $("#exp-hide", m).checked })
+        : await API.call("export", { pack, fmt, month: S.month, scope: S.scope, emp: o.emp || null, store_id: o.store || S.scope.store_id || null, hide: $("#exp-hide", m).checked });
       closeModal();
       if (!r.cancelled) toast(`Saved ${r.name}`, { action: "Open", onAction: () => API.call("open_path", { path: r.path }), ms: 7000 });
     } catch (e) { btn.disabled = false; btn.innerHTML = "Export"; fail(e); }
@@ -2395,6 +2413,45 @@ const MORE_ACTS = {
   "po-leader-open": b => { S.po.tab = "leaders"; S.po.leader = b.dataset.key; render(); },
 };
 Object.assign(ACT, MORE_ACTS);
+ACT["tpl-forget"] = async b => { await call("import_templates", { forget: b.dataset.k }); toast("Forgotten"); render(); };
+
+/* ============================================================== Organisation health */
+PAGES.organisation = async () => {
+  const d = DATA.org = await API.call("organisation", {});
+  const ch = d.changes, sp = d.span, pr = d.probation, ca = d.calibration;
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  const list = (title, rows, f, empty) => `<div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>${title}</h2><small>${rows.length}</small></div><div class="tbl-wrap" style="max-height:320px"><table class="t"><tbody>${rows.map(f).join("") || `<tr><td><div class="empty">${empty}</div></td></tr>`}</tbody></table></div></div>`;
+  return `<div class="ph"><div><h1>Organisation</h1><p>Who joined, left, moved and got promoted; span of control; probation; and whether ratings are calibrated and fair.</p></div></div>
+    <div class="kpis k5">${k("Headcount", d.headcount.toLocaleString("en-US"), "Basic Sheet")}${k("Joiners", ch.has_data ? ch.joiners.length : "—", ch.has_data ? "since " + ch.from_date : "no comparison yet")}
+      ${k("Leavers", ch.has_data ? ch.leavers.length : "—", ch.has_data ? `${ch.unexplained_leavers.length} not on the turnover tab` : "")}${k("Probation ending", pr.due_30, `${pr.overdue} past the end date`, pr.overdue ? "t-warn" : "")}
+      ${k("Span of control", sp.avg ?? "—", `${sp.too_wide} managers with 15+ reports`)}</div>
+    <div class="panel"><div class="phd"><h2>Changes since the last Basic Sheet</h2><small>${ch.has_data ? `${esc(ch.from)} → ${esc(ch.to)}` : ""}</small></div>
+      ${ch.has_data ? `<div class="grid g3">
+        ${list("Joined", ch.joiners, r => `<tr><td><b>${esc(r.name)}</b><span class="sub">${esc(r.role || "")} · ${esc(r.store || "")}</span></td></tr>`, "Nobody new")}
+        ${list("Left", ch.leavers, r => `<tr><td><b>${esc(r.name)}</b><span class="sub">${esc(r.role || "")} · ${esc(r.store || "")}${ch.unexplained_leavers.some(u => u.id === r.id) ? ` · <span class="t-warn">not on the turnover tab</span>` : ""}</span></td></tr>`, "Nobody left")}
+        ${list("Moved or changed role", [...ch.roles.map(r => ({ ...r, t: "role" })), ...ch.transfers.map(r => ({ ...r, t: "move" }))], r => `<tr><td><b>${esc(r.name)}</b><span class="sub">${r.t === "role" ? `${esc(r.from || "—")} → <b>${esc(r.to)}</b>${r.promotion ? " ⬆ promotion" : ""}` : `${esc(r.from || "—")} → <b>${esc(r.to)}</b> (transfer)`}</span></td></tr>`, "No moves")}
+      </div>${ch.managers.length ? `<small style="color:var(--muted)">${ch.managers.length} people now report to a different manager.</small>` : ""}` : `<div class="empty">${esc(ch.note)}</div>`}</div>
+    <div class="grid g2">
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Probation</h2><div class="row"><small>length</small><select class="input sm" id="org-prob">${[3, 6].map(n => `<option value="${n}" ${n === pr.months ? "selected" : ""}>${n} months</option>`).join("")}</select></div></div>
+        <div class="tbl-wrap" style="max-height:360px"><table class="t"><thead><tr><th>Name</th><th>Store</th><th>Joined</th><th>Ends</th><th>Status</th></tr></thead><tbody>
+        ${pr.rows.map(r => `<tr><td><b>${esc(r.name)}</b><span class="sub">${esc(r.role || "")}</span></td><td>${esc(r.store || "")}</td><td class="nw">${fmtDate(r.joined)}</td><td class="nw">${fmtDate(r.ends)}</td>
+          <td><span class="chip ${r.days < 0 ? "bad" : r.days <= 30 ? "warn" : ""}">${esc(r.status)}</span></td></tr>`).join("") || `<tr><td colspan="5"><div class="empty">Nobody near the end of probation (needs joining dates on the Basic Sheet).</div></td></tr>`}</tbody></table></div></div>
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Span of control</h2><small>Direct reports per manager (from the Basic Sheet)</small></div>
+        <div class="tbl-wrap" style="max-height:360px"><table class="t"><thead><tr><th>Manager</th><th>Store</th><th class="n">Direct reports</th><th></th></tr></thead><tbody>
+        ${sp.rows.map(r => `<tr><td><b>${esc(r.manager)}</b><span class="sub">${esc(r.role)}</span></td><td>${esc(r.store)}</td><td class="n">${r.direct_reports}</td><td>${r.flag ? `<span class="chip ${r.flag === "Too wide" ? "warn" : ""}">${r.flag}</span>` : ""}</td></tr>`).join("") || `<tr><td colspan="4"><div class="empty">Needs manager names on the Basic Sheet.</div></td></tr>`}</tbody></table></div></div>
+    </div>
+    <div class="panel"><div class="phd"><h2>Rating calibration and fairness</h2><small>${ca.has_data ? `${ca.n} rated · average ${ca.avg} · ${ca.top_share}% rated 4–5` : "Import Performance Rating to check calibration"}</small></div>
+      ${ca.has_data ? `${ca.flags.map(f => `<div class="alert warn"><span class="ic">•</span><span>${esc(f)}</span></div>`).join("") || `<div class="alert good"><span class="ic">✓</span><span>No calibration or fairness flags.</span></div>`}
+      <div class="grid g3" style="margin-top:10px"><div><h4>Distribution</h4><div id="ch-cal"></div></div>
+        <div><h4>By store</h4><table class="t"><tbody>${ca.by_store.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${x.avg}</td><td class="n"><small>${x.n} rated</small></td></tr>`).join("")}</tbody></table></div>
+        <div><h4>By gender</h4><table class="t"><tbody>${ca.by_gender.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${x.avg}</td><td class="n"><small>${x.n} rated · ${x.share_top}% top</small></td></tr>`).join("") || `<tr><td><small>Gender not on file</small></td></tr>`}</tbody></table>
+        ${ca.by_manager.length ? `<h4>By manager (3+ rated)</h4><table class="t"><tbody>${ca.by_manager.slice(0, 8).map(x => `<tr><td>${esc(x.name)}</td><td class="n">${x.avg}</td><td class="n ${Math.abs(x.gap) >= 0.6 ? "t-warn" : ""}">${x.gap > 0 ? "+" : ""}${x.gap}</td></tr>`).join("")}</tbody></table>` : ""}</div></div>` : ""}</div>`;
+};
+AFTER.organisation = () => {
+  const d = DATA.org;
+  const sel = $("#org-prob"); if (sel) sel.onchange = async () => { await call("organisation", { probation_months: +sel.value }); render(); };
+  if (d && d.calibration.has_data && $("#ch-cal")) Charts.columns($("#ch-cal"), { labels: d.calibration.distribution.map(x => "Rating " + x.rating), series: [{ name: "People", values: d.calibration.distribution.map(x => x.count) }], height: 180 });
+};
 function applyTheme(t) { if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; }
 
 async function boot(keepPage) {

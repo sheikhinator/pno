@@ -136,9 +136,45 @@ def _strategy_answer(tb: Toolbox, q: str) -> str:
     return "\n".join(lines)
 
 
+_ORG_RX = re.compile(r"span of control|direct reports|probation|calibrat|ratings? (fair|bias)|bias in rating|who (joined|left)|joiners|"
+                     r"promot(ed|ion)s?\b|transfers?\b", re.I)
+
+
+def _org_answer(tb: Toolbox, q: str) -> str:
+    r = tb.t_organisation()
+    ql = q.lower()
+    if re.search(r"probation", ql):
+        p = r["probation"]
+        lines = [f"**{p['ending_30_days']} people end probation in the next 30 days, {p['overdue']} are past the end date.**", ""]
+        lines += [f"- **{x['name']}** · {x['role'] or ''} · {x['store'] or ''} · ends {x['ends']} ({x['status']})" for x in p["people"]] or ["Nobody near the end of probation."]
+        return "\n".join(lines)
+    if re.search(r"span|direct report", ql):
+        s = r["span_of_control"]
+        lines = [f"**{s['managers']} managers, {s['avg']} direct reports on average; {s['too_wide']} have 15 or more.**", "",
+                 "| Manager | Store | Direct reports |", "|---|---|---|"]
+        lines += [f"| {x['manager']} | {x['store']} | {x['direct_reports']} |" for x in s["widest"]]
+        return "\n".join(lines)
+    if re.search(r"calibrat|fair|bias", ql):
+        c = r["calibration"]
+        if "note" in c:
+            return "Import the Performance Rating tab to check calibration."
+        lines = [f"**{c['n']} people rated, average {c['avg']}, {c['top_share']}% rated 4 or 5.**", ""]
+        return "\n".join(lines + ([f"- {f}" for f in c["flags"]] or ["No calibration or fairness flags."]) + ["", "Open **Organisation** for the detail."])
+    ch = r["changes"]
+    if "note" in ch:
+        return ch["note"]
+    lines = [f"**Since {ch['from']}: {len(ch['joiners'])} joined, {len(ch['leavers'])} left, {len(ch['transfers'])} transferred, "
+             f"{ch['promotions']} promoted.**", ""]
+    if ch["unexplained_leavers"]:
+        lines.append(f"{len(ch['unexplained_leavers'])} leavers are not on the turnover tab: check the turnover file is complete.")
+    return "\n".join(lines + ["", "Open **Organisation** for names."])
+
+
 def answer(tb: Toolbox, question: str) -> str:
     q = question.strip()
     ql = q.lower()
+    if _ORG_RX.search(ql) and not re.search(r"\b(cv|candidate|course)", ql):
+        return _org_answer(tb, q)
     if _STRAT_RX.search(ql):
         return _strategy_answer(tb, q)
     if _LEARN_RX.search(ql) and not re.search(r"\b(cv|candidate|vacanc)", ql):
