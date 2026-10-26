@@ -114,6 +114,20 @@ def test_period_bar_on_every_po_screen(tmp_path):
             for tab in ("track", "paths", "courses"):
                 page.locator(f"[data-act=l-tab][data-tab={tab}]").click()
                 settle()
+            # command palette and table export
+            page.locator("#q").click()
+            page.keyboard.type(">data health")
+            time.sleep(0.6)
+            page.keyboard.press("Enter")
+            settle()
+            assert page.locator(".hrow").count() >= 10
+            page.evaluate("go('review')")
+            settle()
+            assert page.locator(".tx").count() >= 1
+            page.locator(".tx").first.click()
+            time.sleep(0.4)
+            assert page.locator(".txf").count() == 3
+            page.keyboard.press("Escape")
             page.evaluate("go('import')")
             settle()
             browser.close()

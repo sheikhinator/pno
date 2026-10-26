@@ -29,6 +29,13 @@
     return out;
   }
 
+  function tickFmt(ticks, fmt) {
+    const step = ticks.length > 1 ? Math.abs(ticks[1] - ticks[0]) : 1;
+    if (fmt === "money" || step >= 1) return t => fmtv(t, fmt === "money" ? "money" : fmt === "score" || fmt === "pct" ? (step >= 1 ? "int" : fmt) : fmt);
+    const dec = Math.min(3, Math.max(1, Math.ceil(-Math.log10(step))));
+    return t => t.toFixed(dec) + (fmt === "pct" ? "%" : "");
+  }
+
   function fmtv(v, fmt) {
     if (v == null || isNaN(v)) return "—";
     if (fmt === "pct") return v.toFixed(1) + "%";
@@ -57,11 +64,11 @@
     if (lo === hi) { lo -= 1; hi += 1; }
     const pad = (hi - lo) * 0.12;
     const ticks = nice(hi + pad, o.yMin != null ? lo : lo - pad);
-    const y0 = ticks[0], y1 = ticks[ticks.length - 1];
+    const y0 = ticks[0], y1 = ticks[ticks.length - 1], tf = tickFmt(ticks, o.fmt === "money" ? "money" : o.axisFmt || o.fmt);
     const x = i => P.l + (labels.length === 1 ? (W - P.l - P.r) / 2 : i * (W - P.l - P.r) / (labels.length - 1));
     const y = v => P.t + (H - P.t - P.b) * (1 - (v - y0) / (y1 - y0));
     let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title || "line chart")}">`;
-    ticks.forEach(t => s += `<line class="grid-l" x1="${P.l}" x2="${W - P.r}" y1="${y(t)}" y2="${y(t)}"/><text class="ax" x="${P.l - 8}" y="${y(t) + 4}" text-anchor="end">${fmtv(t, o.fmt === "money" ? "money" : o.axisFmt)}</text>`);
+    ticks.forEach(t => s += `<line class="grid-l" x1="${P.l}" x2="${W - P.r}" y1="${y(t)}" y2="${y(t)}"/><text class="ax" x="${P.l - 8}" y="${y(t) + 4}" text-anchor="end">${tf(t)}</text>`);
     if (o.ref != null) s += `<line class="ref-l" x1="${P.l}" x2="${W - P.r}" y1="${y(o.ref)}" y2="${y(o.ref)}"/><text class="ax" x="${W - P.r}" y="${y(o.ref) - 5}" text-anchor="end">${esc(o.refLabel || "")}</text>`;
     const every = Math.ceil(labels.length / Math.max(2, Math.floor((W - P.l - P.r) / 56)));
     labels.forEach((l, i) => { if (i % every === 0 || i === labels.length - 1) s += `<text class="ax" x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(l)}</text>`; });
@@ -207,5 +214,115 @@
     el.querySelectorAll(".hit-d").forEach(pth => { const i = +pth.dataset.i; pth.addEventListener("mousemove", ev => tip(`<b>${esc(labels[i])}</b>${fmtv(vals[i], o.fmt)} · ${(100 * vals[i] / tot).toFixed(1)}%`, ev)); pth.addEventListener("mouseleave", () => tip(null)); });
   }
 
-  window.Charts = { line, hbar, columns, ring, donut, tip, fmtv, esc, PAL };
+
+  /* ---------------- waterfall: start → contributions → end (e.g. budget → actual by store) ---------------- */
+  function waterfall(el, o) {
+    const labels = o.labels || [], vals = o.values || [];
+    if (!labels.length) { el.innerHTML = `<div class="empty" style="padding:30px">No data yet</div>`; return; }
+    const W = o.width || Math.max(360, el.clientWidth || 640), H = o.height || 260, P = { l: 52, r: 12, t: 20, b: 46 };
+    const steps = [{ label: o.startLabel || "Start", v: o.start || 0, kind: "total" }];
+    let run = o.start || 0;
+    labels.forEach((l, i) => { steps.push({ label: l, v: vals[i] || 0, from: run, kind: (vals[i] || 0) >= 0 ? "up" : "down" }); run += vals[i] || 0; });
+    steps.push({ label: o.endLabel || "End", v: run, kind: "total" });
+    const tops = steps.map(s => s.kind === "total" ? s.v : Math.max(s.from, s.from + s.v)), bots = steps.map(s => s.kind === "total" ? 0 : Math.min(s.from, s.from + s.v));
+    const lo = o.floor != null ? o.floor : Math.min(0, ...bots), top = Math.max(...tops), hi = o.floor != null ? top + (top - lo) * 0.16 : top * 1.04;
+    const ticks = nice(hi, lo);
+    const y = v => P.t + (H - P.t - P.b) * (1 - (v - ticks[0]) / (ticks[ticks.length - 1] - ticks[0]));
+    const bw = Math.min(46, (W - P.l - P.r) / steps.length * 0.62), gx = i => P.l + (i + 0.5) * (W - P.l - P.r) / steps.length;
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+    const tf = tickFmt(ticks, o.fmt);
+    ticks.forEach(t => { svg += `<line class="grid" x1="${P.l}" x2="${W - P.r}" y1="${y(t)}" y2="${y(t)}"/><text class="ax" x="${P.l - 8}" y="${y(t) + 4}" text-anchor="end">${tf(t)}</text>`; });
+    steps.forEach((st, i) => {
+      const top = st.kind === "total" ? st.v : Math.max(st.from, st.from + st.v), bot = st.kind === "total" ? ticks[0] : Math.min(st.from, st.from + st.v);
+      if (st.kind !== "total" && Math.abs(st.v) < 1e-9) return;
+      const c = st.kind === "total" ? "var(--s1)" : st.kind === "up" ? "var(--good)" : "var(--bad)";
+      const x = gx(i) - bw / 2, h = Math.max(1.5, y(bot) - y(top));
+      svg += `<rect class="hit" data-i="${i}" x="${gx(i) - bw}" y="${P.t}" width="${bw * 2}" height="${H - P.t - P.b}"/>`;
+      svg += `<rect class="growy" style="animation-delay:${i * 45}ms;transform-origin:0 ${y(bot)}px" x="${x}" y="${y(top)}" width="${bw}" height="${h}" rx="3" fill="${c}" pointer-events="none"/>`;
+      if (i < steps.length - 1) { const nxt = st.kind === "total" ? st.v : st.from + st.v; svg += `<line class="ref-l" x1="${x + bw}" x2="${gx(i + 1) - bw / 2}" y1="${y(nxt)}" y2="${y(nxt)}"/>`; }
+      svg += `<text class="val" x="${gx(i)}" y="${y(top) - 6}" text-anchor="middle" pointer-events="none">${st.kind === "total" ? fmtv(st.v, o.fmt) : (st.v >= 0 ? "+" : "") + fmtv(st.v, o.fmt)}</text>`;
+      const lab = String(st.label), room = Math.max(6, Math.floor((W - P.l - P.r) / steps.length / 6.2));
+      svg += `<text class="ax-lbl" x="${gx(i)}" y="${H - P.b + 16}" text-anchor="middle">${esc(lab.length > room ? lab.slice(0, room - 1) + "…" : lab)}</text>`;
+    });
+    svg += `</svg>`;
+    el.innerHTML = `<div class="chart">${svg}</div>`;
+    el.querySelectorAll(".hit").forEach(r => { const st = steps[+r.dataset.i];
+      r.addEventListener("mousemove", ev => tip(`<b>${esc(st.label)}</b>${st.kind === "total" ? fmtv(st.v, o.fmt) : (st.v >= 0 ? "+" : "") + fmtv(st.v, o.fmt)}`, ev)); r.addEventListener("mouseleave", () => tip(null)); });
+  }
+
+  /* ---------------- funnel ---------------- */
+  function funnel(el, o) {
+    const labels = o.labels || [], vals = o.values || [];
+    if (!labels.length || !vals[0]) { el.innerHTML = `<div class="empty" style="padding:30px">No data yet</div>`; return; }
+    const W = o.width || Math.max(320, el.clientWidth || 560), row = 44, H = row * labels.length + 8, max = vals[0];
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+    labels.forEach((l, i) => {
+      const w = Math.max(40, (W - 170) * (vals[i] / max)), x = (W - 170 - w) / 2 + 10, yy = i * row + 4;
+      const nw = i < labels.length - 1 ? Math.max(40, (W - 170) * (vals[i + 1] / max)) : w * 0.9, nx = (W - 170 - nw) / 2 + 10;
+      svg += `<path class="growx" style="animation-delay:${i * 70}ms" d="M${x} ${yy} H${x + w} L${nx + nw} ${yy + row - 6} H${nx} Z" fill="${PAL[i % PAL.length]}" opacity="${1 - i * 0.08}"/>`;
+      svg += `<text x="${10 + (W - 170) / 2}" y="${yy + row / 2 + 2}" text-anchor="middle" class="fv">${fmtv(vals[i], o.fmt || "int")}</text>`;
+      svg += `<text class="ax-lbl" x="${W - 150}" y="${yy + row / 2 - 2}">${esc(l)}</text>`;
+      if (i) svg += `<text class="ax" x="${W - 150}" y="${yy + row / 2 + 13}">${(100 * vals[i] / (vals[i - 1] || 1)).toFixed(0)}% of previous</text>`;
+    });
+    el.innerHTML = `<div class="chart">${svg}</svg></div>`;
+  }
+
+  /* ---------------- treemap (squarified, one level) ---------------- */
+  function treemap(el, o) {
+    const items = (o.labels || []).map((l, i) => ({ l, v: Math.max(0, o.values[i] || 0), s: (o.subs || [])[i] || "", i })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+    if (!items.length) { el.innerHTML = `<div class="empty" style="padding:30px">No data yet</div>`; return; }
+    const W = o.width || Math.max(320, el.clientWidth || 600), H = o.height || 280, tot = items.reduce((a, b) => a + b.v, 0);
+    const rects = [];
+    (function lay(list, x, y, w, h) {
+      if (!list.length) return;
+      if (list.length === 1) { rects.push({ ...list[0], x, y, w, h }); return; }
+      const sum = list.reduce((a, b) => a + b.v, 0);
+      let acc = 0, k = 0; while (k < list.length - 1 && (acc + list[k].v) / sum <= 0.5) { acc += list[k].v; k++; }
+      if (k === 0) { acc = list[0].v; k = 1; }
+      const a = list.slice(0, k), b = list.slice(k), f = acc / sum;
+      if (w >= h) { lay(a, x, y, w * f, h); lay(b, x + w * f, y, w * (1 - f), h); } else { lay(a, x, y, w, h * f); lay(b, x, y + h * f, w, h * (1 - f)); }
+    })(items, 0, 0, W, H);
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+    rects.forEach((r, n) => {
+      svg += `<g class="tm" data-n="${n}"><rect class="fadein" style="animation-delay:${n * 30}ms" x="${r.x + 1.5}" y="${r.y + 1.5}" width="${Math.max(0, r.w - 3)}" height="${Math.max(0, r.h - 3)}" rx="8" fill="${(o.colors && o.colors[r.i]) || PAL[n % PAL.length]}" opacity="${0.95 - Math.min(0.45, n * 0.035)}"/>`;
+      if (r.w > 64 && r.h > 34) svg += `<text x="${r.x + 10}" y="${r.y + 20}" class="tml">${esc(String(r.l).slice(0, Math.floor(r.w / 7.2)))}</text><text x="${r.x + 10}" y="${r.y + 37}" class="tmv">${fmtv(r.v, o.fmt || "int")} · ${(100 * r.v / tot).toFixed(0)}%</text>`;
+      svg += `</g>`;
+    });
+    el.innerHTML = `<div class="chart">${svg}</svg></div>`;
+    el.querySelectorAll(".tm").forEach(g => { const r = rects[+g.dataset.n];
+      g.addEventListener("mousemove", ev => tip(`<b>${esc(r.l)}</b>${fmtv(r.v, o.fmt || "int")} · ${(100 * r.v / tot).toFixed(1)}%${r.s ? "<br>" + esc(r.s) : ""}`, ev)); g.addEventListener("mouseleave", () => tip(null));
+      if (o.onClick) g.addEventListener("click", () => { tip(null); o.onClick(r.i); }); });
+  }
+
+  /* ---------------- bullet: value against target with good / ok / poor bands ---------------- */
+  function bullet(el, o) {
+    const items = o.items || [];
+    if (!items.length) { el.innerHTML = `<div class="empty" style="padding:30px">No data yet</div>`; return; }
+    const W = o.width || Math.max(320, el.clientWidth || 600), row = 40, L = 150, R = 70, H = row * items.length;
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+    items.forEach((it, i) => {
+      const max = it.max || Math.max(it.value || 0, it.target || 0) * 1.25 || 1, sx = v => L + (W - L - R) * Math.max(0, Math.min(1, (v || 0) / max)), yy = i * row + 8;
+      const good = it.higher === false ? (it.value || 0) <= (it.target || 0) : (it.value || 0) >= (it.target || 0);
+      svg += `<text class="ax-lbl" x="${L - 10}" y="${yy + 15}" text-anchor="end">${esc(it.label)}</text>`;
+      [[1, "var(--bg-2)"], [0.8, "color-mix(in srgb,var(--bg-2) 60%,var(--line))"], [0.6, "var(--line)"]].forEach(([f, c]) => { svg += `<rect x="${L}" y="${yy}" width="${(W - L - R) * f}" height="22" rx="4" fill="${c}"/>`; });
+      svg += `<rect class="grow" style="transform-origin:${L}px 0;animation-delay:${i * 50}ms" x="${L}" y="${yy + 7}" width="${Math.max(2, sx(it.value) - L)}" height="8" rx="3" fill="${good ? "var(--good)" : "var(--bad)"}"/>`;
+      if (it.target != null) svg += `<rect x="${sx(it.target) - 1.5}" y="${yy - 2}" width="3" height="26" rx="1.5" fill="var(--ink)"/>`;
+      svg += `<text class="val" x="${W - R + 8}" y="${yy + 15}">${fmtv(it.value, it.fmt || o.fmt)}</text>`;
+    });
+    el.innerHTML = `<div class="chart">${svg}</svg></div>`;
+  }
+
+  /* ---------------- sparkline (inline, for tables) ---------------- */
+  function spark(vals, o = {}) {
+    const v = (vals || []).filter(x => x != null);
+    if (v.length < 2) return "";
+    const W = o.w || 84, H = o.h || 22, lo = Math.min(...v), hi = Math.max(...v), sp = hi - lo || 1;
+    const pts = v.map((x, i) => `${(i * (W - 4) / (v.length - 1) + 2).toFixed(1)},${(H - 3 - (x - lo) / sp * (H - 6)).toFixed(1)}`).join(" ");
+    const up = v[v.length - 1] >= v[0];
+    const c = o.color || (o.higherBetter === false ? (up ? "var(--bad)" : "var(--good)") : (up ? "var(--good)" : "var(--bad)"));
+    const [lx, ly] = pts.split(" ").pop().split(",");
+    return `<svg class="spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><polyline points="${pts}" fill="none" stroke="${c}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${lx}" cy="${ly}" r="2.4" fill="${c}"/></svg>`;
+  }
+
+  window.Charts = { line, hbar, columns, ring, donut, tip, fmtv, esc, PAL, waterfall, funnel, treemap, bullet, spark };
 })();

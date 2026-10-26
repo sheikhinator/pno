@@ -164,7 +164,7 @@ function topbar() {
       ${filters ? "" : `<div class="crumbs"><span class="ptitle">${esc(PAGE_TITLE[S.page] || "")}</span></div>`}
       <div class="crumbs" ${filters ? "" : 'style="display:none"'}>${crumbs.map((c, i) => i === 0 ? `<button data-act="scope-clear">🇵🇰 Pakistan</button>` : `<span class="sep">›</span>${i === crumbs.length - 1 ? `<span>${esc(c[1])}</span>` : `<button data-act="scope-up" data-key="${c[0]}">${esc(c[1])}</button>`}`).join("")}</div>
       <div class="spacer"></div>
-      <div class="search hide-present">${ic("search", 16)}<input id="q" placeholder="Search people or stores  (Ctrl+K)" autocomplete="off"><div id="sugg"></div></div>
+      <div class="search hide-present">${ic("search", 16)}<input id="q" placeholder="Search people, stores or commands  (Ctrl+K)" autocomplete="off"><div id="sugg"></div></div>
       ${["ask", "import", "settings", "data"].includes(S.page) ? "" : `<button class="btn" data-act="export">${ic("export", 16)}Export</button>
       <button class="btn gold hide-present" data-act="present">${ic("play", 14)}Present</button>`}
     </div>
@@ -209,10 +209,13 @@ function wireSearch() {
     clearTimeout(t);
     t = setTimeout(async () => {
       const v = q.value.trim();
-      if (v.length < 2) return close();
-      let r; try { r = await API.call("search", { q: v, month: S.month }); } catch (e) { return close(); }
-      items = [...r.people.map(p => ({ k: "p", id: p.emp, a: p.name, b: p.sub })), ...r.stores.map(s => ({ k: "s", id: s.store_id, a: s.name, b: s.sub }))];
-      box.innerHTML = items.length ? `<div class="sugg">${r.people.length ? '<div class="sh">People</div>' : ""}${items.map((x, i) => (x.k === "s" && (i === 0 || items[i - 1].k === "p") ? '<div class="sh">Stores</div>' : "") +
+      if (!v) return close();
+      const lv = v.replace(/^>\s*/, "").toLowerCase();
+      const cmds = COMMANDS().filter(c => !lv || c.a.toLowerCase().includes(lv) || c.b.toLowerCase().includes(lv)).slice(0, v.startsWith(">") ? 20 : 5);
+      let r = { people: [], stores: [] };
+      if (v.length >= 2 && !v.startsWith(">")) { try { r = await API.call("search", { q: v, month: S.month }); } catch (e) { /* commands still shown */ } }
+      items = [...cmds, ...r.people.map(p => ({ k: "p", id: p.emp, a: p.name, b: p.sub })), ...r.stores.map(s => ({ k: "s", id: s.store_id, a: s.name, b: s.sub }))];
+      box.innerHTML = items.length ? `<div class="sugg">${items.map((x, i) => (i === 0 || items[i - 1].k !== x.k ? `<div class="sh">${{ c: "Go to and do", p: "People", s: "Stores" }[x.k]}</div>` : "") +
         `<button data-i="${i}"><b>${esc(x.a)}</b><small>${esc(x.b)}</small></button>`).join("")}</div>` : `<div class="sugg"><div class="empty" style="padding:14px">Nothing found</div></div>`;
       $$("button", box).forEach(b => b.onmousedown = e => { e.preventDefault(); pick(items[+b.dataset.i]); });
     }, 140);
@@ -224,8 +227,73 @@ function wireSearch() {
     if (e.key === "Escape") { close(); q.blur(); }
   };
   q.onblur = () => setTimeout(close, 150);
-  const pick = x => { close(); q.value = ""; if (!x) return; if (x.k === "p") openPerson(x.id); else go("store", x.id); };
+  const pick = x => { close(); q.value = ""; q.blur(); if (!x) return; if (x.k === "c") x.run(); else if (x.k === "p") openPerson(x.id); else go("store", x.id); };
 }
+
+
+/* ---------------------------------------------------------------- polish: counting numbers, export on every table */
+function countUp(root) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches || document.body.classList.contains("present")) return;
+  $$(".kpi-v", root).forEach(el => {
+    const node = [...el.childNodes].find(n => n.nodeType === 3 && /\d/.test(n.textContent));
+    if (!node || el.dataset.counted) return;
+    const m = node.textContent.match(/^([^\d−-]*)([−-]?[\d,]*\.?\d+)(.*)$/s);
+    if (!m) return;
+    const target = parseFloat(m[2].replace(/,/g, "").replace("−", "-")), dec = (m[2].split(".")[1] || "").length, comma = m[2].includes(",");
+    if (!isFinite(target) || Math.abs(target) < 2) return;
+    el.dataset.counted = 1;
+    const t0 = performance.now(), dur = 750;
+    const step = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3), v = target * e;
+      node.textContent = m[1] + (comma ? v.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec }) : v.toFixed(dec)) + m[3];
+      if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  });
+}
+function decorateTables(root) {
+  $$(".panel", root).forEach(p => {
+    const t = p.querySelector("table.t");
+    if (!t || p.querySelector(":scope > .tx, :scope .phd .tx") || p.closest(".modal, .hdraw, .pcov-box")) return;
+    const b = document.createElement("button");
+    b.className = "tx"; b.title = "Export this table"; b.dataset.act = "tbl-export";
+    b.innerHTML = ic("export", 14);
+    const hd = p.querySelector(":scope > .phd, :scope > .row");
+    if (hd) hd.append(b); else { p.style.position = "relative"; b.classList.add("abs"); p.prepend(b); }
+  });
+}
+function polish(root) { try { countUp(root); decorateTables(root); } catch (e) { /* cosmetic only */ } }
+function tableData(t) {
+  const head = $$("thead th", t).map(th => th.innerText.replace(/\s+/g, " ").trim());
+  const rows = $$("tbody tr", t).filter(tr => !(tr.children.length === 1 && tr.querySelector(".empty"))).map(tr => $$("td", tr).map(td => {
+    const sel = td.querySelector("select"), inp = td.querySelector("input:not([type=checkbox])");
+    if (sel) return sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : "";
+    if (inp) return inp.value;
+    return td.innerText.replace(/\s*\n\s*/g, " · ").replace(/\s+/g, " ").trim();
+  }));
+  const keep = head.map((h, i) => h || rows.some(r => (r[i] || "").trim())).map((k, i) => k ? i : -1).filter(i => i >= 0);
+  return { columns: keep.map(i => head[i] || " "), rows: rows.map(r => keep.map(i => r[i] || "")) };
+}
+const POLISH_ACTS = {};
+POLISH_ACTS["tbl-export"] = b => {
+  const p = b.closest(".panel"), t = p.querySelector("table.t");
+  const title = (p.querySelector("h2") || {}).innerText || ($(".ph h1") || {}).innerText || "Table";
+  const m = modal(`<h3>Export table</h3><p style="color:var(--muted);margin:0 0 12px"><b>${esc(title)}</b> · ${$$("tbody tr", t).length} rows, as on screen</p>
+    <div class="row" style="gap:8px">${[["xlsx", "Excel", "sort and filter"], ["pdf", "PDF", "to print or send"], ["docx", "Word", "to edit"]].map(([f, l, d]) => `<button class="btn txf" data-f="${f}"><b>${l}</b><small style="display:block;color:var(--muted);font-weight:500">${d}</small></button>`).join("")}</div>`);
+  $$(".txf", m).forEach(x => x.onclick = async () => { closeModal();
+    const d = tableData(t); const r = await call("export_table", { title, columns: d.columns, rows: d.rows, fmt: x.dataset.f, scope: ($(".ph p") || {}).innerText || "" });
+    if (!r.cancelled) toast(`Saved ${r.name}`, { action: "Open", onAction: () => API.call("open_path", { path: r.path }), ms: 7000 }); });
+};
+
+/* ---------------------------------------------------------------- command palette (Ctrl+K): pages and actions as well as people and stores */
+const COMMANDS = () => [
+  ...NAV.map(([k, l]) => ({ k: "c", a: "Go to " + l, b: "Screen", run: () => go(k) })),
+  { k: "c", a: "New vacancy", b: "Hiring", run: () => { S.hire.tab = "vac"; S.hire.vid = null; go("hiring"); setTimeout(() => ACT["h-new"](), 400); } },
+  { k: "c", a: "New course", b: "Learning Studio", run: () => { S.learn.cid = null; go("learning"); setTimeout(() => ACT["l-new"](), 500); } },
+  { k: "c", a: "Export a report pack", b: "PDF, Word, PowerPoint or Excel", run: () => openExport() },
+  { k: "c", a: "Import files", b: "Import data", run: () => go("import") },
+  { k: "c", a: "Check data health", b: "Is the month ready?", run: () => go("health") },
+  { k: "c", a: "Ask P&O AI", b: "Chat", run: () => go("ask") },
+  { k: "c", a: "Switch light / dark theme", b: "Appearance", run: () => { const d = document.documentElement.dataset.theme === "dark"; applyTheme(d ? "light" : "dark"); API.call("settings_save", { theme: d ? "light" : "dark" }).catch(() => {}); } },
+];
 
 /* ---------------------------------------------------------------- routing */
 function go(page, arg = null, opts = {}) {
@@ -249,7 +317,7 @@ async function render() {
   const same = cur && cur.dataset.page === page && S.shownArg === arg;   // a refresh of the screen already shown
   // keep what is on screen while the data loads; only a slow load shows a spinner (no blank flash)
   if (cur) cur.classList.add("stale");
-  const slow = setTimeout(() => { if (token === S.busy && !same) view.innerHTML = `<div class="page"><div class="loading"><span class="spin"></span>Loading…</div></div>`; }, 260);
+  const slow = setTimeout(() => { if (token === S.busy && !same) view.innerHTML = `<div class="page"><div class="skel"><div class="sk sk-h"></div><div class="sk sk-p"></div><div class="sk-row">${"<div class='sk sk-k'></div>".repeat(5)}</div><div class="sk-row"><div class="sk sk-c"></div><div class="sk sk-c sm"></div></div></div></div>`; }, 260);
   try {
     if (PERIOD_PAGES.includes(page)) DATA[page] = null;
     let html = await (PAGES[page] || PAGES.home)(arg);
@@ -267,7 +335,7 @@ async function render() {
     }
     if (!same) view.scrollTop = 0;
     S.shownArg = arg;
-    const after = AFTER[page]; if (after) after();
+    const after = AFTER[page]; if (after) Promise.resolve(after()).then(() => polish(view)); else polish(view);
   } catch (e) {
     if (token !== S.busy) return;
     view.innerHTML = `<div class="page" data-page="${page}"><div class="errbox">${esc(e.message || e)}</div></div>`;
@@ -325,11 +393,32 @@ PAGES.home = async () => {
       <div class="panel"><div class="phd"><h2>Average score</h2><small>out of 10</small></div><div id="ch-t1"></div></div>
       <div class="panel"><div class="phd"><h2>Real absence</h2><small>System shows ${pct(d.attendance.system_absence_pct, 1)}</small></div><div id="ch-t2"></div></div>
       <div class="panel"><div class="phd"><h2>Sales vs budget</h2><small>Total store, % of budget</small></div><div id="ch-t3"></div></div>
-    </div>`;
+    </div>
+    <div class="grid g2 slide stagger">
+      <div class="panel"><div class="phd"><h2>Sales bridge</h2><small>From total budget to actual: what each store adds or loses</small></div><div id="ch-bridge"></div></div>
+      <div class="panel"><div class="phd"><h2>Where the people are</h2><small>Headcount by store · click to focus</small></div><div id="ch-tree"></div></div>
+    </div>
+    ${(d.pins || []).length ? `<div class="panel slide"><div class="phd"><h2>📌 Pinned insights</h2><small>Answers you pinned from P&amp;O AI</small></div><div class="pins">${d.pins.map((p, i) => `<div class="pin"><button class="btn sm ghost pinx" data-act="pin-del" data-i="${i}" title="Unpin">${ic("x", 13)}</button><span class="pq">${esc(p.q || "Insight")} · ${esc((p.at || "").slice(0, 10))}</span><div class="md">${md(p.text || "")}</div></div>`).join("")}</div></div>` : ""}
+    <div class="panel slide"><div class="phd"><h2>Productivity against target</h2><small>Bar = actual (% of target) · black mark = target · green on or above target</small></div><div id="ch-bullet"></div></div>`;
 };
 AFTER.home = () => {
   const d = DATA.home;
   if (!d || !$("#ch-league")) return;
+  const withSales = d.league.filter(r => r.sales != null && r.sales_pct);
+  if ($("#ch-bridge")) {
+    if (withSales.length) {
+      const budget = withSales.reduce((a, r) => a + r.sales / (r.sales_pct / 100), 0);
+      const gaps = withSales.map(r => ({ l: r.store, v: r.sales - r.sales / (r.sales_pct / 100) })).sort((a, b) => b.v - a.v);
+      const keep = gaps.length > 8 ? [...gaps.slice(0, 4), { l: `${gaps.length - 7} others`, v: gaps.slice(4, -3).reduce((a, g) => a + g.v, 0) }, ...gaps.slice(-3)] : gaps;
+      let run = budget, lo = budget, hi = budget; keep.forEach(g => { run += g.v; lo = Math.min(lo, run); hi = Math.max(hi, run); });
+      const floor = Math.max(0, lo - Math.max(hi - lo, budget * 0.004) * 1.2);
+      Charts.waterfall($("#ch-bridge"), { labels: keep.map(g => g.l.replace(/^(LAH|KCH|ISL|FAI|GUJ|RWP|MUL) /, "")), values: keep.map(g => g.v), start: budget, startLabel: "Budget", endLabel: "Actual", fmt: "money", floor });
+      $("#ch-bridge").insertAdjacentHTML("beforeend", `<small style="color:var(--muted)">Axis starts at ${Charts.fmtv(floor, "money")} to show the differences</small>`);
+    } else $("#ch-bridge").innerHTML = `<div class="empty">Import BO sales to see the bridge.</div>`;
+  }
+  if ($("#ch-tree")) { const lp = d.league.filter(r => r.people); Charts.treemap($("#ch-tree"), { labels: lp.map(r => r.store), values: lp.map(r => r.people), subs: lp.map(r => `average score ${scoreTxt(r.score)}`), onClick: i => setScope("store_id", lp[i].store_id) }); }
+  if ($("#ch-bullet")) { const pr = d.league.filter(r => r.prod_pct != null); Charts.bullet($("#ch-bullet"), { items: pr.map(r => ({ label: r.store, value: r.prod_pct, target: 100, max: Math.max(130, ...pr.map(x => x.prod_pct)), fmt: "pct0" })) });
+    if (!pr.length) $("#ch-bullet").innerHTML = `<div class="empty">Import productivity to compare against target.</div>`; }
   const lg = d.league.slice(0, 18);
   Charts.hbar($("#ch-league"), { labels: lg.map(r => r.store + (r.format ? " · " + r.format : "")), values: lg.map(r => r.score), fmt: "score", max: 10, name: "Average score",
     colors: lg.map(r => `var(--${band(r.score)})`), tips: lg.map(r => `GM ${r.gm || "—"} ${scoreTxt(r.gm_score)} · sales ${pct(r.sales_pct)} of budget · absence ${pct(r.absence_pct, 1)}`),
@@ -673,7 +762,10 @@ function renderMsg(m, i) {
   const cut = body.indexOf("</p>") > -1 && body.indexOf("</p>") < 600 ? body.indexOf("</p>") + 4 : body.indexOf("<ul>") > -1 && body.indexOf("<ul>") < 400 ? body.indexOf("<ul>") : 0;
   const lead = kpiBlocks && cut ? body.slice(0, cut) : "", rest = kpiBlocks && cut ? body.slice(cut) : body;
   return `<div class="amsg"><div class="aav"><img src="maf-mark.png" alt=""></div><div class="abody">${lead ? `<div class="md">${lead}</div>` : ""}${kpiBlocks}<div class="md">${rest}</div>${blocks}${acts}
+    ${(m.followups || []).length && i === S.chat.length - 1 ? `<div class="fups">${m.followups.map(f => `<button class="fup" data-act="ask-sugg" data-q="${esc(f)}">${esc(f)}</button>`).join("")}</div>` : ""}
     <div class="ameta"><button class="mbtn" data-act="msg-copy" data-m="${i}" title="Copy">⧉ Copy</button><button class="mbtn" data-act="msg-retry" data-m="${i}" title="Ask again">↻ Retry</button>
+    <button class="mbtn" data-act="msg-export" data-m="${i}" data-f="pdf" title="Save as a PDF report">⤓ PDF</button><button class="mbtn" data-act="msg-export" data-m="${i}" data-f="docx" title="Save as a Word document">⤓ Word</button>
+    <button class="mbtn" data-act="msg-pin" data-m="${i}" title="Pin to the Overview">📌 Pin</button>
     <span>${esc(m.engine_label || "")}${m.seconds != null ? ` · ${m.seconds}s` : ""}</span></div></div></div>`;
 }
 function actionLine(kind, it) {
@@ -745,7 +837,7 @@ async function ask(text) {
   try {
     const hist = S.chat.filter(m => !m.pending && m.content).slice(-10, -1).map(m => ({ role: m.role, content: m.content }));
     const r = await API.call("agent_ask", { question: text, history: hist, month: S.month, scope: S.scope, attachments: files });
-    S.chat[S.chat.length - 1] = { role: "assistant", content: r.answer, blocks: r.blocks, actions: r.actions, engine_label: r.engine_label, seconds: r.seconds, q: text };
+    S.chat[S.chat.length - 1] = { role: "assistant", content: r.answer, blocks: r.blocks, actions: r.actions, engine_label: r.engine_label, seconds: r.seconds, q: text, followups: r.followups || [] };
   } catch (e) {
     S.chat[S.chat.length - 1] = { role: "assistant", content: "Sorry, something went wrong: " + (e.message || e), blocks: [], actions: [], q: text };
   }
@@ -767,6 +859,10 @@ const CHAT_ACTS = {
   "attup-rm": b => { S.attachUp.splice(+b.dataset.i, 1); $("#att").innerHTML = attChips(); },
   "msg-copy": b => { const m = S.chat[+b.dataset.m]; try { navigator.clipboard.writeText(m.content || ""); toast("Copied"); } catch (e) { toast("Copy is not available here", { err: true }); } },
   "msg-retry": b => { const m = S.chat[+b.dataset.m]; if (m && m.q != null) ask(m.q); },
+  "msg-export": async b => { const m = S.chat[+b.dataset.m]; if (!m) return;
+    const r = await call("export_answer", { title: (m.q || "P&O AI answer").slice(0, 90), text: m.content || "", blocks: m.blocks || [], fmt: b.dataset.f });
+    if (!r.cancelled) toast(`Saved ${r.name}`, { action: "Open", onAction: () => API.call("open_path", { path: r.path }), ms: 7000 }); },
+  "msg-pin": async b => { const m = S.chat[+b.dataset.m]; if (!m) return; await call("pins", { add: { q: m.q || "", text: m.content || "", blocks: (m.blocks || []).slice(0, 3) } }); toast("Pinned to the Overview"); },
 };
 
 /* data health: is everything in for the month, and can the numbers be trusted? */
@@ -1136,7 +1232,7 @@ function openExport(o = {}) {
   const def = o.pack || { review: "po", talent: "po", retention: "po", shifts: "po", home: "director", people: "people", performance: "scorecard", stores: "director", store: "store", attendance: "attendance" }[S.page] || "director";
   const m = modal(`<h3>Export</h3><p style="color:var(--muted);margin:0 0 12px">Uses the month and filters on screen: <b>${esc($(".crumbs") ? $(".crumbs").textContent.replace(/🇵🇰\s*/, "") : "Pakistan")}</b></p>
     <div style="display:flex;flex-direction:column;gap:6px">${PACKS.map(([k, l, d]) => `<label class="setting" style="cursor:pointer;padding:8px 4px"><span><b>${l}</b><small>${d}</small></span><input type="radio" name="pack" value="${k}" ${k === def ? "checked" : ""}></label>`).join("")}</div>
-    <div class="setting"><div><b>Format</b></div><div class="seg" id="fmtseg">${[["pdf", "PDF"], ["pptx", "PowerPoint"], ["xlsx", "Excel"]].map(([k, l], i) => `<button data-fmt="${k}" aria-pressed="${i === 0}">${l}</button>`).join("")}</div></div>
+    <div class="setting"><div><b>Format</b></div><div class="seg" id="fmtseg">${[["pdf", "PDF"], ["docx", "Word"], ["pptx", "PowerPoint"], ["xlsx", "Excel"]].map(([k, l], i) => `<button data-fmt="${k}" aria-pressed="${i === 0}">${l}</button>`).join("")}</div></div>
     <div class="setting"><div><b>Hide names</b><small>Employee codes only, for packs going beyond HR</small></div><label class="switch"><input type="checkbox" id="exp-hide" ${S.init.hide_names ? "checked" : ""}><span></span></label></div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="exp-go">${ic("export", 16)}Export</button></div>`);
   $$("#fmtseg button", m).forEach(b => b.onclick = () => $$("#fmtseg button", m).forEach(x => x.setAttribute("aria-pressed", x === b)));
@@ -1866,7 +1962,7 @@ AFTER.hiring = () => {
   const q = $("#hb-q"); if (q) q.addEventListener("input", () => { clearTimeout(H.t); H.t = setTimeout(() => { H.q = q.value; render(); }, 300); });
   [["hb-skill", "skill"], ["hb-city", "city"], ["hb-years", "years"]].forEach(([id, k]) => { const el = $("#" + id); if (el) el.onchange = () => { H[k] = el.value; render(); }; });
   if (DATA.hstats && $("#ch-hfunnel")) {
-    const f = DATA.hstats.funnel; Charts.hbar($("#ch-hfunnel"), { labels: f.map(x => x.label), values: f.map(x => x.count), name: "People", fmt: "int" });
+    const f = DATA.hstats.funnel; Charts.funnel($("#ch-hfunnel"), { labels: f.map(x => x.label), values: f.map(x => x.count) });
     const b = DATA.hstats.bands; if (Charts.donut) Charts.donut($("#ch-hbands"), { labels: ["Strong", "Possible", "Weak", "Not suitable"], values: [b.strong, b.possible, b.weak, b.no], colors: ["#2E7D4F", "#3A6EA5", "#C9821F", "#B3261E"] });
   }
   if (H.cand && S.page === "hiring" && !$("#hdraw")) hireCandidate(H.cand);
@@ -1935,7 +2031,9 @@ const HIRE_ACTS = {
   "h-keep": async () => { const r = await call("hire_settings", { keep_months: +$("#h-keep").value }); toast(`Saved${r.anonymised ? ` · ${r.anonymised} old candidate records anonymised` : ""}`); },
 };
 
-Object.assign(ACT, HIRE_ACTS);
+Object.assign(ACT, HIRE_ACTS, POLISH_ACTS);
+POLISH_ACTS["pin-del"] = async b => { await call("pins", { remove: +b.dataset.i }); render(); };
+ACT["pin-del"] = POLISH_ACTS["pin-del"];
 
 /* ============================================================== Learning Studio: courses, lessons, quizzes, packs, tracking */
 S.learn = { tab: "courses", cid: null, mod: 0, les: 0, view: "lesson", answers: {}, present: false };

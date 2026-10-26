@@ -368,13 +368,232 @@ def _pack_po(db, mm, rep, scope, emp, store_id, hide):
 
 def file_name(rep: dict, fmt: str) -> str:
     base = re.sub(r"[^\w\-& ]+", "", f"P&O {rep['title']} {rep['month_label']}").strip()
-    if fmt not in ("pdf", "pptx", "xlsx"):
-        raise ValueError("Choose PDF, PowerPoint or Excel.")
+    if fmt not in ("pdf", "pptx", "xlsx", "docx"):
+        raise ValueError("Choose PDF, Word, PowerPoint or Excel.")
     return f"{base}.{fmt}"
 
 
+def _merge_paras(rep: dict) -> dict:
+    """Slides and sheets show paragraphs as text blocks: consecutive paragraphs are merged under the heading before them."""
+    out, buf = [], None
+    for s in rep["sections"]:
+        if s["type"] == "para":
+            if buf is None:
+                buf = {"type": "text", "title": "", "lines": []}
+                out.append(buf)
+            buf["lines"].append(s["text"])
+            continue
+        buf = None
+        out.append(s)
+    return {**rep, "sections": out}
+
+
 def render(rep: dict, fmt: str, path: str) -> None:
-    {"pdf": render_pdf, "pptx": render_pptx, "xlsx": render_xlsx}[fmt](rep, path)
+    if fmt in ("pptx", "xlsx"):
+        rep = _merge_paras(rep)
+    {"pdf": render_pdf, "pptx": render_pptx, "xlsx": render_xlsx, "docx": render_docx}[fmt](rep, path)
+
+
+# ------------------------------------------------------------------------------------------------ Word
+def render_docx(rep: dict, path: str) -> None:
+    import docx
+    from docx.enum.section import WD_ORIENT
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Mm, Pt, RGBColor
+
+    def rgb(h):
+        return RGBColor.from_string(h.lstrip("#"))
+
+    def shade(cell, color):
+        tcPr = cell._tc.get_or_add_tcPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), color.lstrip("#"))
+        tcPr.append(shd)
+
+    d = docx.Document()
+    wide = any(s["type"] == "table" and len(s["columns"]) > 6 for s in rep["sections"])
+    for sec in d.sections:
+        if wide:
+            sec.orientation = WD_ORIENT.LANDSCAPE
+            sec.page_width, sec.page_height = sec.page_height, sec.page_width
+        sec.left_margin = sec.right_margin = Mm(18)
+        sec.top_margin = sec.bottom_margin = Mm(16)
+    st = d.styles["Normal"]
+    st.font.name, st.font.size = "Segoe UI", Pt(10)
+    for name, size in (("Heading 1", 18), ("Heading 2", 13), ("Heading 3", 11)):
+        d.styles[name].font.name = "Segoe UI"
+        d.styles[name].font.size = Pt(size)
+        d.styles[name].font.color.rgb = rgb(BROWN)
+    from pathlib import Path as _P
+    logo = _P(__file__).resolve().parent / "assets" / "maf-logo.png"
+    if logo.exists():
+        d.add_picture(str(logo), width=Mm(38))
+    h = d.add_heading(f"P&O · {rep['title']}", 0)
+    h.runs[0].font.color.rgb = rgb(BROWN)
+    p = d.add_paragraph(rep.get("subtitle") or f"{rep['scope']} · {rep['month_label']}")
+    p.runs[0].font.color.rgb = rgb(MUTED)
+    for s in rep["sections"]:
+        t = s["type"]
+        if t == "pagebreak":
+            d.add_page_break()
+        elif t == "heading":
+            d.add_heading(s["title"], 1)
+            if s.get("sub"):
+                d.add_paragraph(s["sub"]).runs[0].font.color.rgb = rgb(MUTED)
+        elif t == "para":
+            d.add_paragraph(s["text"])
+        elif t == "text":
+            if s.get("title"):
+                d.add_heading(s["title"], 2)
+            for line in s["lines"]:
+                d.add_paragraph(line, style="List Bullet")
+        elif t == "kpis":
+            if s.get("title"):
+                d.add_heading(s["title"], 2)
+            tb = d.add_table(rows=1, cols=len(s["items"]))
+            for i, it in enumerate(s["items"]):
+                c = tb.cell(0, i)
+                shade(c, "FAF8F5")
+                r = c.paragraphs[0].add_run(it["label"].upper())
+                r.bold, r.font.size, r.font.color.rgb = True, Pt(7.5), rgb(MUTED)
+                r = c.add_paragraph().add_run(str(it["value"]))
+                r.bold, r.font.size, r.font.color.rgb = True, Pt(16), rgb(BROWN)
+                if it.get("sub"):
+                    r = c.add_paragraph().add_run(str(it["sub"]))
+                    r.font.size, r.font.color.rgb = Pt(8), rgb(MUTED)
+            d.add_paragraph()
+        elif t in ("table", "chart"):
+            if t == "chart":
+                ser = s["series"]
+                cols = [("", "label", "")] + [(se["name"], f"s{i}", "") for i, se in enumerate(ser)] + [("", "bar", "")]
+                mx = max([abs(v) for se in ser for v in se["values"] if v is not None] or [1]) or 1
+                rows = [{"label": lab, **{f"s{i}": (f"{se['values'][j]:,.1f}" if se["values"][j] is not None else "—") for i, se in enumerate(ser)},
+                         "bar": "█" * max(0, round(18 * abs(ser[0]["values"][j] or 0) / mx))} for j, lab in enumerate(s["labels"])]
+            else:
+                cols, rows = s["columns"], s["rows"]
+            if s.get("title"):
+                d.add_heading(s["title"], 2)
+            limit = 1500
+            tb = d.add_table(rows=1, cols=len(cols))
+            tb.style = "Table Grid"
+            for c, (label, _k, _fm) in zip(tb.rows[0].cells, cols):
+                shade(c, BROWN)
+                r = c.paragraphs[0].add_run(str(label))
+                r.bold, r.font.size, r.font.color.rgb = True, Pt(8.5), rgb("#FFFFFF")
+            for row in rows[:limit]:
+                for c, (_l, k, fm) in zip(tb.add_row().cells, cols):
+                    v = row.get(k)
+                    txt = _f(v, fm) if fm else (v if v not in (None, "") else "—")
+                    r = c.paragraphs[0].add_run(str(txt))
+                    r.font.size = Pt(8.5)
+                    if k == "bar":
+                        r.font.color.rgb = rgb(BROWN2)
+            if len(rows) > limit:
+                d.add_paragraph(f"First {limit:,} of {len(rows):,} rows: export to Excel for the full list.").runs[0].font.color.rgb = rgb(MUTED)
+            d.add_paragraph()
+    if rep.get("sources"):
+        d.add_heading("Sources", 3)
+        for x in rep["sources"]:
+            d.add_paragraph(x).runs[0].font.color.rgb = rgb(MUTED)
+    for sec in d.sections:
+        fp = sec.footer.paragraphs[0]
+        fp.text = f"P&O · People & Organisation · Majid Al Futtaim · Confidential – HR · Generated {rep['generated']}"
+        fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    d.save(path)
+
+
+# ------------------------------------------------------------------------------------------------ any table / any chat answer
+def table_report(title: str, columns: list[str], rows: list[list], scope: str = "", note: str = "") -> dict:
+    keys = [f"c{i}" for i in range(len(columns))]
+    num = []
+    for i in range(len(columns)):
+        vals = [r[i] for r in rows if i < len(r) and str(r[i]).strip() not in ("", "—")]
+        num.append(bool(vals) and all(re.fullmatch(r"[+\-−]?[\d,]+(\.\d+)?\s*%?", str(v).replace("−", "-").strip()) for v in vals))
+    def conv(v, i):
+        if num[i]:
+            t = str(v).replace(",", "").replace("−", "-").replace("%", "").strip()
+            try:
+                return float(t)
+            except ValueError:
+                return v
+        return v
+    return {"pack": "table", "title": title or "Table", "month": datetime.now().strftime("%Y-%m"), "month_label": datetime.now().strftime("%d %b %Y"),
+            "scope": scope or "", "generated": datetime.now().strftime("%d %b %Y %H:%M"), "hide": False, "as_of": None,
+            "subtitle": " · ".join(x for x in (scope, note, f"{len(rows):,} rows") if x), "sources": [],
+            "sections": [{"type": "table", "title": title, "columns": [(c, k, "") for c, k in zip(columns, keys)],
+                          "rows": [{k: conv(r[i], i) if i < len(r) else "" for i, k in enumerate(keys)} for r in rows]}]}
+
+
+def markdown_report(title: str, text: str, blocks: list | None = None, scope: str = "") -> dict:
+    """An AI answer (markdown with tables, bullets, callouts, and kpi / chart blocks) as a report."""
+    secs: list[dict] = []
+    for b in blocks or []:
+        if b.get("type") == "kpis" and b.get("items"):
+            secs.append({"type": "kpis", "items": [{"label": i.get("label", ""), "value": str(i.get("value", "")), "sub": i.get("sub") or i.get("context") or ""}
+                                                   for i in b["items"][:6]]})
+    lines = (text or "").replace("\r", "").split("\n")
+    i, bullets, bullet_title = 0, [], ""
+
+    def flush():
+        nonlocal bullets, bullet_title
+        if bullets:
+            secs.append({"type": "text", "title": bullet_title, "lines": bullets})
+        bullets, bullet_title = [], ""
+    clean = lambda x: re.sub(r"\*\*|__|`", "", x).strip()  # noqa: E731
+    while i < len(lines):
+        ln = lines[i].rstrip()
+        if ln.startswith("```"):
+            j = i + 1
+            while j < len(lines) and not lines[j].startswith("```"):
+                j += 1
+            i = j + 1
+            continue
+        if re.match(r"^\s*\|.*\|\s*$", ln) and i + 1 < len(lines) and re.match(r"^\s*\|[\s:\-|]+\|\s*$", lines[i + 1]):
+            flush()
+            head = [clean(c) for c in ln.strip().strip("|").split("|")]
+            rows = []
+            j = i + 2
+            while j < len(lines) and re.match(r"^\s*\|.*\|\s*$", lines[j]):
+                rows.append([clean(c) for c in lines[j].strip().strip("|").split("|")])
+                j += 1
+            t = table_report("", head, rows)["sections"][0]
+            t["title"] = ""
+            secs.append(t)
+            i = j
+            continue
+        m = re.match(r"^(#{1,4})\s+(.*)", ln)
+        if m:
+            flush()
+            secs.append({"type": "heading", "title": clean(m.group(2))})
+            i += 1
+            continue
+        m = re.match(r"^\s*(?:[-*•]|\d+[.)])\s+(.*)", ln)
+        if m:
+            bullets.append(clean(m.group(1)))
+            i += 1
+            continue
+        if ln.startswith(">"):
+            flush()
+            secs.append({"type": "para", "text": "▶ " + clean(ln.lstrip("> "))})
+            i += 1
+            continue
+        if ln.strip():
+            flush()
+            secs.append({"type": "para", "text": clean(ln)})
+        i += 1
+    flush()
+    for b in blocks or []:
+        if b.get("type") == "chart" and b.get("labels") and b.get("series"):
+            kind = b.get("kind") if b.get("kind") in ("bar", "hbar", "line") else "bar"
+            secs.append({"type": "chart", "kind": kind, "title": b.get("title", ""), "labels": [str(x) for x in b["labels"]],
+                         "series": [{"name": s_.get("name", ""), "values": s_.get("values", [])} for s_ in b["series"]]})
+    return {"pack": "answer", "title": title or "P&O AI answer", "month": datetime.now().strftime("%Y-%m"), "month_label": datetime.now().strftime("%d %b %Y"),
+            "scope": scope, "generated": datetime.now().strftime("%d %b %Y %H:%M"), "hide": False, "as_of": None, "sources": ["Answer by P&O AI from the data in P&O"],
+            "subtitle": "Prepared with P&O AI · " + datetime.now().strftime("%d %B %Y"), "sections": secs}
 
 
 # ------------------------------------------------------------------------------------------------ Excel
@@ -611,7 +830,9 @@ def render_pdf(rep: dict, path: str) -> None:
         elif t == "chart":
             story.append(KeepTogether([Paragraph(esc(s["title"]), st_h), chart(s), Spacer(1, 3 * mm)]))
         elif t == "text":
-            story += [Paragraph(esc(s["title"]), st_h)] + [Paragraph("• " + esc(line), st_txt) for line in s["lines"]] + [Spacer(1, 3 * mm)]
+            story += ([Paragraph(esc(s["title"]), st_h)] if s.get("title") else []) + [Paragraph("• " + esc(line), st_txt) for line in s["lines"]] + [Spacer(1, 3 * mm)]
+        elif t == "para":
+            story += [Paragraph(esc(s["text"]), ParagraphStyle("pp", parent=st_txt, fontSize=10, leading=14, spaceAfter=5))]
     if rep.get("sources"):
         story += [Paragraph("Sources", st_h)] + [Paragraph(esc(x), st_sub) for x in rep["sources"]]
 

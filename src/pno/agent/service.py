@@ -55,6 +55,26 @@ ENGINE_NAME = {"auto": "Auto", "groq": "Groq", "gemini": "Gemini", "openrouter":
 STATUS_LABEL = {"offline": "Offline AI · on this PC", "basic": "Built-in assistant"}
 
 
+FOLLOW = [
+    (r"turnover|leaver|attrition|resign", ["Which sections lose the most people?", "Why are people leaving?", "Make a retention course for team leaders"]),
+    (r"nps|customer", ["Which categories improved most?", "Where is NPS weakest by city?", "Make a 2 hour customer service course for associates"]),
+    (r"leader|talent|section manager|index", ["Who is ready for promotion?", "Which roles have no successor?", "Make a development pack for the weakest leader"]),
+    (r"vacanc|candidate|hiring|cv", ["How is hiring going?", "Who should we interview first?", "Anyone in the talent bank with fresh food experience?"]),
+    (r"course|training", ["What training do we have?", "Make a 3 hour shrink course for section managers", "Which stores completed their training?"]),
+    (r"data health|missing|ready", ["Which reports are missing this month?", "Brief me for the country review", "Which stores need attention and why?"]),
+    (r"sales|budget|store|productiv|shrink", ["Which stores need attention and why?", "Compare the top and bottom store", "Where is shrinkage worst?"]),
+]
+
+
+def followups(text: str, used: list) -> list[str]:
+    """Three natural next questions, from what the answer was about."""
+    t = (text or "").lower() + " " + " ".join(used or [])
+    for rx, qs in FOLLOW:
+        if re.search(rx, t):
+            return qs
+    return ["Brief me for the country review", "Which stores need attention and why?", "Is my data ready?"]
+
+
 class AgentService:
     def __init__(self, api):
         self.api = api
@@ -366,7 +386,7 @@ class AgentService:
         if engine_name in llm.PROVIDERS:
             label += " · " + self._model(self._cfg(), engine_name).split("/")[-1]
         return {"answer": text.strip(), "blocks": tb.blocks, "actions": tb.actions, "engine": engine_name,
-                "engine_label": label, "tools": tb.used, "seconds": round(time.time() - t0, 1)}
+                "engine_label": label, "tools": tb.used, "seconds": round(time.time() - t0, 1), "followups": followups(text, tb.used)}
 
     def _llm(self, engine_name: str, c: dict, keys: dict, tb: Toolbox, question: str, history: list) -> str:
         base, model, k = self._endpoint(engine_name, c, keys)

@@ -296,7 +296,9 @@ class Api:
 
     # ---------------------------------------------------------------- screens
     def api_dashboard(self, month=None, scope=None, compare=None) -> dict:
-        return analytics.dashboard(self.db, month, scope or {}, compare, self._hide())
+        d = analytics.dashboard(self.db, month, scope or {}, compare, self._hide())
+        d["pins"] = self.db.get_setting("pins", []) or []
+        return d
 
     def api_people(self, month=None, scope=None, q="", role="", band="", sort="score", desc=True, limit=500, offset=0, flag=""):
         return analytics.people_list(self.db, month, scope or {}, q, role, band, sort, desc, limit, offset, self._hide(), flag)
@@ -666,6 +668,43 @@ class Api:
             return {"cancelled": True}
         exports.render(report, fmt, path)
         self.db.log("export", f"{pack} {fmt} {path}")
+        if open_after:
+            self.host.open_path(path)
+        return {"ok": True, "path": path, "name": Path(path).name}
+
+    def api_pins(self, add: dict | None = None, remove: int | None = None) -> dict:
+        """Answers pinned from the AI chat to the Overview."""
+        from .db import now as _now
+        pins = self.db.get_setting("pins", []) or []
+        if add:
+            pins.insert(0, {"q": str(add.get("q", ""))[:200], "text": str(add.get("text", ""))[:6000], "at": _now()})
+            pins = pins[:12]
+        if remove is not None and 0 <= int(remove) < len(pins):
+            pins.pop(int(remove))
+        if add or remove is not None:
+            self.db.set_setting("pins", pins)
+        return {"pins": pins}
+
+    def api_export_table(self, title: str, columns: list, rows: list, fmt: str = "xlsx", scope: str = "", save_as=None, open_after: bool = True) -> dict:
+        """Any table on any screen, as Excel, PDF or Word, in the corporate style."""
+        from . import exports
+        rep = exports.table_report(title, [str(c) for c in columns], [[str(v) for v in r] for r in rows[:20000]], scope)
+        return self._save_report(rep, fmt, save_as, open_after, f"table {title}")
+
+    def api_export_answer(self, title: str, text: str, blocks: list | None = None, fmt: str = "pdf", save_as=None, open_after: bool = True) -> dict:
+        """An AI chat answer as a PDF, Word or PowerPoint report."""
+        from . import exports
+        rep = exports.markdown_report(title, text, blocks or [])
+        return self._save_report(rep, fmt, save_as, open_after, "answer")
+
+    def _save_report(self, rep: dict, fmt: str, save_as, open_after: bool, what: str) -> dict:
+        from . import exports
+        name = exports.file_name(rep, fmt)
+        path = save_as or self.host.save_path(name, fmt)
+        if not path:
+            return {"cancelled": True}
+        exports.render(rep, fmt, path)
+        self.db.log("export", f"{what} {fmt} {path}")
         if open_after:
             self.host.open_path(path)
         return {"ok": True, "path": path, "name": Path(path).name}
