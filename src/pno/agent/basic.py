@@ -74,9 +74,36 @@ def _hire_answer(tb: Toolbox, q: str) -> str:
     return "\n".join(lines)
 
 
+_LEARN_RX = re.compile(r"\b(course|training|lesson|learning pack|curriculum)\b", re.I)
+
+
+def _learn_answer(tb: Toolbox, q: str) -> str:
+    ql = q.lower()
+    if re.search(r"\b(make|create|build|design|generate|prepare)\b", ql):
+        h = re.search(r"(\d+(?:\.\d+)?)\s*(?:-|\s)?(?:hours?|hrs?|h)\b", ql)
+        role = next((r for r in ("store manager", "department head", "section manager", "team leader", "supervisor", "associate", "cashier") if r in ql), "")
+        topic = re.sub(r"\b(make|create|build|design|generate|prepare|a|an|the|course|training|on|about|for|of|hours?|hrs?|\d+|-|"
+                       r"store manager|department head|section manager|team leaders?|supervisors?|associates?|cashiers?|s)\b", " ", ql)
+        r = tb.t_learning(make=True, topic=" ".join(topic.split()), role=role, hours=float(h.group(1)) if h else 3)
+        lines = [f"**Course ready: {r['title']}.** {r['summary']}.", "", "### Modules"] + [f"{i + 1}. {m}" for i, m in enumerate(r["modules"])]
+        lines += [f"> {n}" for n in r["notes"]] + ["", r["where"]]
+        return "\n".join(lines)
+    r = tb.t_learning()
+    if not r["courses"]:
+        return "No courses yet. Ask me to make one, e.g. *make a 3-hour course on shrink for team leaders*, or open **Learning Studio**."
+    st = r["stats"]
+    lines = [f"**{st['courses']} courses · {st['assigned']} assignments · {st['completed']} completed"
+             f"{(' · average score ' + str(st['avg_score']) + '%') if st['avg_score'] is not None else ''}.**", "",
+             "| Course | For | Hours | Assigned | Done |", "|---|---|---|---|---|"]
+    lines += [f"| {c['title']} | {c['audience']} | {c['hours']:g} | {c['assigned']} | {c['completed']} |" for c in r["courses"]]
+    return "\n".join(lines)
+
+
 def answer(tb: Toolbox, question: str) -> str:
     q = question.strip()
     ql = q.lower()
+    if _LEARN_RX.search(ql) and not re.search(r"\b(cv|candidate|vacanc)", ql):
+        return _learn_answer(tb, q)
     if _HEALTH_RX.search(ql):
         return _health_answer(tb)
     if _HIRE_RX.search(ql):

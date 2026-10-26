@@ -86,6 +86,89 @@ class Api:
             self._hiring = Hiring(self)
         return self._hiring
 
+    @property
+    def learning(self):
+        if getattr(self, "_learning", None) is None:
+            from .learning import Learning
+            self._learning = Learning(self)
+        return self._learning
+
+    # ---------------------------------------------------------------- learning studio
+    def api_learn_list(self) -> dict:
+        return {**self.learning.courses(), "stats": self.learning.stats()}
+
+    def api_learn_build(self, **kw) -> dict:
+        return self.learning.build(**kw)
+
+    def api_learn_course(self, course_id: int) -> dict:
+        return self.learning.course(int(course_id))
+
+    def api_learn_delete(self, course_id: int) -> dict:
+        return self.learning.delete(int(course_id))
+
+    def api_learn_duplicate(self, course_id: int) -> dict:
+        return self.learning.duplicate(int(course_id))
+
+    def api_learn_edit(self, course_id: int, content: dict) -> dict:
+        return self.learning.edit(int(course_id), content)
+
+    def api_learn_rewrite(self, course_id: int, module: int, lesson: int, how: str) -> dict:
+        return self.learning.rewrite(int(course_id), int(module), int(lesson), how)
+
+    def api_learn_for_person(self, key: str, hours: float = 3, lecture_min: int = 20) -> dict:
+        return self.learning.for_person(key, hours, lecture_min)
+
+    def api_learn_people(self) -> dict:
+        return {"people": self.learning.people()}
+
+    def api_learn_assign(self, course_id: int, people: list, due: str | None = None) -> dict:
+        return self.learning.assign(int(course_id), people, due)
+
+    def api_learn_result(self, assignment_id: int, status: str | None = None, score=None, notes: str | None = None) -> dict:
+        return self.learning.result(int(assignment_id), status, score, notes)
+
+    def api_learn_unassign(self, assignment_id: int) -> dict:
+        return self.learning.remove_assignment(int(assignment_id))
+
+    def api_learn_path_save(self, name: str, level: int, course_ids: list, path_id: int | None = None) -> dict:
+        return self.learning.save_path(name, level, [int(c) for c in course_ids], path_id)
+
+    def api_learn_path_delete(self, path_id: int) -> dict:
+        return self.learning.delete_path(int(path_id))
+
+    def api_learn_export(self, course_id: int, fmt: str = "pdf", save_as: str | None = None, open_after: bool = True) -> dict:
+        from .learning import export as LX
+        if fmt not in LX.EXPORTERS:
+            raise ValueError("Choose PDF, answer key, PowerPoint, Word, Excel or the full pack.")
+        c = self.learning.course(int(course_id))
+        name = f"{LX.safe_name(c['content']['title'])} - {LX.SUFFIX[fmt]}.{LX.EXT[fmt]}"
+        path = save_as or self.host.save_path(name, LX.EXT[fmt])
+        if not path:
+            return {"cancelled": True}
+        if fmt in ("xlsx", "zip"):
+            LX.EXPORTERS[fmt](c["content"], path, c["assignments"])
+        else:
+            LX.EXPORTERS[fmt](c["content"], path)
+        self.db.log("export", f"course #{course_id} {fmt} {path}")
+        if open_after:
+            self.host.open_path(path)
+        return {"ok": True, "path": path, "name": Path(path).name}
+
+    def api_learn_certificate(self, assignment_id: int, save_as: str | None = None, open_after: bool = True) -> dict:
+        from .learning import export as LX
+        a = self.db.q1("SELECT a.*, c.title, c.hours FROM assignments a JOIN courses c ON c.id=a.course_id WHERE a.id=?", (int(assignment_id),))
+        if not a:
+            raise ValueError("Assignment not found.")
+        name = a["person_name"] or a["person"]
+        path = save_as or self.host.save_path(f"Certificate - {LX.safe_name(name)} - {LX.safe_name(a['title'])}.pdf", "pdf")
+        if not path:
+            return {"cancelled": True}
+        LX.certificate(name, a["title"], path, f"{a['score']:.0f}%" if a["score"] is not None else "", a["hours"],
+                       (a["completed_at"] or "")[:10])
+        if open_after:
+            self.host.open_path(path)
+        return {"ok": True, "path": path, "name": Path(path).name}
+
     # ---------------------------------------------------------------- hiring (vacancies, CVs, pipeline)
     def api_hire_list(self) -> dict:
         self.hiring.retention()

@@ -72,6 +72,21 @@ CREATE TABLE IF NOT EXISTS applications (
     UNIQUE(vacancy_id, candidate_id)
 );
 
+CREATE TABLE IF NOT EXISTS courses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL, audience TEXT, role_level INTEGER, language TEXT, hours REAL, lecture_min INTEGER, focus TEXT,
+    source TEXT, content TEXT,                   -- JSON: modules → lessons → blocks, quizzes, final exam
+    created_at TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id INTEGER NOT NULL, person TEXT, person_name TEXT, store TEXT, assigned_at TEXT, due TEXT,
+    status TEXT NOT NULL DEFAULT 'assigned', score REAL, completed_at TEXT, notes TEXT
+);
+CREATE TABLE IF NOT EXISTS learning_paths (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, role_level INTEGER, course_ids TEXT, created_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS store_aliases (
     alias TEXT PRIMARY KEY,             -- normalised name as written in a report
     raw TEXT NOT NULL,

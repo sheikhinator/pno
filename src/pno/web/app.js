@@ -73,6 +73,7 @@ const ICON = {
   data: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6M4 11.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
   nps: '<path d="M12 21s-7-4.4-9.3-9A5.2 5.2 0 0 1 12 6.6 5.2 5.2 0 0 1 21.3 12C19 16.6 12 21 12 21z"/>',
   hiring: '<rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M8.5 7V5.5A2 2 0 0 1 10.5 3.5h3a2 2 0 0 1 2 2V7M3 12.5h18M10.5 12.5v1.5h3v-1.5"/>',
+  learning: '<path d="M2.5 8.5 12 4l9.5 4.5L12 13z"/><path d="M6 10.5V16c0 1.4 2.7 3 6 3s6-1.6 6-3v-5.5M21.5 8.5v6"/>',
   health: '<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
 };
@@ -80,12 +81,12 @@ const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" f
 const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
   ["people", "People", "people"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
-  ["hiring", "Hiring", "hiring"], ["ask", "Ask P&O AI", "ask"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
+  ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["ask", "Ask P&O AI", "ask"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
 const NAV_GROUP = { retention: "Insights", hiring: "Talent", ask: "Tools" };
 const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
 const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
   talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
-  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", settings: "Settings" };
+  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -1409,7 +1410,7 @@ AFTER.talent = async () => {
   if (sel) sel.addEventListener("change", () => { S.po.store = sel.value; render(); });
   const box = $("#po-profile");
   if (box && S.po.leader) {
-    try { const r = await API.call("po_leader", { key: S.po.leader }); box.innerHTML = `<div class="po-html">${r.html}</div>`; }
+    try { const r = await API.call("po_leader", { key: S.po.leader }); box.innerHTML = `<div class="row" style="justify-content:flex-end;margin-bottom:6px"><button class="btn sm" data-act="l-devpack" data-key="${esc(S.po.leader)}">${ic("learning", 14)}Make development pack</button></div><div class="po-html">${r.html}</div>`; }
     catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
   } else if (box) box.innerHTML = `<div class="empty">No leader selected.</div>`;
   if (q && document.activeElement !== q && S.po.q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
@@ -1935,6 +1936,250 @@ const HIRE_ACTS = {
 };
 
 Object.assign(ACT, HIRE_ACTS);
+
+/* ============================================================== Learning Studio: courses, lessons, quizzes, packs, tracking */
+S.learn = { tab: "courses", cid: null, mod: 0, les: 0, view: "lesson", answers: {}, present: false };
+const LLEVEL = { 1: "Associate", 2: "Team leader / supervisor", 3: "Section manager", 4: "Department head", 6: "Store manager" };
+function lessonBlock(b, key) {
+  const t = b.type;
+  if (t === "para") return `<p class="lp">${esc(b.text)}</p>`;
+  if (t === "points") return `${b.title ? `<h4 class="lh">${esc(b.title)}</h4>` : ""}<ul class="lpts">${b.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>`;
+  if (t === "formula") return `<div class="lformula"><span class="lk">Formula</span><b class="lfn">${esc(b.name)}</b><div class="lfx">${esc(b.name)} = <span>${esc(b.expr)}</span></div>
+      ${(b.where || []).length ? `<ul>${b.where.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}${b.example ? `<div class="lfe">Example · ${esc(b.example)}</div>` : ""}</div>`;
+  if (t === "example") return `<div class="lex"><span class="lk">Worked example${b.title ? " · " + esc(b.title) : ""}</span>${b.lines.map(l => `<p>${esc(l)}</p>`).join("")}</div>`;
+  if (t === "callout") return `<div class="lcall ${esc(b.kind || "key")}"><span class="lk">${{ warn: "Watch out", tip: "Tip" }[b.kind] || "Key point"}</span><p>${esc(b.text)}</p></div>`;
+  if (t === "chart") return `<div class="lchart"><b>${esc(b.title || "")}</b>${b.unit ? ` <small>(${esc(b.unit)})</small>` : ""}<div class="lch" data-lchart="${key}"></div><small class="lnote">Example figures for learning</small></div>`;
+  if (t === "kpis") return `<div class="kpis lkpis">${b.items.map(i => `<div class="kpi"><span class="kpi-l">${esc(i.label)}</span><span class="kpi-v">${esc(i.value)}</span><span class="kpi-s"><span>${esc(i.sub || "")}</span></span></div>`).join("")}</div>`;
+  if (t === "steps") return `<div class="lsteps"><b>${esc(b.title || "")}</b><div class="lflow">${b.items.map((s, i) => `<div class="lstep"><span>${i + 1}</span><p>${esc(s)}</p></div>`).join(`<i class="larrow"></i>`)}</div></div>`;
+  if (t === "table") return `<div class="ltable"><b>${esc(b.title || "")}</b><div class="tbl-wrap"><table class="t"><thead><tr>${b.columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${b.rows.map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>`;
+  if (t === "dodont") return `<div class="ldd"><div class="ldo"><span class="lk">Do</span>${b.do.map(x => `<p>✓ ${esc(x)}</p>`).join("")}</div><div class="ldont"><span class="lk">Don't</span>${b.dont.map(x => `<p>✗ ${esc(x)}</p>`).join("")}</div></div>`;
+  return "";
+}
+function quizHtml(qs, prefix) {
+  const A = S.learn.answers;
+  let right = 0, done = 0;
+  const items = qs.map((q, i) => {
+    const k = `${prefix}-${i}`, picked = A[k];
+    const show = picked !== undefined;
+    if (show) { done++; if (q.options ? picked === q.answer : true) right += q.options ? 1 : 0; }
+    const body = q.options ? `<div class="lopts">${q.options.map((o, oi) => `<button class="lopt ${show ? (oi === q.answer ? "ok" : oi === picked ? "no" : "") : ""}" data-act="l-pick" data-k="${k}" data-i="${oi}" ${show ? "disabled" : ""}><b>${"ABCDEFGH"[oi]}</b>${esc(o)}</button>`).join("")}</div>`
+      : `<textarea class="input" rows="2" placeholder="Your answer" style="width:100%"></textarea><button class="btn sm" data-act="l-pick" data-k="${k}" data-i="-1" ${show ? "disabled" : ""}>Show model answer</button>`;
+    return `<div class="lq"><div class="lqh"><span class="chip">${{ mcq: "Multiple choice", tf: "True or false", calc: "Calculation", scenario: "Scenario" }[q.type]}</span><b>${i + 1}. ${esc(q.q)}</b></div>${body}
+      ${show ? `<div class="lans ${q.options && picked !== q.answer ? "no" : ""}"><b>${q.options ? (picked === q.answer ? "Correct." : "Not quite.") : "Model answer:"}</b> ${q.options ? "" : esc(q.answer) + ". "}${esc(q.explain || "")}</div>` : ""}</div>`;
+  }).join("");
+  const mc = qs.filter(q => q.options).length;
+  return `${items}<div class="lscore">${done ? `Score so far: <b>${right} / ${mc}</b> multiple-choice correct` : "Pick an answer to check it."} <button class="btn sm ghost" data-act="l-reset" data-p="${prefix}">Reset</button></div>`;
+}
+
+PAGES.learning = async () => {
+  const L = S.learn;
+  const tabs = `<div class="seg">${[["courses", "Courses"], ["track", "Tracking"], ["paths", "Learning paths"]].map(([k, l]) => `<button data-act="l-tab" data-tab="${k}" aria-pressed="${L.tab === k && !L.cid}">${l}</button>`).join("")}</div>`;
+  if (L.cid) return learnCourse(tabs);
+  const d = DATA.learn = await API.call("learn_list");
+  const head = (t, p, right = "") => `<div class="ph"><div><h1>${t}</h1><p>${p}</p></div><div class="row">${right}${tabs}</div></div>`;
+  if (L.tab === "track") {
+    const st = d.stats;
+    const k = (l, v, s) => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+    return head("Training tracking", "Who has been assigned which course, completion and scores by store.") +
+      `<div class="kpis k5">${k("Courses", st.courses, "in the library")}${k("Assigned", st.assigned, "people × courses")}${k("Completed", st.completed, st.assigned ? Math.round(100 * st.completed / st.assigned) + "% completion" : "—")}
+        ${k("Average score", st.avg_score != null ? st.avg_score + "%" : "—", `${st.passed} passed`)}${k("Overdue", st.overdue, "past due date, not completed")}</div>
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>By store</h2></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th class="n">Assigned</th><th class="n">Completed</th><th class="n">Completion</th><th class="n">Avg score</th></tr></thead><tbody>
+      ${st.by_store.map(r => `<tr><td>${esc(r.store || "—")}</td><td class="n">${r.assigned}</td><td class="n">${r.completed || 0}</td><td class="n">${r.assigned ? Math.round(100 * (r.completed || 0) / r.assigned) + "%" : "—"}</td><td class="n">${r.avg_score ?? "—"}</td></tr>`).join("") || `<tr><td colspan="5"><div class="empty">Assign a course to see progress here.</div></td></tr>`}</tbody></table></div></div>
+      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>By course</h2></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Course</th><th class="n">Assigned</th><th class="n">Completed</th><th class="n">Avg score</th></tr></thead><tbody>
+      ${d.rows.map(c => `<tr class="click" data-act="l-open" data-id="${c.id}"><td><b>${esc(c.title)}</b></td><td class="n">${c.assigned}</td><td class="n">${c.completed}</td><td class="n">${c.avg_score ?? "—"}</td></tr>`).join("")}</tbody></table></div></div>`;
+  }
+  if (L.tab === "paths") {
+    return head("Learning paths", "A path is the set of courses for a role, in order: for example Associate → Team Leader → Section Manager.",
+      `<button class="btn primary" data-act="l-path-new">New path</button>`) +
+      (d.paths.length ? `<div class="hcards">${d.paths.map(p => `<div class="hcard" style="cursor:default"><div class="row" style="justify-content:space-between"><b>${esc(p.name)}</b><span class="chip">${esc(LLEVEL[p.role_level] || "")}</span></div>
+        <ol class="lpath">${p.course_ids.map(id => { const c = d.rows.find(x => x.id === id); return c ? `<li><button class="linkbtn" data-act="l-open" data-id="${c.id}">${esc(c.title)}</button> <small>${c.hours} h</small></li>` : ""; }).join("")}</ol>
+        <div class="row"><button class="btn sm ghost danger" data-act="l-path-del" data-id="${p.id}">Delete</button></div></div>`).join("")}</div>`
+        : `<div class="panel"><div class="empty">No paths yet. Create courses first, then group them into a path for each role.</div></div>`);
+  }
+  const card = c => `<button class="hcard lcard" data-act="l-open" data-id="${c.id}"><div class="row" style="justify-content:space-between;gap:8px"><b>${esc(c.title)}</b><span class="chip ${c.source.includes("AI") ? "info" : ""}">${esc(c.source)}</span></div>
+      <small>${esc(c.audience || "")} · ${c.hours} h · ${c.lecture_min}-min lectures</small>
+      <div class="hstats"><span><b>${c.modules}</b>modules</span><span><b>${c.lessons}</b>lessons</span><span><b>${c.questions}</b>questions</span><span><b>${c.assigned}</b>assigned</span><span><b>${c.completed}</b>done</span></div></button>`;
+  return head("Learning Studio", "Make complete retail courses for any role in minutes: lectures with formulas, charts and diagrams, quizzes and a final assessment. Export as PDF, PowerPoint, Word or Excel.",
+      `<button class="btn primary" data-act="l-new">${ic("spark", 15)}New course</button>`) +
+    `<div class="panel"><div class="phd"><h2>Topic library</h2><small>${d.topics.length} retail topics written for Carrefour stores · pick any when you make a course</small></div>
+      <div class="ltopics">${d.topics.map(t => `<div class="ltopic"><b>${esc(t.title)}</b><small>${esc(t.summary)}</small><small class="lmeta">${t.lessons} lessons · ${t.minutes} min</small></div>`).join("")}</div></div>` +
+    (d.rows.length ? `<div class="hcards stagger">${d.rows.map(card).join("")}</div>` : `<div class="panel"><div class="empty">No courses yet. Click <b>New course</b>: choose the role, topics and hours.</div></div>`);
+};
+
+function learnForm() {
+  const d = DATA.learn || { topics: [] };
+  return `<h3>New course</h3><p style="color:var(--muted);margin:0 0 12px">Choose who it is for and how long it runs. Pick topics, or describe what people need to learn (or paste a JD) and P&amp;O picks them.</p>
+    <div class="hform"><label class="dx-l">Course title (optional)<input class="input" id="lf-title" placeholder="Made from the topics if left empty"></label>
+      <label class="dx-l">For<select class="input" id="lf-level">${Object.entries(LLEVEL).map(([k, v]) => `<option value="${k}" ${k === "2" ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+      <label class="dx-l">Total hours<input class="input" id="lf-hours" type="number" min="0.5" max="40" step="0.5" value="4"></label>
+      <label class="dx-l">Lecture length (min)<input class="input" id="lf-lec" type="number" min="10" max="90" step="5" value="25"></label></div>
+    <div style="margin-top:10px"><b style="font-size:12.5px">Topics</b> <small style="color:var(--muted)">leave empty to use the standard set for the role</small>
+      <div class="hskills">${d.topics.map(t => `<label class="hsk"><input type="checkbox" data-ltopic value="${t.key}"><span>${esc(t.title)}</span></label>`).join("")}</div></div>
+    <label class="dx-l" style="margin-top:10px">Or describe what to learn, or paste a JD<textarea class="input" id="lf-focus" rows="3" placeholder="e.g. New cashiers who need to handle cash, refunds and angry customers"></textarea></label>
+    <label class="switch-l" style="margin-top:10px"><input type="checkbox" id="lf-ai"> Also write extra lessons with AI (Settings → AI). Topics not in the library always use AI when it is set up.</label>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" data-act="l-build">${ic("spark", 14)}Make course</button></div>`;
+}
+
+async function learnCourse(tabs) {
+  const L = S.learn;
+  const c = DATA.lcourse = await API.call("learn_course", { course_id: L.cid });
+  const ct = c.content;
+  const mods = ct.modules;
+  L.mod = Math.min(L.mod, mods.length - 1);
+  const m = mods[L.mod] || { lessons: [] };
+  L.les = Math.min(L.les, Math.max(0, m.lessons.length - 1));
+  const toc = mods.map((mm, mi) => `<div class="ltoc-m"><span>Module ${mi + 1}</span><b>${esc(mm.title)}</b></div>${mm.lessons.map((l, li) => `<button class="ltoc-l" data-act="l-go" data-m="${mi}" data-l="${li}" aria-current="${L.view === "lesson" && mi === L.mod && li === L.les}">
+      <span>${mi + 1}.${li + 1}</span>${esc(l.title)}<small>${l.minutes} min${l.source === "AI" ? " · AI" : ""}</small></button>`).join("")}
+      ${mm.quiz && mm.quiz.length ? `<button class="ltoc-l" data-act="l-quiz" data-m="${mi}" aria-current="${L.view === "quiz" && mi === L.mod}"><span>✎</span>Module check<small>${mm.quiz.length} questions</small></button>` : ""}`).join("") +
+    `<button class="ltoc-l" data-act="l-exam" aria-current="${L.view === "exam"}"><span>★</span>Final assessment<small>${ct.exam.length} questions · pass ${ct.pass_mark}%</small></button>
+     <button class="ltoc-l" data-act="l-people" aria-current="${L.view === "people"}"><span>👥</span>Assigned people<small>${c.assignments.length} assigned</small></button>`;
+  let body = "";
+  if (L.view === "lesson") {
+    const l = m.lessons[L.les];
+    const flat = mods.flatMap((mm, mi) => mm.lessons.map((_, li) => [mi, li]));
+    const pos = flat.findIndex(([a, b]) => a === L.mod && b === L.les);
+    body = `<div class="lhead"><span class="lk">Module ${L.mod + 1} · ${esc(m.title)} · lesson ${L.les + 1} of ${m.lessons.length}</span><h2>${esc(l.title)}</h2>
+        <div class="row"><span class="chip">${l.minutes} min</span>${l.source === "AI" ? `<span class="chip info">Written by AI</span>` : ""}<span class="spacer"></span>
+        <div class="menu-wrap"><button class="btn sm" data-act="l-aimenu">${ic("spark", 13)}Rewrite ▾</button><div class="cmenu" id="l-aim" hidden>
+          ${[["simpler", "Simpler", "shorter sentences for frontline staff"], ["detail", "More detail", "another example and visual"], ["examples", "More store examples", "Pakistani hypermarket cases"], ["urdu", "Urdu", "translate this lesson"]].map(([k, t, s]) => `<button data-act="l-rewrite" data-how="${k}"><b>${t}</b><small>${s}</small></button>`).join("")}</div></div>
+        <button class="btn sm" data-act="l-edit">Edit text</button></div></div>
+      ${l.objectives && l.objectives.length ? `<div class="lobj"><span class="lk">Objectives</span>${l.objectives.map(o => `<p>→ ${esc(o)}</p>`).join("")}</div>` : ""}
+      <div class="lbody" ${/[؀-ۿ]/.test(JSON.stringify(l.blocks).slice(0, 400)) ? 'dir="rtl"' : ""}>${l.blocks.map((b, bi) => lessonBlock(b, `${L.mod}-${L.les}-${bi}`)).join("")}</div>
+      <div class="lnav"><button class="btn" data-act="l-step" data-d="-1" ${pos <= 0 ? "disabled" : ""}>${ic("back", 14)}Previous</button><span class="lprog"><i style="width:${Math.round(100 * (pos + 1) / flat.length)}%"></i></span><button class="btn primary" data-act="l-step" data-d="1" ${pos >= flat.length - 1 ? "disabled" : ""}>Next lesson</button></div>`;
+  } else if (L.view === "quiz") {
+    body = `<div class="lhead"><span class="lk">Module ${L.mod + 1} · ${esc(m.title)}</span><h2>Module check</h2></div>${quizHtml(m.quiz, "m" + L.mod)}
+      ${m.activity ? `<div class="lcall tip"><span class="lk">On the floor</span><p>${esc(m.activity)}</p></div>` : ""}`;
+  } else if (L.view === "exam") {
+    body = `<div class="lhead"><span class="lk">Final assessment · pass mark ${ct.pass_mark}%</span><h2>${esc(ct.title)}</h2></div>${quizHtml(ct.exam, "exam")}`;
+  } else {
+    body = `<div class="lhead"><span class="lk">Assignments</span><h2>Assigned people</h2></div>
+      <div class="row" style="gap:8px;margin-bottom:10px"><input class="input" id="la-q" list="la-people" placeholder="Type a name to assign" style="flex:1"><datalist id="la-people"></datalist>
+        <input class="input" type="date" id="la-due" title="Due date"><button class="btn primary" data-act="l-assign">Assign</button></div>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Name</th><th>Store</th><th>Assigned</th><th>Due</th><th>Status</th><th class="n">Score %</th><th></th></tr></thead><tbody>
+      ${c.assignments.map(a => `<tr><td><b>${esc(a.person_name || a.person)}</b></td><td>${esc(a.store || "—")}</td><td class="nw">${esc((a.assigned_at || "").slice(0, 10))}</td><td class="nw">${esc(a.due || "—")}</td>
+        <td><select class="input sm" data-lstatus="${a.id}">${["assigned", "in progress", "completed"].map(s => `<option ${s === a.status ? "selected" : ""}>${s}</option>`).join("")}</select></td>
+        <td class="n"><input class="input sm" type="number" min="0" max="100" data-lscore="${a.id}" value="${a.score ?? ""}" style="width:70px"></td>
+        <td class="n">${a.status === "completed" ? `<button class="btn sm" data-act="l-cert" data-id="${a.id}">Certificate</button>` : ""}<button class="btn sm ghost danger" data-act="l-unassign" data-id="${a.id}">Remove</button></td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">Nobody assigned yet.</div></td></tr>`}</tbody></table></div>`;
+  }
+  const exp = [["pdf", "Learner book (PDF)", "cover, contents, lessons, visuals, quizzes"], ["answers", "Answer key (PDF)", "for trainers"], ["pptx", "Trainer deck (PowerPoint)", "slides with speaker notes"],
+    ["docx", "Editable (Word)", "change anything"], ["xlsx", "Quiz bank + tracker (Excel)", "every question, assignment tracker"], ["zip", "Full learning pack (zip)", "all of the above, ready to email"]];
+  return `<div class="ph"><div><h1>${esc(ct.title)}</h1><p>${esc(ct.audience)} · ${esc(ct.summary)}</p>${ct.for ? `<p><span class="chip gold">For ${esc(ct.for.name)}</span> <small style="color:var(--muted)">focus: ${esc(ct.for.why.join(", "))}</small></p>` : ""}${(ct.notes || []).map(n => `<p><small style="color:var(--warn-ink)">⚠ ${esc(n)}</small></p>`).join("")}</div>
+      <div class="row"><button class="btn ghost" data-act="l-back">${ic("back", 15)}All courses</button><button class="btn" data-act="l-present">${ic("play", 14)}Present</button>
+      <div class="menu-wrap"><button class="btn primary" data-act="l-expmenu">${ic("export", 15)}Export ▾</button><div class="cmenu" id="l-exp" hidden>${exp.map(([k, t, s]) => `<button data-act="l-export" data-fmt="${k}"><b>${t}</b><small>${s}</small></button>`).join("")}</div></div>
+      <div class="menu-wrap"><button class="btn ghost" data-act="l-more">⋯</button><div class="cmenu" id="l-more" hidden><button data-act="l-dup"><b>Duplicate</b><small>copy to change for another group</small></button><button data-act="l-del"><b>Delete course</b><small>and its assignments</small></button></div></div></div></div>
+    <div class="lwrap"><aside class="ltoc">${toc}</aside><article class="lmain panel">${body}</article></div>`;
+}
+function learnDrawCharts() {
+  const c = DATA.lcourse; if (!c) return;
+  $$("[data-lchart]").forEach(el => {
+    const [mi, li, bi] = el.dataset.lchart.split("-").map(Number);
+    const b = c.content.modules[mi].lessons[li].blocks[bi];
+    if (b && !el.dataset.drawn) { el.dataset.drawn = 1; drawChartSpec(el, { ...b, kind: b.kind === "hbar" && b.series[0].values.some(v => v < 0) ? "hbar" : b.kind, tone: b.series[0].values.some(v => v < 0) ? "signed" : "" }); }
+  });
+}
+AFTER.learning = async () => {
+  learnDrawCharts();
+  const q = $("#la-q");
+  if (q) {
+    const p = DATA.lpeople || (DATA.lpeople = (await API.call("learn_people")).people);
+    $("#la-people").innerHTML = p.slice(0, 2000).map(x => `<option value="${esc(x.name)}">${esc([x.role, x.store].filter(Boolean).join(" · "))}</option>`).join("");
+  }
+};
+document.addEventListener("change", async e => {
+  const st = e.target.closest && e.target.closest("[data-lstatus]");
+  if (st) { await call("learn_result", { assignment_id: +st.dataset.lstatus, status: st.value }); toast("Saved"); render(); return; }
+  const sc = e.target.closest && e.target.closest("[data-lscore]");
+  if (sc) { await call("learn_result", { assignment_id: +sc.dataset.lscore, score: sc.value === "" ? null : +sc.value }); toast("Score saved"); }
+});
+function learnPresent() {
+  const c = DATA.lcourse; if (!c) return;
+  const slides = [];
+  slides.push(`<div class="lsl-cover"><span class="lk">${esc(c.content.audience)}</span><h1>${esc(c.content.title)}</h1><p>${esc(c.content.summary)}</p></div>`);
+  c.content.modules.forEach((m, mi) => {
+    slides.push(`<div class="lsl-mod"><span class="lk">Module ${mi + 1}</span><h1>${esc(m.title)}</h1><p>${esc(m.summary || "")}</p></div>`);
+    m.lessons.forEach((l, li) => {
+      slides.push(`<div><span class="lk">${mi + 1}.${li + 1} · ${l.minutes} min</span><h1>${esc(l.title)}</h1>${(l.objectives || []).map(o => `<p class="lsl-o">→ ${esc(o)}</p>`).join("")}</div>`);
+      l.blocks.forEach((b, bi) => { if (b.type !== "para") slides.push(`<div class="lbody">${lessonBlock(b, `${mi}-${li}-${bi}`)}</div>`); });
+    });
+  });
+  let i = 0, t0 = Date.now();
+  const ov = document.createElement("div"); ov.className = "lpresent"; document.body.append(ov);
+  const draw = () => { ov.innerHTML = `<div class="lsl">${slides[i]}</div><div class="lsl-bar"><span>${i + 1} / ${slides.length}</span><span id="lsl-t"></span><span>← → to move · Esc to close</span></div>`; learnDrawCharts(); };
+  const tick = setInterval(() => { const el = $("#lsl-t"); if (el) { const s = Math.floor((Date.now() - t0) / 1000); el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; } }, 1000);
+  const key = e => { if (["ArrowRight", "PageDown", " "].includes(e.key)) { i = Math.min(slides.length - 1, i + 1); draw(); } else if (["ArrowLeft", "PageUp"].includes(e.key)) { i = Math.max(0, i - 1); draw(); }
+    else if (e.key === "Escape") { clearInterval(tick); document.removeEventListener("keydown", key, true); ov.remove(); } e.stopPropagation(); };
+  document.addEventListener("keydown", key, true);
+  ov.addEventListener("click", e => { if (!e.target.closest(".lsl-bar")) { i = Math.min(slides.length - 1, i + 1); draw(); } });
+  draw();
+}
+const lTop = async () => { await render(); const v = $("#view"); if (v) v.scrollTo({ top: 0, behavior: "smooth" }); };
+const LEARN_ACTS = {
+  "l-tab": b => { S.learn.tab = b.dataset.tab; S.learn.cid = null; render(); },
+  "l-new": () => { const m = modal(learnForm()); m.classList.add("wide"); },
+  "l-build": async b => {
+    const topics = $$("[data-ltopic]").filter(i => i.checked).map(i => i.value);
+    b.disabled = true; b.innerHTML = `<span class="spin" style="width:14px;height:14px"></span> Writing the course…`;
+    try {
+      const c = await call("learn_build", { title: $("#lf-title").value, level: +$("#lf-level").value, topics, hours: +$("#lf-hours").value || 4, lecture_min: +$("#lf-lec").value || 25,
+        focus: $("#lf-focus").value, use_ai: $("#lf-ai").checked });
+      closeModal(); S.learn.cid = c.id; S.learn.mod = 0; S.learn.les = 0; S.learn.view = "lesson"; toast("Course ready: " + c.content.summary); render();
+    } catch (e) { b.disabled = false; b.textContent = "Make course"; }
+  },
+  "l-open": b => { S.learn.cid = +b.dataset.id; S.learn.mod = 0; S.learn.les = 0; S.learn.view = "lesson"; render(); },
+  "l-back": () => { S.learn.cid = null; render(); },
+  "l-go": b => { S.learn.mod = +b.dataset.m; S.learn.les = +b.dataset.l; S.learn.view = "lesson"; lTop(); },
+  "l-quiz": b => { S.learn.mod = +b.dataset.m; S.learn.view = "quiz"; lTop(); },
+  "l-exam": () => { S.learn.view = "exam"; lTop(); },
+  "l-people": () => { S.learn.view = "people"; lTop(); },
+  "l-step": b => { const mods = DATA.lcourse.content.modules; const flat = mods.flatMap((mm, mi) => mm.lessons.map((_, li) => [mi, li]));
+    const pos = flat.findIndex(([a, c]) => a === S.learn.mod && c === S.learn.les) + +b.dataset.d; if (flat[pos]) { [S.learn.mod, S.learn.les] = flat[pos]; lTop(); } },
+  "l-pick": b => { S.learn.answers[b.dataset.k] = +b.dataset.i; render(); },
+  "l-reset": b => { Object.keys(S.learn.answers).filter(k => k.startsWith(b.dataset.p + "-")).forEach(k => delete S.learn.answers[k]); render(); },
+  "l-expmenu": () => { const m = $("#l-exp"); if (m) m.hidden = !m.hidden; },
+  "l-more": () => { const m = $("#l-more"); if (m) m.hidden = !m.hidden; },
+  "l-export": async b => { $("#l-exp").hidden = true; toast("Preparing " + b.querySelector("b").textContent + "…"); const r = await call("learn_export", { course_id: S.learn.cid, fmt: b.dataset.fmt }); if (r.ok) toast("Saved " + r.name); },
+  "l-aimenu": () => { const m = $("#l-aim"); if (m) m.hidden = !m.hidden; },
+  "l-rewrite": async b => { $("#l-aim").hidden = true; toast("The AI is rewriting this lesson…", { ms: 6000 });
+    await call("learn_rewrite", { course_id: S.learn.cid, module: S.learn.mod, lesson: S.learn.les, how: b.dataset.how }); toast("Lesson rewritten"); render(); },
+  "l-edit": () => {
+    const c = DATA.lcourse, l = c.content.modules[S.learn.mod].lessons[S.learn.les];
+    const fields = l.blocks.map((b, i) => b.type === "para" ? `<label class="dx-l">Paragraph<textarea class="input" rows="3" data-le="${i}" data-f="text">${esc(b.text)}</textarea></label>`
+      : b.type === "points" ? `<label class="dx-l">${esc(b.title || "Points")} (one per line)<textarea class="input" rows="${b.items.length + 1}" data-le="${i}" data-f="items">${esc(b.items.join("\n"))}</textarea></label>`
+      : b.type === "callout" ? `<label class="dx-l">Callout<textarea class="input" rows="2" data-le="${i}" data-f="text">${esc(b.text)}</textarea></label>` : "").join("");
+    const m = modal(`<h3>Edit lesson</h3><label class="dx-l">Title<input class="input" id="le-title" value="${esc(l.title)}"></label><div class="ledit">${fields}</div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="le-save">Save</button></div>`); m.classList.add("wide");
+    $("#le-save", m).onclick = async () => {
+      l.title = $("#le-title", m).value;
+      $$("[data-le]", m).forEach(t => { const b = l.blocks[+t.dataset.le]; if (t.dataset.f === "items") b.items = t.value.split("\n").map(x => x.trim()).filter(Boolean); else b.text = t.value; });
+      await call("learn_edit", { course_id: S.learn.cid, content: c.content }); closeModal(); toast("Lesson saved"); render();
+    };
+  },
+  "l-present": () => learnPresent(),
+  "l-dup": async () => { const c = await call("learn_duplicate", { course_id: S.learn.cid }); S.learn.cid = c.id; toast("Copy made"); render(); },
+  "l-del": async () => { if (!confirm("Delete this course and its assignments?")) return; await call("learn_delete", { course_id: S.learn.cid }); S.learn.cid = null; render(); },
+  "l-assign": async () => {
+    const name = $("#la-q").value.trim(); if (!name) return toast("Type a name.", { err: true });
+    const p = (DATA.lpeople || []).find(x => x.name.toLowerCase() === name.toLowerCase()) || { person: name, name, store: "" };
+    await call("learn_assign", { course_id: S.learn.cid, people: [p], due: $("#la-due").value || null }); toast(name + " assigned"); render();
+  },
+  "l-unassign": async b => { await call("learn_unassign", { assignment_id: +b.dataset.id }); render(); },
+  "l-cert": async b => { const r = await call("learn_certificate", { assignment_id: +b.dataset.id }); if (r.ok) toast("Saved " + r.name); },
+  "l-path-new": () => {
+    const d = DATA.learn;
+    const m = modal(`<h3>New learning path</h3><div class="hform"><label class="dx-l">Name<input class="input" id="lp-name" placeholder="e.g. Team Leader path"></label>
+      <label class="dx-l">For<select class="input" id="lp-level">${Object.entries(LLEVEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label></div>
+      <p style="color:var(--muted)">Tick the courses in the order they should be taken.</p><div class="ledit">${d.rows.map(c => `<label class="hsk" style="border-radius:10px"><input type="checkbox" data-lpc="${c.id}"><span>${esc(c.title)} · ${c.hours} h</span></label>`).join("") || "<div class='empty'>Make courses first.</div>"}</div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="lp-save">Save path</button></div>`);
+    const order = []; m.addEventListener("change", e => { const id = +e.target.dataset.lpc; if (!id) return; if (e.target.checked) order.push(id); else order.splice(order.indexOf(id), 1); });
+    $("#lp-save", m).onclick = async () => { if (!$("#lp-name", m).value.trim() || !order.length) return toast("Name the path and tick courses.", { err: true });
+      await call("learn_path_save", { name: $("#lp-name", m).value.trim(), level: +$("#lp-level", m).value, course_ids: order }); closeModal(); render(); };
+  },
+  "l-devpack": async b => { b.disabled = true; b.innerHTML = `<span class="spin" style="width:13px;height:13px"></span> Building…`;
+    try { const c = await call("learn_for_person", { key: b.dataset.key }); toast("Development pack ready and assigned"); S.learn = { ...S.learn, cid: c.id, mod: 0, les: 0, view: "lesson" }; go("learning"); }
+    catch (e) { b.disabled = false; b.textContent = "Make development pack"; } },
+  "l-path-del": async b => { await call("learn_path_delete", { path_id: +b.dataset.id }); render(); },
+};
+Object.assign(ACT, LEARN_ACTS);
 
 function applyTheme(t) { if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; }
 

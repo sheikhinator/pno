@@ -91,6 +91,29 @@ def test_period_bar_on_every_po_screen(tmp_path):
             for tab in ("pipe", "bank", "stats", "vac"):
                 page.locator(f"[data-act=h-tab][data-tab={tab}]").click()
                 settle()
+            # learning studio: make a course, read, quiz, assign, tabs
+            page.evaluate("go('learning')")
+            settle()
+            page.locator("[data-act=l-new]").first.click()
+            time.sleep(0.5)
+            page.fill("#lf-hours", "2")
+            page.locator("[data-act=l-build]").click()
+            settle()
+            assert page.locator(".ltoc-l").count() > 3 and page.locator(".lbody").count() == 1
+            page.locator("[data-act=l-step][data-d='1']").click()
+            settle()
+            page.locator("[data-act=l-quiz]").first.click()
+            settle()
+            if page.locator(".lopt").count():
+                page.locator(".lopt").first.click()
+                settle()
+            page.locator("[data-act=l-people]").click()
+            settle()
+            page.locator("[data-act=l-back]").click()
+            settle()
+            for tab in ("track", "paths", "courses"):
+                page.locator(f"[data-act=l-tab][data-tab={tab}]").click()
+                settle()
             page.evaluate("go('import')")
             settle()
             browser.close()

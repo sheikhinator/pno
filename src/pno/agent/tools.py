@@ -85,6 +85,12 @@ TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: s
                              "from_month": {"type": "string", "description": "YYYY-MM, YTD start (default January)"},
                              "to_month": {"type": "string", "description": "YYYY-MM, the month (MTD) or YTD end"}},
                              "required": ["question"]}})
+TOOLS.insert(1, {"name": "learning", "description": "Learning Studio: list the training courses, or make a new course for a role and "
+              "topic with the hours wanted (full lessons, formulas, charts, quizzes, final assessment). Use for 'make a 3-hour course on "
+              "shrink for team leaders', 'what training do we have', 'training completion'.",
+              "parameters": {"type": "object", "properties": {"make": {"type": "boolean"}, "topic": {"type": "string"},
+                             "role": {"type": "string", "description": "associate, team leader, section manager, department head or store manager"},
+                             "hours": {"type": "number"}}}})
 TOOLS.insert(1, {"name": "hiring", "description": "Hiring: open vacancies, ranked candidates for a vacancy (match score 0-100 with "
               "strengths, gaps and things to check), the talent bank (search by skill, city, years) and hiring analytics (time to hire, "
               "funnel, offer acceptance). Use for 'best candidates for X', 'who should we interview', 'how is hiring going', "
@@ -203,6 +209,19 @@ class Toolbox:
         return {"title": v["title"], "rows": v["rows"], "columns": [{k: c.get(k) for k in ("name", "type", "role")} for c in v["columns"]],
                 "grouped_by": v["group"], "measure": v["measure"], "aggregation": v["agg"], "groups": v["series"][:30],
                 "trend": v["trend"][-24:], "insights": v["insights"]}
+
+    def t_learning(self, make: bool = False, topic: str = "", role: str = "", hours: float = 3, **kw) -> dict:
+        L = self.svc.api.learning
+        if make:
+            r = (role or "").lower()
+            level = 6 if "store manager" in r else 4 if "department" in r or "head" in r else 3 if "section" in r else 1 if "associate" in r or "cashier" in r else 2
+            c = L.build(level=level, hours=float(hours or 3), lecture_min=25, focus=topic)
+            ct = c["content"]
+            return {"made": True, "course_id": c["id"], "title": ct["title"], "summary": ct["summary"], "modules": [m["title"] for m in ct["modules"]],
+                    "notes": ct.get("notes", []), "where": "Open Learning Studio to read, present or export it (PDF, PowerPoint, Word, Excel)."}
+        d = L.courses()
+        return {"courses": [{"title": c["title"], "audience": c["audience"], "hours": c["hours"], "assigned": c["assigned"], "completed": c["completed"],
+                             "avg_score": c["avg_score"]} for c in d["rows"]][:20], "stats": L.stats(), "topics": [t["title"] for t in d["topics"]]}
 
     def t_hiring(self, vacancy: str = "", search: str = "", skill: str = "", city: str = "", **kw) -> dict:
         h = self.svc.api.hiring
