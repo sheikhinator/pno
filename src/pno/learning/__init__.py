@@ -236,7 +236,7 @@ class Learning:
                 "English, short sentences, real store examples in Pakistani rupees, formulas with worked numbers, and visuals as data (charts, tables, "
                 "steps). Never invent company policy; say 'by policy' where policy applies.")
         out = agent.complete(f"Plan a training module on: {topic}. Audience: {LEVELS.get(level, 'store staff')}. Give {lessons} lesson titles. "
-                             'Return JSON only: {"title": str, "summary": str, "lessons": [str]}', system=sys_, max_tokens=400)
+                             'Return JSON only: {"title": str, "summary": str, "lessons": [str]}', system=sys_, max_tokens=400, task="learning")
         if not out:
             return None, None
         plan = _json_from(out[0])
@@ -245,7 +245,7 @@ class Learning:
         for lt in (plan.get("lessons") or [])[:lessons]:
             o = agent.complete(f"Write the lesson '{lt}' of the module '{module['title']}' for {LEVELS.get(level)}s, about {minutes} minutes of teaching. "
                                "Use 6-10 blocks including at least one formula or worked example with numbers, one chart or table, one steps block, and a callout. "
-                               "Add 3 quiz questions. " + LESSON_SCHEMA, system=sys_, max_tokens=2200)
+                               "Add 3 quiz questions. " + LESSON_SCHEMA, system=sys_, max_tokens=2200, task="learning")
             if not o:
                 continue
             try:
@@ -268,7 +268,7 @@ class Learning:
                "examples": "Add more real store examples from Pakistani hypermarkets.",
                "urdu": "Translate all text into Urdu (Urdu script). Keep numbers, formulas and the JSON keys in English."}.get(how, how)
         out = self.api.agent.complete(f"Here is a lesson as JSON:\n{json.dumps(les, ensure_ascii=False)[:7000]}\n\n{ask} " + LESSON_SCHEMA,
-                                      max_tokens=2500)
+                                      max_tokens=2500, task="learning")
         if not out:
             raise ValueError("No AI is set up (Settings → AI). Lessons can still be edited by hand.")
         new = clean_lesson(_json_from(out[0]))

@@ -143,7 +143,7 @@ def answer(db, agent, question: str) -> dict:
             out = agent.complete(f"Question: {question}\n\nPolicy passages:\n{ctx}\n\nAnswer the question in plain English using ONLY these passages. "
                                  "Cite passages like [1]. If the passages don't answer it, say the policy does not cover it. Keep it under 150 words.",
                                  system="You answer HR policy questions for a retail HR team in Pakistan, strictly from the passages given.",
-                                 max_tokens=500)
+                                 max_tokens=500, task="policy")
             if out and out[0]:
                 text, engine = out
         except Exception:  # noqa: BLE001 - fall back to the passages themselves

@@ -87,6 +87,27 @@ CREATE TABLE IF NOT EXISTS learning_paths (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, role_level INTEGER, course_ids TEXT, created_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS er_cases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL, emp TEXT, name TEXT, store TEXT, section TEXT, designation TEXT, category TEXT, description TEXT,
+    opened_on TEXT, stage TEXT, stage_due TEXT, outcome TEXT, history TEXT, confidential INTEGER DEFAULT 0,
+    created_at TEXT, updated_at TEXT, closed_on TEXT
+);
+CREATE TABLE IF NOT EXISTS letters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL, emp TEXT, name TEXT, ref TEXT, fields TEXT, case_id INTEGER, created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS exit_interviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    emp TEXT, name TEXT, store TEXT, section TEXT, designation TEXT, leave_date TEXT, main_reason TEXT, reasons TEXT,
+    manager_score INTEGER, culture_score INTEGER, pay_score INTEGER, growth_score INTEGER, would_return INTEGER, recommend INTEGER,
+    comments TEXT, created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS corrections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    emp TEXT NOT NULL, name TEXT, field TEXT NOT NULL, value TEXT, old_value TEXT, note TEXT, source TEXT,
+    created_at TEXT, active INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS surveys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT, wave TEXT, questions TEXT, has_enps INTEGER, answers TEXT, n INTEGER, created_at TEXT

@@ -201,6 +201,12 @@ def today(api) -> dict:
         if days >= 30:
             items.append({"level": "warn", "area": "Hiring", "text": f"{v['title']}{(' · ' + v['store']) if v['store'] else ''} open {days} days", "go": "hiring"})
     try:
+        od = db.q("SELECT id, kind, name, stage, stage_due FROM er_cases WHERE stage!='Closed' AND stage_due < ? ORDER BY stage_due LIMIT 4", (t,))
+        for c in od:
+            items.append({"level": "bad", "area": "Employee relations", "text": f"{c['kind']} case · {c['name']}: next step after '{c['stage']}' was due {c['stage_due']}", "go": "relations"})
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         from . import workplace
         bad = [g for g in workplace.goals(db)["rows"] if g["status"] == "open" and g["state"] in ("off track", "missed")]
         if bad:

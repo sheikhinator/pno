@@ -340,7 +340,7 @@ class Hiring:
                 out = self.api.agent.complete(
                     "You interview candidates for Carrefour Pakistan stores. Role: " + a["title"] + ". From this CV (personal details removed), "
                     "write 5 sharp, specific interview questions that test the claims and the gaps against the role. One per line, no numbering.\n\n"
-                    + (a["text"] or "")[:5000], max_tokens=500, allow_offline=True)
+                    + (a["text"] or "")[:5000], max_tokens=500, allow_offline=True, task="hiring")
                 if out:
                     ai_qs = [l.strip(" -•\t0123456789.") for l in out[0].splitlines() if len(l.strip()) > 15][:6]
             except Exception:  # noqa: BLE001 - the built-in kit is enough
@@ -394,7 +394,7 @@ class Hiring:
                   "marital status, religion and anything personal. Role and JD:\n" + (a["jd"] or a["title"])[:2500] +
                   f"\n\nThe app's score: {res.get('score')}/100 ({res.get('band_label')}). CV (personal details removed):\n" + (a["text"] or "")[:6000] +
                   "\n\nWrite: one line verdict; 'Strengths:' 3 bullets with evidence; 'Concerns:' up to 3 bullets; 'Ask in interview:' 2 bullets. Markdown, short.")
-        out = self.api.agent.complete(prompt, max_tokens=600)
+        out = self.api.agent.complete(prompt, max_tokens=600, task="hiring")
         if not out:
             return {"ok": False, "message": "No AI is set up (Settings → AI). The app's own score and evidence still apply."}
         ai = {"text": out[0], "engine": out[1], "at": now()}

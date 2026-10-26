@@ -215,6 +215,17 @@ def _build(db: Database, month: str) -> MonthModel:
             p.joining = r["joining_date"]
     if not rid and people:
         warnings.append("No employee roster is imported, so reporting lines and departments are limited.")
+    from .brain import active_map, apply_people          # P&O's own corrections win over the files
+    cmap = active_map(db)
+    if cmap:
+        by_name = {}
+        for st in stores.values():
+            from .stores import canon_store
+            by_name[st["name"]] = st
+            cn = canon_store(f"{st.get('city', '')} {st['name']}")
+            if cn and st.get("format") != "HB":
+                by_name.setdefault(cn, st)
+        apply_people(people, cmap, by_name)
 
     _link_managers(people, db.get_setting("manager_overrides", {}) or {})
     for p in people.values():

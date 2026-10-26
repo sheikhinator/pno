@@ -34,7 +34,15 @@ class PoStore:
             rec.update(_kind=row["kind"], _period=f"{row['month'] or ''}#{row['iid']:09d}", _source=row["file_name"], _sheet=sheet,
                        _iid=row["iid"], _ptype=ptype, _pfrom=pfrom, _pto=pto)
             out.append(rec)
-        return out
+        from ..brain import active_map, apply_po          # P&O's own corrections win over the files
+        cmap = active_map(self.db)
+        if not cmap:
+            return out
+        kinds = [kind] if kind else list(dict.fromkeys([r["_kind"] for r in out] + ["po_turnover"]))
+        fixed = []
+        for k in kinds:
+            fixed += apply_po([r for r in out if r["_kind"] == k], k, cmap)
+        return fixed
 
 
 # ------------------------------------------------- mirrors of the reports PNO already parses

@@ -77,6 +77,7 @@ const ICON = {
   manpower: '<circle cx="8" cy="7" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M2.5 20c.5-3.6 2.8-5.6 5.5-5.6s5 2 5.5 5.6M14.5 15c2.6-.4 5.6 1 6.5 4.5"/><path d="M19 3v3M17.5 4.5h3"/>',
   engagement: '<path d="M12 20.5s-7.5-4.4-7.5-10A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.9c0 5.6-7.5 10-7.5 10z"/><path d="M8 12h2l1.2-2 1.6 4 1.2-2h2"/>',
   recognition: '<circle cx="12" cy="9" r="5.5"/><path d="M8.5 13.3 7 21l5-2.6 5 2.6-1.5-7.7"/>',
+  brain: '<circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="17" r="2.8"/><circle cx="19" cy="15" r="1.8"/><path d="M8.3 8.2 10.6 15M15.7 7.2 13 14.5M8.4 7.3l7.2-1M14.7 16.4l2.6-.9"/>',
   forecast: '<path d="M3.5 19.5h17M5 15l4-4 3.5 3 6.5-7"/><path d="M15 7h4v4"/>',
   goals: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>',
   notes: '<path d="M5 4h10l4 4v12H5z"/><path d="M15 4v4h4M8.5 12h7M8.5 15.5h5"/>',
@@ -88,14 +89,14 @@ const ICON = {
 };
 const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[n] || ""}</svg>`;
 const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
-  ["people", "People", "people"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
+  ["people", "People", "people"], ["brain", "People Brain", "brain"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
   ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["forecast", "Workforce plan", "forecast"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["engagement", "Engagement", "engagement"], ["recognition", "Recognition", "recognition"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
 const NAV_GROUP = { retention: "Insights", hiring: "Talent", ask: "Tools" };
 const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
 const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
   talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
-  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", forecast: "Workforce plan", goals: "Goals", notes: "1:1s & visits", engagement: "Engagement", recognition: "Recognition", policies: "Policy assistant", settings: "Settings" };
+  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", forecast: "Workforce plan", brain: "People Brain", goals: "Goals", notes: "1:1s & visits", engagement: "Engagement", recognition: "Recognition", policies: "Policy assistant", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -1113,6 +1114,8 @@ SETTINGS.ai = async () => {
     <div class="seg">${mode}</div>
     <small style="color:var(--muted)">Auto uses the first AI that is set up, in this order: Groq → Gemini → OpenRouter → Offline AI → built-in. Picking one puts it first; if it fails (wrong key, free limit used up, no internet) P&amp;O switches to the next one on the spot and says so in the answer. You can also switch from the chat box.</small></div>
     ${s.providers.map(prov).join("")}
+    <div class="panel"><div class="phd"><h2>Which AI does which job</h2><small>For example: courses on Gemini, anything with names on the offline AI. If the chosen AI fails, the next one answers and says so.</small></div>
+      <div class="routes">${(s.tasks || []).map(t => `<div class="setting"><div><b>${esc(t.label)}</b></div><select class="input sm" data-route="${t.id}">${[["auto", "Same as above (" + esc(s.label) + ")"], ...s.choices.filter(c => c.id !== "auto").map(c => [c.id, c.name + (c.ready ? "" : " · not set up")])].map(([v, l]) => `<option value="${v}" ${v === t.engine ? "selected" : ""}>${l}</option>`).join("")}</select></div>`).join("")}</div></div>
     <div class="panel"><div class="phd"><h2>Privacy</h2></div>
       <div class="setting"><div><b>Send employee codes instead of names</b><small>Online AIs then never see names; P&amp;O puts the names back on your screen.</small></div><label class="switch"><input type="checkbox" id="anon" ${s.anonymise ? "checked" : ""}><span></span></label></div>
       <small style="color:var(--muted)">With an online AI (Groq, Gemini or OpenRouter), each question and the figures needed to answer it are sent to that service. Files you drop into the chat stay on this PC (only column names and 5 sample rows are shown to the AI to work out unknown layouts).</small></div>
@@ -1178,6 +1181,7 @@ SETTINGS.look = async () => {
     </div>`;
 };
 AFTER.settings = () => {
+  $$("[data-route]").forEach(sel => sel.onchange = async () => { await call("agent_settings", { routes: { [sel.dataset.route]: sel.value } }); toast("Saved: " + sel.closest(".setting").querySelector("b").textContent + " → " + sel.options[sel.selectedIndex].text); });
   const sum = ro => { const t = $$(`[data-w="${ro}"]`).reduce((a, i) => a + (+i.value || 0), 0); const b = $(`[data-total="${ro}"]`); if (b) b.textContent = t; };
   $$("[data-w]").forEach(i => { i.oninput = () => sum(i.dataset.w); sum(i.dataset.w); });
   const an = $("#anon"); if (an) an.onchange = () => call("agent_settings", { anonymise: an.checked }).then(() => toast("Saved"));
@@ -1628,7 +1632,7 @@ AFTER.talent = async () => {
   if (sel) sel.addEventListener("change", () => { S.po.store = sel.value; render(); });
   const box = $("#po-profile");
   if (box && S.po.leader) {
-    try { const r = await API.call("po_leader", { key: S.po.leader }); box.innerHTML = `<div class="row" style="justify-content:flex-end;margin-bottom:6px;gap:6px"><button class="btn sm" data-act="note-new" data-subject="${esc(r.name || "")}" data-key="${esc(S.po.leader)}" data-store="${esc(r.store || "")}">✎ Log 1:1</button><button class="btn sm" data-act="l-devpack" data-key="${esc(S.po.leader)}">${ic("learning", 14)}Make development pack</button></div><div class="po-html">${r.html}</div>`; }
+    try { const r = await API.call("po_leader", { key: S.po.leader }); box.innerHTML = `<div class="row" style="justify-content:flex-end;margin-bottom:6px;gap:6px"><button class="btn sm" data-act="br-open" data-emp="${esc(r.emp || "")}">🧠 People Brain</button><button class="btn sm" data-act="note-new" data-subject="${esc(r.name || "")}" data-key="${esc(S.po.leader)}" data-store="${esc(r.store || "")}">✎ Log 1:1</button><button class="btn sm" data-act="l-devpack" data-key="${esc(S.po.leader)}">${ic("learning", 14)}Make development pack</button></div><div class="po-html">${r.html}</div>`; }
     catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
   } else if (box) box.innerHTML = `<div class="empty">No leader selected.</div>`;
   if (q && document.activeElement !== q && S.po.q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
@@ -1967,6 +1971,159 @@ const INT_ACTS = {
   "h-vtab": b => { S.hire.vtab = b.dataset.t; render(); },
   "int-add": async b => { b.disabled = true; await call("hire_internal_add", { vacancy_id: S.hire.vid, key: b.dataset.key }); closeModal(); toast("Added to the pipeline as an internal candidate"); drawInternal(); },
   "int-more": b => intProfile(DATA.hint.candidates[+b.dataset.i]),
+};
+
+/* ============================================================== 2.7 People Brain */
+S.brain = S.brain || { tab: "people", emp: null, store: "", q: "", level: "", left: false, gstore: "" };
+const LVL_COLOR = ["#8C8279", "#7A9E7E", "#3A7CA5", "#6C5CE7", "#C2410C", "#B45309", "#9A3412"];
+const yrs = m => m == null ? "—" : `${Math.floor(m / 12)}y ${m % 12}m`;
+PAGES.brain = async () => {
+  const B = S.brain;
+  const tabs = `<div class="seg">${[["people", "People"], ["graph", "Graph"], ["corrections", "Corrections"]].map(([k, l]) => `<button data-act="br-tab" data-t="${k}" aria-pressed="${B.tab === k}">${l}</button>`).join("")}</div>`;
+  const head = `<div class="ph"><div><h1>People Brain</h1><p>Every person, store and section in one place, linked together, with the source of every fact. Corrections you make here win over the imported files.</p></div>${tabs}</div>`;
+  if (B.tab === "graph") return head + `<div class="panel brg"><div class="row" style="gap:8px;margin-bottom:8px"><select class="input sm" id="brg-store"><option value="">All stores</option>${(DATA.brs?.stores || []).map(s => `<option ${s === B.gstore ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
+      <small style="color:var(--muted)">Drag to move · scroll to zoom · click a person to open their page</small><span class="spacer"></span><span class="glegend"><i style="background:#B8860B"></i>Store <i style="background:#0F8B8D"></i>Section <i style="background:#C2410C"></i>Leader <i style="background:#3A7CA5"></i>Team</span></div>
+      <canvas id="brg" height="640"></canvas><div class="gtip" id="gtip" hidden></div></div>`;
+  if (B.tab === "corrections") {
+    const c = await API.call("corrections");
+    return head + `<div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Corrections</h2><small>What P&O changed and why · they win over every import until undone</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>When</th><th>Person</th><th>What</th><th>Was</th><th>Now</th><th>How</th><th></th></tr></thead><tbody>
+      ${c.rows.map(r => `<tr style="${r.active ? "" : "opacity:.45"}"><td class="nw">${esc(r.created_at.slice(0, 16).replace("T", " "))}</td><td><button class="lnk" data-act="br-open" data-emp="${esc(r.emp)}">${esc(r.name || r.emp)}</button></td><td>${esc(r.label)}</td><td>${esc(r.old_value ?? "—")}</td><td><b>${esc(r.value)}</b></td><td><span class="chip">${esc(r.source === "chat" ? "Ask P&O AI" : "By hand")}</span>${r.note ? `<span class="sub">${esc(r.note)}</span>` : ""}</td>
+        <td class="n">${r.active ? `<button class="btn sm ghost" data-act="br-undo" data-id="${r.id}">Undo</button>` : `<small>undone</small>`}</td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">No corrections yet. Fix anything from a person's page (✎) or just tell Ask P&O AI.</div></td></tr>`}</tbody></table></div></div>`;
+  }
+  const lst = DATA.brs = await API.call("brain_search", { q: B.q, store: B.store, level: B.level === "" ? null : +B.level, include_left: B.left });
+  if (!B.emp && lst.rows.length) B.emp = lst.rows[0].emp;
+  const list = `<div class="brlist"><input class="input" id="br-q" placeholder="Search name, number, role, store…" value="${esc(B.q)}">
+      <div class="row" style="gap:6px"><select class="input sm" id="br-store"><option value="">All stores</option>${lst.stores.map(s => `<option ${s === B.store ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
+      <select class="input sm" id="br-level"><option value="">Everyone</option><option value="2" ${B.level === "2" ? "selected" : ""}>Leaders</option><option value="4" ${B.level === "4" ? "selected" : ""}>Dept head +</option></select></div>
+      <label class="switch-l"><input type="checkbox" id="br-left" ${B.left ? "checked" : ""}> Include people who left</label>
+      <small style="color:var(--muted)">${lst.total.toLocaleString("en-US")} of ${lst.people.toLocaleString("en-US")} people</small>
+      <div class="brl">${lst.rows.map(r => `<button class="bri ${r.emp === B.emp ? "on" : ""} ${r.left ? "left" : ""}" data-act="br-open" data-emp="${esc(r.emp)}"><span class="av sm" style="--c:${LVL_COLOR[Math.min(6, r.level || 0)]}">${esc(initials(r.name))}</span><span><b>${esc(r.name)}</b><small>${esc(r.designation || "—")} · ${esc(r.store || "")}</small></span>${r.index != null ? `<i class="idx">${(r.index / 10).toFixed(1)}</i>` : ""}</button>`).join("") || `<div class="empty">Nobody found.</div>`}</div></div>`;
+  return head + `<div class="brwrap">${list}<div id="br-page"><div class="skel" style="height:260px"></div></div></div>`;
+};
+async function drawBrainPerson() {
+  const box = $("#br-page"); if (!box || !S.brain.emp) { if (box) box.innerHTML = `<div class="empty">Choose a person.</div>`; return; }
+  let p;
+  try { p = DATA.brp = await API.call("brain_person", { emp: S.brain.emp }); } catch (e) { box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`; return; }
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  const rated = p.ratings.filter(r => r.rating != null), last = rated[rated.length - 1];
+  const ins = p.insights || {};
+  const tlIcon = { join: "🎉", role: "🪪", rating: "⭐", left: "🚪", note: "💬", training: "🎓", case: "⚖️", letter: "✉️" };
+  box.innerHTML = `<div class="brhead"><div class="av lg" style="--c:${LVL_COLOR[Math.min(6, p.level || 0)]}">${esc(initials(p.name))}</div>
+      <div style="flex:1;min-width:0"><h2>${esc(p.name)}</h2><div class="sub">${esc(p.designation || "—")}${p.leads ? ` · leads ${esc(p.leads)}` : ""} · <button class="lnk" data-act="br-store" data-s="${esc(p.store)}">${esc(p.store || "—")}</button> · #${esc(p.emp)}</div>
+        <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${p.left ? `<span class="chip bad">Left ${esc(p.left.date || "")}</span>` : `<span class="chip good">Active</span>`}${p.acting ? `<span class="chip warn">Acting in a bigger role</span>` : ""}${ins.flight_risk ? `<span class="chip ${ins.flight_risk === "High" ? "bad" : ins.flight_risk === "Medium" ? "warn" : "good"}">Flight risk: ${esc(ins.flight_risk)}</span>` : ""}${p.corrections.some(c => c.active) ? `<span class="chip gold">✎ corrected</span>` : ""}${p.sources.map(s => `<span class="chip">${esc(s)}</span>`).join("")}</div></div>
+      <div class="row" style="gap:6px;align-self:start"><button class="btn sm" data-act="note-new" data-subject="${esc(p.name)}" data-key="${esc(p.emp)}" data-store="${esc(p.store || "")}">✎ Log 1:1</button><button class="btn sm primary" data-act="br-export">${ic("export", 14)}Profile sheet</button></div></div>
+    <div class="kpis k5">${k("With Carrefour", yrs(p.service_months), p.facts.find(f => f.field === "joining_date") ? "since " + fmtDate(p.facts.find(f => f.field === "joining_date").value) : "")}${k("In current role", yrs(p.in_role_months), p.facts.find(f => f.field === "role_since") ? "since " + fmtDate(p.facts.find(f => f.field === "role_since").value) : "")}
+      ${k("Leader index", p.index != null ? (p.index / 10).toFixed(1) + "<small>/10</small>" : "—", p.index_percentile != null ? `better than ${p.index_percentile}% of ${p.peers} peers` : "", p.index == null ? "" : p.index >= 70 ? "t-good" : p.index < 50 ? "t-bad" : "")}
+      ${k(last ? `${last.cycle} rating` : "Rating", last ? last.rating + "<small>/5</small>" : "—", last ? last.label || "" : "no rating on file", last ? (last.rating >= 4 ? "t-good" : last.rating <= 2 ? "t-bad" : "") : "")}
+      ${k("Attendance", p.attendance && p.attendance.presence != null ? Math.round(p.attendance.presence) + "%" : "—", p.attendance ? `${p.attendance.absent || 0} absent · ${p.attendance.fixes || 0} punches to fix` : "no attendance imported")}</div>
+    <div class="grid g2"><div class="panel"><div class="phd"><h2>Profile</h2><small>Where each fact comes from · ✎ to correct</small></div>
+        <table class="t facts"><tbody>${p.facts.map(f => `<tr><td><small>${esc(f.label)}</small></td><td><b>${f.field.match(/date|since/) ? fmtDate(f.value) : f.field === "manager_name" && p.manager_emp ? `<button class="lnk" data-act="br-open" data-emp="${esc(p.manager_emp)}">${esc(f.value)}</button>` : esc(f.value)}</b></td>
+          <td><span class="src ${f.corrected ? "corr" : ""}">${esc(f.source)}</span></td><td class="n"><button class="btn sm ghost" data-act="br-fix" data-f="${esc(f.field)}" title="Correct">✎</button></td></tr>`).join("")}
+          <tr><td colspan="4"><button class="btn sm ghost" data-act="br-fix" data-f="">+ Correct something else (status, rating, leaving date…)</button></td></tr></tbody></table></div>
+      <div class="panel"><div class="phd"><h2>Insights</h2><small>Worked out from the data</small></div>
+        ${ins.strengths?.length ? `<h4 class="ih good">Strengths</h4>${ins.strengths.map(x => `<div class="il good">✓ ${esc(x)}</div>`).join("")}` : ""}
+        ${ins.risks?.length ? `<h4 class="ih bad">Watch-outs</h4>${ins.risks.map(x => `<div class="il bad">! ${esc(x)}</div>`).join("")}` : ""}
+        ${ins.next_steps?.length ? `<h4 class="ih">Next steps</h4>${ins.next_steps.map(x => `<div class="il">→ ${esc(x)}</div>`).join("")}` : ""}
+        ${!ins.strengths?.length && !ins.risks?.length ? `<div class="empty">Not enough data for insights yet.</div>` : ""}</div></div>
+    ${rated.length || Object.keys(p.components).length ? `<div class="grid g2">${rated.length ? `<div class="panel"><div class="phd"><h2>Ratings by year</h2></div><div id="br-rat"></div></div>` : ""}${Object.keys(p.components).length ? `<div class="panel"><div class="phd"><h2>Results of their area</h2><small>out of 10 · ${esc(p.leads || "")}</small></div><div id="br-comp"></div></div>` : ""}</div>` : ""}
+    <div class="grid g2"><div class="panel"><div class="phd"><h2>Timeline</h2><small>${p.timeline.length} event${p.timeline.length === 1 ? "" : "s"}</small></div><div class="tline">${p.timeline.slice().reverse().map(t => `<div class="tl ${t.kind}"><span class="tl-ic">${tlIcon[t.kind] || "•"}</span><div><small>${t.date ? fmtDate(String(t.date).slice(0, 10)) : ""}</small><div>${esc(t.what)}</div></div></div>`).join("") || `<div class="empty">No events yet.</div>`}</div></div>
+      <div class="panel"><div class="phd"><h2>Connections</h2></div>
+        ${p.manager ? `<h4 class="ih">Reports to</h4><div class="chips">${p.manager_emp ? `<button class="pchip" data-act="br-open" data-emp="${esc(p.manager_emp)}">${esc(p.manager)}</button>` : `<span class="pchip">${esc(p.manager)}</span>`}</div>` : ""}
+        ${p.reports.length ? `<h4 class="ih">Direct reports (${p.reports.length})</h4><div class="chips">${p.reports.map(r => `<button class="pchip" data-act="br-open" data-emp="${esc(r.emp)}" title="${esc(r.designation)}">${esc(r.name)}</button>`).join("")}</div>` : ""}
+        ${p.team.length ? `<h4 class="ih">Same section, same store</h4><div class="chips">${p.team.map(r => `<button class="pchip" data-act="br-open" data-emp="${esc(r.emp)}">${esc(r.name)}</button>`).join("")}</div>` : ""}
+        <h4 class="ih">Store</h4><div class="chips"><button class="pchip store" data-act="br-store" data-s="${esc(p.store)}">🏬 ${esc(p.store || "—")}</button>${p.section ? `<span class="pchip sec">${esc(p.section)}</span>` : ""}</div>
+        ${[["training", "Training", t => `${esc(t.title)} · ${esc(t.status)}`], ["goals", "Goals", g => `${esc(g.title)} · ${g.current ?? "—"} / ${g.target ?? "—"}`], ["actions", "Actions", a => `${esc(a.title)} · ${esc(a.status)}`], ["cases", "Employee relations", c => `${esc(c.kind)}: ${esc(c.category)} · ${esc(c.outcome || c.stage)}`], ["hiring", "Internal applications", h => `${esc(h.title)} · ${esc(h.stage)}`]].filter(([key]) => (p[key] || []).length).map(([key, l, f]) => `<h4 class="ih">${l}</h4>${p[key].map(x => `<div class="il">${f(x)}</div>`).join("")}`).join("")}</div></div>
+    ${p.corrections.length ? `<div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Corrections for ${esc(p.name.split(" ")[0])}</h2></div><div class="tbl-wrap"><table class="t"><tbody>${p.corrections.map(c => `<tr style="${c.active ? "" : "opacity:.45"}"><td class="nw">${esc(c.created_at.slice(0, 10))}</td><td>${esc(c.label)}</td><td>${esc(c.old_value ?? "—")} → <b>${esc(c.value)}</b></td><td><small>${esc(c.note || "")}</small></td><td class="n">${c.active ? `<button class="btn sm ghost" data-act="br-undo" data-id="${c.id}">Undo</button>` : "undone"}</td></tr>`).join("")}</tbody></table></div></div>` : ""}`;
+  if ($("#br-rat")) Charts.line($("#br-rat"), { labels: rated.map(r => String(r.cycle)), series: [{ name: "Rating", values: rated.map(r => r.rating) }], height: 190 });
+  const cn = { sales: "Sales vs budget", productivity: "Productivity", shrink: "Shrinkage", stock_days: "Stock days", rating: "Rating", retention: "Keeping people", nps: "NPS" };
+  const sc = v => v >= 7 ? "#16A34A" : v >= 5 ? "#F59E0B" : "#DC2626";
+  if ($("#br-comp")) Charts.hbar($("#br-comp"), { labels: Object.keys(p.components).map(x => cn[x] || x), values: Object.values(p.components), max: 10, fmt: "score", colors: Object.values(p.components).map(sc), ref: 7 });
+}
+async function drawBrainStore(store) {
+  const box = $("#br-page"); if (!box) return;
+  const d = await API.call("brain_store", { store });
+  const c = d.card || {};
+  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
+  box.innerHTML = `<div class="brhead"><div class="av lg" style="--c:#B8860B">🏬</div><div style="flex:1"><h2>${esc(store)}</h2><div class="sub">${esc(d.format || "")} · ${esc(d.city || "")} · ${d.people.length} people known</div></div></div>
+    <div class="kpis k5">${k("Sales vs budget", c.sales_vs_budget_pct != null ? Math.round(c.sales_vs_budget_pct) + "%" : "—", c.growth_pct != null ? `${c.growth_pct > 0 ? "+" : ""}${c.growth_pct}% vs LY` : "", c.sales_vs_budget_pct >= 100 ? "t-good" : c.sales_vs_budget_pct < 95 ? "t-bad" : "")}${k("Productivity vs target", c.productivity_vs_target_pct != null ? (c.productivity_vs_target_pct > 0 ? "+" : "") + Math.round(c.productivity_vs_target_pct) + "%" : "—", "")}${k("Leaders", c.leaders ?? "—", c.avg_leader_score != null ? `avg index ${(c.avg_leader_score / 10).toFixed(1)}` : "")}${k("Leavers", d.leavers.length, "on record")}${k("Open vacancies", d.vacancies.length, "")}</div>
+    <div class="secgrid">${Object.entries(d.sections).map(([sec, ppl]) => `<div class="panel secc"><div class="phd"><h2>${esc(sec)}</h2><small>${ppl.length}</small></div><div class="chips">${ppl.map(r => `<button class="pchip" data-act="br-open" data-emp="${esc(r.emp)}" style="--c:${LVL_COLOR[Math.min(6, r.level || 0)]}"><i class="dot"></i>${esc(r.name)}<small>${esc(r.designation)}</small></button>`).join("")}</div></div>`).join("")}</div>`;
+}
+function drawBrainGraph() {
+  const cv = $("#brg"); if (!cv) return;
+  API.call("brain_graph", { store: S.brain.gstore }).then(g => {
+    const W = cv.width = cv.clientWidth * devicePixelRatio, H = cv.height = 640 * devicePixelRatio; cv.style.height = "640px";
+    const ctx = cv.getContext("2d"), dpr = devicePixelRatio;
+    const col = n => n.kind === "store" ? "#B8860B" : n.kind === "section" ? "#0F8B8D" : (n.level || 0) >= 3 ? "#C2410C" : "#3A7CA5";
+    const rad = n => (n.kind === "store" ? 16 : n.kind === "section" ? 8 : 5 + Math.min(5, n.level || 0)) * dpr;
+    const storesL = g.nodes.filter(n => n.kind === "store"), home = {};
+    storesL.forEach((n, i) => { const a = i / Math.max(1, storesL.length) * Math.PI * 2; home[n.id] = { x: W / 2 + Math.cos(a) * W * 0.32, y: H / 2 + Math.sin(a) * H * 0.34 }; });
+    const parent = {}; g.edges.forEach(e => { if (e.kind === "in") parent[e.a] = e.b; if (e.kind === "works") parent[e.a] = e.b; });
+    const anchor = id => { let p = id, k = 0; while (parent[p] && k++ < 3) p = parent[p]; return home[p] || { x: W / 2, y: H / 2 }; };
+    const N = g.nodes.map((n, i) => { const h = n.kind === "store" ? home[n.id] : anchor(n.id); return { ...n, hx: h.x, hy: h.y, x: h.x + Math.cos(i * 2.4) * (30 + i % 60) * dpr, y: h.y + Math.sin(i * 2.4) * (30 + i % 60) * dpr, vx: 0, vy: 0 }; });
+    const idx = Object.fromEntries(N.map((n, i) => [n.id, i]));
+    const E = g.edges.map(e => [idx[e.a], idx[e.b], e.kind]).filter(e => e[0] != null && e[1] != null);
+    let view = { s: 1, x: 0, y: 0 }, drag = null, hover = null, tick = 0;
+    function step() {
+      for (let i = 0; i < N.length; i++) for (let j = i + 1; j < N.length; j++) {
+        const a = N[i], b = N[j]; let dx = a.x - b.x, dy = a.y - b.y; const d2 = dx * dx + dy * dy + 0.01;
+        if (d2 > 250000 * dpr * dpr) continue; const f = 900 * dpr * dpr / d2; dx *= f / Math.sqrt(d2); dy *= f / Math.sqrt(d2); a.vx += dx; a.vy += dy; b.vx -= dx; b.vy -= dy; }
+      for (const [a, b, k] of E) { const A = N[a], Bn = N[b]; const dx = Bn.x - A.x, dy = Bn.y - A.y, d = Math.sqrt(dx * dx + dy * dy) + 0.01; const L = (k === "in" ? 120 : k === "reports" ? 70 : 50) * dpr; const f = (d - L) * 0.02; A.vx += dx / d * f; A.vy += dy / d * f; Bn.vx -= dx / d * f; Bn.vy -= dy / d * f; }
+      for (const n of N) { const pull = n.kind === "store" ? 0.02 : 0.004; n.vx += (n.hx - n.x) * pull; n.vy += (n.hy - n.y) * pull; if (n !== drag) { n.x += n.vx * 0.5; n.y += n.vy * 0.5; } n.vx *= 0.6; n.vy *= 0.6; }
+    }
+    function draw() {
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
+      ctx.setTransform(view.s, 0, 0, view.s, view.x, view.y);
+      for (const [a, b, k] of E) { ctx.strokeStyle = k === "reports" ? "rgba(194,65,12,.45)" : "rgba(120,110,100,.25)"; ctx.lineWidth = (k === "reports" ? 1.4 : 1) * dpr; ctx.beginPath(); ctx.moveTo(N[a].x, N[a].y); ctx.lineTo(N[b].x, N[b].y); ctx.stroke(); }
+      for (const n of N) { ctx.beginPath(); ctx.arc(n.x, n.y, rad(n), 0, 7); ctx.fillStyle = col(n); ctx.globalAlpha = hover && hover !== n ? 0.55 : 1; ctx.fill(); ctx.globalAlpha = 1;
+        if (n.kind === "store" || n === hover || (n.kind === "section" && view.s > 1.3) || view.s > 2) { ctx.font = `${n.kind === "store" ? "700 " : ""}${(n.kind === "store" ? 13 : 10.5) * dpr}px Inter, Segoe UI, sans-serif`; ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--ink") || "#222"; ctx.fillText(n.label, n.x + rad(n) + 3 * dpr, n.y + 4 * dpr); } }
+    }
+    function loop() { if (!document.body.contains(cv)) return; if (tick++ < 320 || drag) step(); draw(); requestAnimationFrame(loop); }
+    const pt = e => { const r = cv.getBoundingClientRect(); return { x: ((e.clientX - r.left) * dpr - view.x) / view.s, y: ((e.clientY - r.top) * dpr - view.y) / view.s }; };
+    const hit = q => N.find(n => (n.x - q.x) ** 2 + (n.y - q.y) ** 2 < (rad(n) + 4 * dpr) ** 2);
+    let pan = null, moved = false;
+    cv.onmousedown = e => { const q = pt(e); drag = hit(q); moved = false; if (!drag) pan = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }; };
+    cv.onmousemove = e => { const q = pt(e); if (drag) { drag.x = q.x; drag.y = q.y; moved = true; tick = 200; } else if (pan) { view.x = pan.vx + (e.clientX - pan.x) * dpr; view.y = pan.vy + (e.clientY - pan.y) * dpr; moved = true; }
+      const h = hit(q); hover = h || null; const tip = $("#gtip"); if (h && tip) { tip.hidden = false; tip.style.left = e.offsetX + 14 + "px"; tip.style.top = e.offsetY + 10 + "px"; tip.innerHTML = `<b>${esc(h.label)}</b>${h.role ? `<br><small>${esc(h.role)}${h.index != null ? " · index " + (h.index / 10).toFixed(1) : ""}</small>` : `<br><small>${h.kind}</small>`}`; } else if (tip) tip.hidden = true; cv.style.cursor = h ? "pointer" : "grab"; };
+    cv.onmouseup = () => { if (drag && !moved && drag.kind === "person") { S.brain.tab = "people"; S.brain.emp = drag.emp; render(); } else if (drag && !moved && drag.kind === "store") { S.brain.gstore = drag.label; render(); } drag = null; pan = null; };
+    cv.onwheel = e => { e.preventDefault(); const f = e.deltaY < 0 ? 1.15 : 1 / 1.15; const r = cv.getBoundingClientRect(); const mx = (e.clientX - r.left) * dpr, my = (e.clientY - r.top) * dpr; view.x = mx - (mx - view.x) * f; view.y = my - (my - view.y) * f; view.s *= f; };
+    loop();
+  });
+}
+function brainFix(field) {
+  const p = DATA.brp, F = { designation: "Designation", store: "Store", section: "Section", department: "Department", manager_name: "Reports to", grade: "Grade", joining_date: "Joining date", role_since: "In current role since", status: "Employment status", left_on: "Leaving date", rating: "Performance rating", employee_name: "Name" };
+  const cur = (p.facts.find(f => f.field === field) || {}).value;
+  const m = modal(`<h3>Correct ${esc(p.name)}</h3><p style="color:var(--muted);margin:0 0 10px">The correction wins over the imported files on every screen and in later imports. You can undo it any time.</p>
+    <div class="hform"><label class="dx-l">What<select class="input" id="bf-f">${Object.entries(F).map(([k, l]) => `<option value="${k}" ${k === field ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+    <label class="dx-l">Right value<input class="input" id="bf-v" value="${esc(cur ?? "")}" placeholder="e.g. Section Manager, LAH Fortress, 2024-03-01, left"></label>
+    <label class="dx-l" id="bf-cyc-l" ${field === "rating" ? "" : "hidden"}>Appraisal year<input class="input" id="bf-cyc" type="number" value="${new Date().getFullYear() - 1}"></label>
+    <label class="dx-l" style="grid-column:1/-1">Why (optional)<input class="input" id="bf-n" placeholder="e.g. promoted in September, HRIS not updated yet"></label></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="bf-go">Save correction</button></div>`);
+  $("#bf-f", m).onchange = () => { $("#bf-cyc-l", m).hidden = $("#bf-f", m).value !== "rating"; const c = (p.facts.find(f => f.field === $("#bf-f", m).value) || {}).value; $("#bf-v", m).value = c ?? ""; };
+  $("#bf-go", m).onclick = async () => { await call("correction_add", { emp: p.emp, field: $("#bf-f", m).value, value: $("#bf-v", m).value, note: $("#bf-n", m).value, cycle: $("#bf-f", m).value === "rating" ? +$("#bf-cyc", m).value : null }); closeModal(); toast("Corrected · every screen now uses the new value"); render(); };
+}
+AFTER.brain = () => {
+  const B = S.brain;
+  const q = $("#br-q"); if (q) q.oninput = () => { clearTimeout(B.t); B.t = setTimeout(() => { B.q = q.value; B.emp = null; B.view = "person"; render(); }, 260); };
+  if (q && B.q && document.activeElement !== q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  const st = $("#br-store"); if (st) st.onchange = () => { B.store = st.value; B.emp = null; render(); };
+  const lv = $("#br-level"); if (lv) lv.onchange = () => { B.level = lv.value; B.emp = null; render(); };
+  const lf = $("#br-left"); if (lf) lf.onchange = () => { B.left = lf.checked; render(); };
+  const gs = $("#brg-store"); if (gs) gs.onchange = () => { B.gstore = gs.value; render(); };
+  if (B.tab === "people") { if (B.view === "store" && B.storeName) drawBrainStore(B.storeName); else drawBrainPerson(); }
+  if (B.tab === "graph") drawBrainGraph();
+};
+const BRAIN_ACTS = {
+  "br-tab": b => { S.brain.tab = b.dataset.t; render(); },
+  "br-open": b => { closeModal(); S.brain.tab = "people"; S.brain.view = "person"; S.brain.emp = b.dataset.emp; if (S.page !== "brain") go("brain"); else render(); },
+  "br-store": b => { S.brain.view = "store"; S.brain.storeName = b.dataset.s; drawBrainStore(b.dataset.s); },
+  "br-fix": b => brainFix(b.dataset.f),
+  "br-undo": async b => { await call("correction_undo", { correction_id: +b.dataset.id }); toast("Correction undone"); render(); },
+  "br-export": () => { const p = DATA.brp; const m = modal(`<h3>Profile sheet · ${esc(p.name)}</h3><p style="color:var(--muted);margin:0 0 10px">A complete, shareable profile: role, career, ratings, results vs peers, attendance, insights and next steps.</p>
+      <div class="seg" id="pe-f">${[["pdf", "PDF"], ["docx", "Word"]].map(([v, l], i) => `<button data-v="${v}" aria-pressed="${i === 0}">${l}</button>`).join("")}</div>
+      <div class="setting"><div><b>Include 1:1 notes</b><small>Private notes stay out unless you tick this</small></div><label class="switch"><input type="checkbox" id="pe-n"><span></span></label></div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="pe-go">Export</button></div>`);
+    let f = "pdf"; $$("#pe-f button", m).forEach(b => b.onclick = () => { f = b.dataset.v; $$("#pe-f button", m).forEach(x => x.setAttribute("aria-pressed", x === b)); });
+    $("#pe-go", m).onclick = async () => { const r = await call("profile_export", { emp: p.emp, fmt: f, include_notes: $("#pe-n", m).checked }); closeModal(); if (!r.cancelled) toast("Profile sheet saved"); }; },
 };
 
 async function hireVacancy(head) {
@@ -2544,6 +2701,7 @@ const MORE_ACTS = {
 Object.assign(ACT, MORE_ACTS);
 Object.assign(ACT, IMP_ACTS);
 Object.assign(ACT, INT_ACTS);
+Object.assign(ACT, BRAIN_ACTS);
 ACT["tpl-forget"] = async b => { await call("import_templates", { forget: b.dataset.k }); toast("Forgotten"); render(); };
 
 /* ============================================================== 2.2 Policy assistant */

@@ -70,6 +70,15 @@ TOOLS: list[dict] = [
     {"name": "propose_holiday", "description": "Prepare a gazetted holiday for the user to confirm.",
      "parameters": {"type": "object", "properties": {"day": {"type": "string", "description": "YYYY-MM-DD"},
                                                      "name": {"type": "string"}}, "required": ["day", "name"]}},
+    {"name": "propose_correction", "description": "The user says some data about a person is wrong (designation, store, section, department, "
+     "manager, grade, joining date, in-role date, a rating, or that they have left). Prepare the correction for the user to confirm; once "
+     "confirmed it wins over the imported files on every screen and in later imports.",
+     "parameters": {"type": "object", "properties": {"who": {"type": "string", "description": "employee number or name"},
+         "field": {"type": "string", "enum": ["designation", "store", "section", "department", "manager_name", "grade", "joining_date",
+                                              "role_since", "status", "left_on", "rating", "employee_name"]},
+         "value": {"type": "string", "description": "the right value; for status 'active' or 'left'; dates YYYY-MM-DD"},
+         "cycle": {"type": "integer", "description": "appraisal year, only for a rating"}, "note": {"type": "string"}},
+         "required": ["who", "field", "value"]}},
     {"name": "propose_note", "description": "Prepare a note on a person's profile for the user to confirm.",
      "parameters": {"type": "object", "properties": {"who": {"type": "string"}, "text": {"type": "string"}}, "required": ["who", "text"]}},
 ]
@@ -129,7 +138,7 @@ TOOLS.insert(1, {"name": "datasets", "description": "Other tables the user impor
               "computed insights. Optional group_by and measure are column names.",
               "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "group_by": {"type": "string"},
                                                              "measure": {"type": "string"}}}})
-WRITE_TOOLS = {"propose_leave", "propose_holiday", "propose_note"}
+WRITE_TOOLS = {"propose_leave", "propose_holiday", "propose_note", "propose_correction"}
 
 
 def openai_tools() -> list[dict]:
@@ -506,6 +515,26 @@ class Toolbox:
         act = self.svc.new_action("holiday", f"Add holiday: {name} on {d:%d %b %Y}", [{"day": d.isoformat(), "name": name}])
         self.actions.append(act)
         return {"prepared": 1, "note": "Waiting for the user to click Confirm."}
+
+    def t_propose_correction(self, who, field, value, cycle=None, note="", **kw) -> dict:
+        from .. import brain
+        b = self.svc.api._brain()
+        p = b.resolve(who)
+        if not p:
+            c = b.candidates(who)
+            return {"not_found": who, "did_you_mean": [f"{x['name']} ({x['emp']}, {x['designation']}, {x['store']})" for x in c[:5]]}
+        if field not in brain.FIELDS:
+            return {"error": f"unknown field {field}"}
+        try:
+            v = brain._clean(field, value)
+        except ValueError as e:
+            return {"error": str(e)}
+        old = (p["facts"].get(field) or {}).get("value")
+        title = f"Correct {p['name']} ({p['emp']}): {brain.FIELDS[field]}{' ' + str(cycle) if cycle else ''} {old or '—'} → {v}"
+        act = self.svc.new_action("correction", title, [{"emp": p["emp"], "name": p["name"], "field": field, "value": v, "cycle": cycle,
+                                                          "note": note, "old": old}])
+        self.actions.append(act)
+        return {"prepared": 1, "was": old, "now": v, "note": "Waiting for the user to click Confirm."}
 
     def t_propose_note(self, who, text) -> dict:
         mm = self._mm()

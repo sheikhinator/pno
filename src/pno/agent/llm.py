@@ -100,15 +100,27 @@ def chat(base_url: str, key: str, model: str, messages: list[dict], tools: list[
     req = urllib.request.Request(base_url.rstrip("/") + "/chat/completions", data=json.dumps(body).encode("utf-8"),
                                  headers=_headers(base_url, key), method="POST")
     service = _service(base_url)
-    try:
-        with urlopen(req, timeout) as r:
-            data = json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        raise LLMError(_friendly(e.code, e.read().decode("utf-8", "replace"), service), e.code) from None
-    except urllib.error.URLError as e:
-        raise LLMError(f"Could not reach the AI service ({e.reason}). Check the internet connection.") from None
-    except TimeoutError:
-        raise LLMError("The AI service took too long to answer.") from None
+    import time as _time
+    for attempt in range(3):                 # a short wait and retry on 'too many requests' before giving up on this AI
+        try:
+            with urlopen(req, timeout) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as e:
+            # a per-minute limit tells us how long to wait: wait a few seconds and retry instead of switching AI.
+            # A daily limit (or no hint) switches to the next AI at once.
+            try:
+                wait = float(e.headers.get("Retry-After") or 0) if e.headers else 0.0
+            except (TypeError, ValueError):
+                wait = 0.0
+            if e.code in (429, 503) and attempt < 2 and 0 < wait <= 8:
+                _time.sleep(wait)
+                continue
+            raise LLMError(_friendly(e.code, e.read().decode("utf-8", "replace"), service), e.code) from None
+        except urllib.error.URLError as e:
+            raise LLMError(f"Could not reach the AI service ({e.reason}). Check the internet connection.") from None
+        except TimeoutError:
+            raise LLMError("The AI service took too long to answer.") from None
     if isinstance(data, dict) and data.get("error"):
         raise LLMError(f"{service}: {(data['error'] or {}).get('message', 'error')}")
     choice = (data.get("choices") or [{}])[0]

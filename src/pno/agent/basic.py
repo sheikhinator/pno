@@ -233,9 +233,57 @@ def _internal_answer(tb: Toolbox, q: str) -> str | None:
     return "\n".join(lines + ["", "Open **Hiring**, create the vacancy and use **Internal talent first** for the full profiles and chains of moves."])
 
 
+_ROLES_RX = r"(?P<role>store manager|deputy (?:store )?manager|department head|section manager|team leader|supervisor|cashier|sales associate|associate|[a-z ]{3,30}?)"
+_CORR = [
+    (re.compile(r"^(?P<who>.+?)\s+is\s+(?:a|an|the)\s+" + _ROLES_RX + r"(?:,|\s)+(?:not|and not)\s+(?:a|an|the)?\s*.+$", re.I), "designation", "role"),
+    (re.compile(r"^(?P<who>.+?)\s+(?:moved|was transferred|has moved|transferred|works)\s+(?:to|in|at)\s+(?P<v>.+?)\.?$", re.I), "store", "v"),
+    (re.compile(r"^(?P<who>.+?)(?:'s| s)\s+manager\s+is\s+(?P<v>.+?)\.?$", re.I), "manager_name", "v"),
+    (re.compile(r"^(?P<who>.+?)\s+(?:left|resigned|has left)(?:\s+(?:the company|carrefour))?(?:\s+on\s+(?P<v>.+?))?\.?$", re.I), "status", "v"),
+    (re.compile(r"^(?P<who>.+?)(?:'s| s)\s+(?P<f>section|department|grade|designation|store|joining date)\s+is\s+(?P<v>.+?)\.?$", re.I), None, "v"),
+]
+
+
+def _correction(tb: Toolbox, q: str) -> str | None:
+    text = re.sub(r"^(no[,.]?\s*|actually[,]?\s*|correction[:,]?\s*)", "", q.strip(), flags=re.I)
+    for rx, field, grp in _CORR:
+        m = rx.match(text)
+        if not m:
+            continue
+        who = m.group("who").strip(" ,.")
+        if field is None:
+            field = {"joining date": "joining_date"}.get(m.group("f").lower(), m.group("f").lower())
+        if field == "designation":
+            value = m.group("role")
+            value = re.sub(r"\s+", " ", value).strip().title()
+        elif field == "status":
+            r = tb.t_propose_correction(who, "status", "left")
+            if m.group("v") and "prepared" in r:
+                tb.t_propose_correction(who, "left_on", m.group("v"))
+            return _corr_reply(r, who)
+        else:
+            value = m.group(grp).strip()
+        return _corr_reply(tb.t_propose_correction(who, field, value), who)
+    return None
+
+
+def _corr_reply(r: dict, who: str) -> str:
+    if r.get("not_found"):
+        dm = r.get("did_you_mean") or []
+        return f"I couldn't find **{who}**." + (" Did you mean: " + "; ".join(dm) + "?" if dm else " Use the employee number.")
+    if r.get("error"):
+        return f"I couldn't prepare that correction: {r['error']}"
+    return (f"Here is the correction: **{r.get('was') or '—'} → {r.get('now')}**. Click **Confirm** to save it. It will win over the imported files "
+            "on every screen and survive later imports.")
+
+
 def answer(tb: Toolbox, question: str) -> str:
     q = question.strip()
     ql = q.lower()
+    if re.search(r"\bis (a|an|the) .+\bnot\b|moved to|transferred to|manager is|\b(left|resigned)\b|'s (section|department|grade|designation|store|joining date) is", ql) \
+            and not ql.startswith(("who", "what", "how", "which", "why", "when", "show", "list")):
+        c = _correction(tb, q)
+        if c:
+            return c
     if _INT_RX.search(ql):
         a = _internal_answer(tb, q)
         if a:

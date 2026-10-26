@@ -75,10 +75,37 @@ def followups(text: str, used: list) -> list[str]:
     return ["Brief me for the country review", "Which stores need attention and why?", "Is my data ready?"]
 
 
+TASKS = {
+    "chat": "Chat with your data (names, ratings, results)",
+    "learning": "Courses and learning",
+    "hiring": "CV screening and job descriptions",
+    "import": "Reading unknown files during import",
+    "policy": "Policy answers",
+    "insights": "Survey comments, written insights and dataset labels",
+}
+
+
+def _drop_empty(x):
+    if isinstance(x, dict):
+        return {k: _drop_empty(v) for k, v in x.items() if v not in (None, "", [], {})}
+    if isinstance(x, list):
+        return [_drop_empty(v) for v in x]
+    if isinstance(x, float):
+        return round(x, 2)
+    return x
+
+
+def _compact(out, limit: int = 6000) -> str:
+    """Tool results without empty fields, rounded numbers and no spaces: the same facts in far fewer tokens."""
+    s = json.dumps(_drop_empty(out), default=str, separators=(",", ":"), ensure_ascii=False)
+    return s if len(s) <= limit else s[:limit] + '…(cut: ask a narrower question for the rest)'
+
+
 class AgentService:
     def __init__(self, api):
         self.api = api
         self.pending: dict[str, dict] = {}
+        self._answers: dict[tuple, tuple[float, dict]] = {}
 
     @property
     def db(self):
@@ -89,9 +116,10 @@ class AgentService:
     # models {provider: model id}, lists {provider: models the provider reported on the last Test}, anonymise.
     def _cfg(self) -> dict:
         stored = self.db.get_setting("ai", {}) or {}
-        c = {"mode": "auto", "anonymise": False, "keys": {}, "models": {}, "lists": {}}
+        c = {"mode": "auto", "anonymise": False, "keys": {}, "models": {}, "lists": {}, "routes": {}}
         c.update({k: v for k, v in stored.items() if k not in ("key", "model")})
         c["keys"], c["models"], c["lists"] = dict(c["keys"] or {}), dict(c["models"] or {}), dict(c["lists"] or {})
+        c["routes"] = {k: v for k, v in dict(c.get("routes") or {}).items() if k in TASKS and v in ENGINES}
         if stored.get("key") and "groq" not in c["keys"]:          # settings saved by P&O 1.3 and earlier
             c["keys"]["groq"] = stored["key"]
         if stored.get("model") and "groq" not in c["models"]:
@@ -100,8 +128,15 @@ class AgentService:
             c["mode"] = "auto"
         return c
 
-    def save_settings(self, mode=None, model=None, anonymise=None, key=None, clear_key=False, provider=None) -> dict:
+    def save_settings(self, mode=None, model=None, anonymise=None, key=None, clear_key=False, provider=None, routes=None) -> dict:
         c = self._cfg()
+        if isinstance(routes, dict):
+            for t, e in routes.items():
+                if t in TASKS:
+                    if e in (None, "", "auto"):
+                        c["routes"].pop(t, None)
+                    elif e in ENGINES:
+                        c["routes"][t] = e
         if mode in ENGINES:
             c["mode"] = mode
         pid = provider if provider in llm.PROVIDERS else (mode if mode in llm.PROVIDERS else "groq")
@@ -164,6 +199,7 @@ class AgentService:
                               "model": model, "models": models, "live_models": bool(listed)})
         groq = providers[0]
         return {**self.public_status(), "providers": providers, "anonymise": c["anonymise"],
+                "tasks": [{"id": t, "label": l, "engine": c["routes"].get(t, "auto")} for t, l in TASKS.items()],
                 "model": groq["model"], "models": groq["models"], "key_masked": groq["key_masked"],     # older screens
                 "offline_status": self.offline_status()}
 
@@ -188,6 +224,11 @@ class AgentService:
             order.remove(m)
             order.insert(0, m)
         return [e for e in order if self._usable(e, keys)] + ["basic"]
+
+    def _for_task(self, c: dict, task: str | None) -> dict:
+        """The settings with the AI chosen for this kind of work put first."""
+        e = (c.get("routes") or {}).get(task or "")
+        return {**c, "mode": e} if e and e != "auto" else c
 
     def _choose(self, c: dict, key=None) -> str:
         keys = key if isinstance(key, dict) else self._keys(c)
@@ -279,6 +320,11 @@ class AgentService:
                 self.api.api_note_add(it["emp"], it["text"])
                 done += 1
             msg = "Note saved on the profile."
+        elif act["kind"] == "correction":
+            for it in act["items"]:
+                self.api.api_correction_add(it["emp"], it["field"], it["value"], it.get("note") or "Corrected in Ask P&O AI", it.get("cycle"), "chat")
+                done += 1
+            msg = f"Corrected. Every screen now uses the new value{'s' if done > 1 else ''}, and later imports won't overwrite it. Undo it on the person's page."
         elif act["kind"] == "import":
             res = self.api.api_import_commit(act["token"], act.get("options") or {})
             ok = sum(1 for f in res["done"] for r in f.get("results", []) if r.get("status") == "ok")
@@ -335,9 +381,10 @@ class AgentService:
             raise RuntimeError("The offline AI is still loading. Try again in a moment.")
         return f"http://127.0.0.1:{local.PORT}/v1", "local", ""
 
-    def complete(self, prompt: str, system: str = "", max_tokens: int = 900, allow_offline: bool = True) -> tuple[str, str] | None:
-        """One plain AI completion (no tools) with the first AI that answers; None when only the built-in assistant is set up."""
-        c = self._cfg()
+    def complete(self, prompt: str, system: str = "", max_tokens: int = 900, allow_offline: bool = True, task: str = "insights") -> tuple[str, str] | None:
+        """One plain AI completion (no tools) with the first AI that answers; None when only the built-in assistant is set up.
+        `task` picks the AI chosen for that kind of work in Settings → AI."""
+        c = self._for_task(self._cfg(), task)
         keys = self._keys(c)
         chain = [e for e in self._chain(c, keys) if e != "basic" and (allow_offline or e != "offline")]
         msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
@@ -355,9 +402,14 @@ class AgentService:
 
     def ask(self, question: str, history: list, month: str | None, scope: dict, attachments: list, engine: str | None = None) -> dict:
         t0 = time.time()
-        c = self._cfg()
+        c = self._for_task(self._cfg(), "chat")
         if engine in ENGINES:                  # switched from the chat box for this question
             c["mode"] = engine
+        ck = (question.strip().casefold(), month, json.dumps(scope or {}, sort_keys=True), self.db.version, c["mode"],
+              json.dumps([h.get("content", "")[:200] for h in (history or [])[-2:]]))
+        hit = self._answers.get(ck) if not attachments else None
+        if hit and time.time() - hit[0] < 900:                      # the same question on the same data: answer from memory
+            return {**hit[1], "cached": True, "seconds": round(time.time() - t0, 1)}
         keys = self._keys(c)
         tb = Toolbox(self, month, scope, bool(c["anonymise"]))
         intro = self._attachments(tb, attachments) if attachments else ""
@@ -370,7 +422,12 @@ class AgentService:
             try:
                 text = self._llm(engine_name, c, keys, tb, question, history)
                 note = ("_" + " ".join(notes) + f" Answered with {ENGINE_NAME[engine_name]} instead._\n\n") if notes else ""
-                return self._reply(tb, note + (intro + "\n\n" if intro else "") + text, engine_name, t0)
+                out = self._reply(tb, note + (intro + "\n\n" if intro else "") + text, engine_name, t0)
+                if not tb.actions:
+                    self._answers[ck] = (time.time(), out)
+                    if len(self._answers) > 60:
+                        self._answers.pop(next(iter(self._answers)))
+                return out
             except (llm.LLMError, RuntimeError, OSError) as e:
                 notes.append(str(e).rstrip(".") + ".")
                 tb.blocks.clear()
@@ -395,9 +452,11 @@ class AgentService:
                f"{json.dumps(tb.scope) if tb.scope else 'whole country'}. Months available: {', '.join(engine.months_available(self.db))}. "
                f"Today: {time.strftime('%Y-%m-%d')}.")
         msgs = [{"role": "system", "content": SYSTEM + "\n\n" + ctx}]
-        for h in history[-8:]:
-            if h.get("role") in ("user", "assistant") and h.get("content"):
-                msgs.append({"role": h["role"], "content": str(h["content"])[:3000]})
+        hist = [h for h in history if h.get("role") in ("user", "assistant") and h.get("content")]
+        if len(hist) > 6:                       # older turns as one short line each, the last three exchanges in full
+            msgs.append({"role": "system", "content": "Earlier in this chat: " + " | ".join(str(h["content"])[:140].replace("\n", " ") for h in hist[:-6] if h["role"] == "user")})
+        for h in hist[-6:]:
+            msgs.append({"role": h["role"], "content": str(h["content"])[:1800 if h["role"] == "assistant" else 1200]})
         msgs.append({"role": "user", "content": question})
         tools = openai_tools()
         for _ in range(8):
@@ -413,7 +472,7 @@ class AgentService:
                 except ValueError:
                     args = {}
                 out = tb.run(fn.get("name", ""), args)
-                msgs.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": json.dumps(out, default=str)[:7000]})
+                msgs.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": _compact(out)})
         return "I looked at the data but needed too many steps. Please ask a narrower question."
 
     # ---------------------------------------------------------------- files dropped into the chat
@@ -474,7 +533,7 @@ class AgentService:
                       '\nIf this is a list of employee leave, reply with JSON only: {"emp": i, "from": i, "to": i, "type": i, '
                       '"status": i} using 0-based column indexes (null if missing). If it is not a leave list reply {"leave": false}.')
             try:
-                out = self.complete(prompt, max_tokens=120)
+                out = self.complete(prompt, max_tokens=120, task="import")
                 m = re.search(r"\{.*\}", out[0] if out else "", re.S)
                 mapping = json.loads(m.group(0)) if m else None
             except Exception:

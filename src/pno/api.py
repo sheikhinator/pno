@@ -225,7 +225,7 @@ class Api:
             "Write a clear, professional job description for Majid Al Futtaim Carrefour Pakistan in markdown with sections: Purpose of the role, "
             "Key responsibilities (6-8 bullets), What you bring (experience, education, skills), Competencies, Working conditions. "
             f"Role: {title}. Store: {store or 'any'}. Section: {section or 'any'}. Extra notes from the hiring manager: {notes or 'none'}. "
-            "Never ask for age, gender, marital status or religion.", max_tokens=900)
+            "Never ask for age, gender, marital status or religion.", max_tokens=900, task="hiring")
         if out:
             d["jd"], d["engine"] = out[0], out[1]
         else:
@@ -531,7 +531,7 @@ class Api:
         prompt = (f"A sheet named '{sheet}' in file '{file}' (title: '{t.title[:120]}') has these columns:\n" + "\n".join(cols) +
                   f"\n\nReport types: {kinds}, dataset (anything else).\nFields: {fields}.\n\nReply with JSON only: "
                   '{"kind": "<type>", "mapping": {"<field>": <column number>, ...}, "why": "<one sentence>"}')
-        out = self.agent.complete(prompt, system="You map HR spreadsheet columns to a fixed schema. Reply with JSON only.", max_tokens=500)
+        out = self.agent.complete(prompt, system="You map HR spreadsheet columns to a fixed schema. Reply with JSON only.", max_tokens=500, task="import")
         if not out or not out[0]:
             raise ValueError("No AI is set up. Add a key in Settings → AI, or match the columns yourself.")
         m = re.search(r"\{.*\}", out[0], re.S)
@@ -1034,6 +1034,139 @@ class Api:
         ins = self._po()
         return planning.forecast(self.db, ins, months, float(turnover_change or 0), hires_per_month, int(growth_heads or 0), replacement_cost)
 
+    # ---------------------------------------------------------------- 2.7 People Brain and corrections
+    def _brain(self):
+        from .brain import Brain
+        key = (str(self.db.path), self.db.version, self._hide())
+        c = getattr(self, "_brain_cache", None)
+        if c and c[0] == key:
+            return c[1]
+        b = Brain(self)
+        self._brain_cache = (key, b)
+        return b
+
+    def api_brain_search(self, q: str = "", store: str = "", level: int | None = None, include_left: bool = False) -> dict:
+        b = self._brain()
+        rows = b.find(q, 400)
+        if store:
+            rows = [r for r in rows if r["store"] == store]
+        if level is not None and str(level) != "":
+            rows = [r for r in rows if (r["level"] or 0) >= int(level)]
+        if not include_left:
+            rows = [r for r in rows if not r["left"]]
+        stores = sorted({(p["facts"].get("store") or {}).get("value") for p in b.people.values() if (p["facts"].get("store") or {}).get("value")})
+        return {"rows": rows[:300], "total": len(rows), "stores": stores, "people": len(b.people)}
+
+    def api_brain_person(self, emp: str) -> dict:
+        page = self._brain().person_page(emp)
+        if self._hide():
+            page["name"] = f"Employee {page['emp']}"
+        return page
+
+    def api_brain_store(self, store: str) -> dict:
+        return self._brain().store_page(store)
+
+    def api_brain_graph(self, store: str = "", leaders_only: bool = True) -> dict:
+        return self._brain().graph(store, bool(leaders_only))
+
+    def api_correction_add(self, emp: str, field: str, value: Any, note: str = "", cycle: int | None = None, source: str = "manual") -> dict:
+        from . import brain
+        b = self._brain()
+        p = b.people.get(str(emp))
+        old = ((p or {}).get("facts", {}).get(field) or {}).get("value") if p else None
+        brain.add_correction(self.db, emp, field, value, (p or {}).get("name", ""), note, source, int(cycle) if cycle else None, old)
+        return {"ok": True, "person": self.api_brain_person(emp) if p else None}
+
+    def api_correction_undo(self, correction_id: int) -> dict:
+        from . import brain
+        brain.undo_correction(self.db, int(correction_id))
+        return {"ok": True}
+
+    def api_corrections(self) -> dict:
+        from . import brain
+        return {"rows": brain.corrections(self.db), "fields": brain.FIELDS}
+
+    def api_profile_export(self, emp: str, fmt: str = "pdf", include_notes: bool = False, save_as: str | None = None, open_after: bool = True) -> dict:
+        from . import exports
+        from .brain import profile_report
+        page = self.api_brain_person(emp)
+        rep = profile_report(page, bool(include_notes))
+        path = save_as or self.host.save_path(exports.file_name(rep, fmt), fmt)
+        if not path:
+            return {"cancelled": True}
+        exports.render(rep, fmt, path)
+        self.db.log("export", f"profile {emp} {fmt}")
+        if open_after:
+            self.host.open_path(path)
+        return {"path": path}
+
+    # ---------------------------------------------------------------- 2.8 employee relations
+    def api_er_cases(self, status: str = "open") -> dict:
+        from . import relations
+        return relations.cases(self.db, status)
+
+    def api_er_case(self, case_id: int) -> dict:
+        from . import relations
+        return relations.case(self.db, int(case_id))
+
+    def api_er_open(self, kind: str, emp: str = "", name: str = "", category: str = "Other", description: str = "", opened_on: str | None = None,
+                    confidential: bool = False) -> dict:
+        from . import relations
+        p = self._brain().people.get(str(emp)) if emp else None
+        f = (p or {}).get("facts", {})
+        g = lambda k: (f.get(k) or {}).get("value", "")  # noqa: E731
+        cid = relations.open_case(self.db, kind, emp, name or (p or {}).get("name", ""), g("store"), g("section"), g("designation"),
+                                  category, description, opened_on, confidential)
+        return relations.case(self.db, cid)
+
+    def api_er_advance(self, case_id: int, stage: str | None = None, note: str = "", outcome: str | None = None, due: str | None = None) -> dict:
+        from . import relations
+        return relations.advance(self.db, int(case_id), stage, note, outcome, due)
+
+    def api_letter_types(self) -> dict:
+        from . import relations
+        return {"types": [{"kind": k, "title": v["title"], "fields": v["fields"]} for k, v in relations.LETTERS.items()],
+                "letters": relations.letters(self.db)}
+
+    def api_letter_defaults(self, kind: str, emp: str, case_id: int | None = None) -> dict:
+        from . import relations
+        return relations.letter_defaults(self, kind, emp, int(case_id) if case_id else None)
+
+    def api_letter_make(self, kind: str, emp: str, name: str, fields: dict, fmt: str = "docx", case_id: int | None = None,
+                        save_as: str | None = None, open_after: bool = True) -> dict:
+        from . import relations
+        title = relations.LETTERS.get(kind, {}).get("title", "Letter")
+        path = save_as or self.host.save_path(re.sub(r"[^\w\- ]+", "", f"{title} - {name}").strip() + f".{fmt}", fmt)
+        if not path:
+            return {"cancelled": True}
+        r = relations.make_letter(self.db, kind, str(emp), name, fields, path, fmt, int(case_id) if case_id else None,
+                                  self.db.get_setting("letter_signatory", "Director, People & Organisation"))
+        if open_after:
+            self.host.open_path(path)
+        return r
+
+    def api_exits(self) -> dict:
+        from . import relations
+        return relations.exits(self.db, self)
+
+    def api_exit_add(self, **kw) -> dict:
+        from . import relations
+        emp = str(kw.get("emp") or "")
+        p = self._brain().people.get(emp) if emp else None
+        f = (p or {}).get("facts", {})
+        g = lambda k: (f.get(k) or {}).get("value", "")  # noqa: E731
+        kw.setdefault("name", (p or {}).get("name", ""))
+        for k in ("store", "section", "designation"):
+            if not kw.get(k):
+                kw[k] = g(k)
+        relations.add_exit(self.db, **{k: v for k, v in kw.items() if k in ("emp", "name", "store", "section", "designation", "leave_date", "main_reason",
+                                                                         "reasons", "manager_score", "culture_score", "pay_score", "growth_score",
+                                                                         "would_return", "recommend", "comments")})
+        return relations.exits(self.db, self)
+
+    def api_people_pick(self, q: str = "") -> dict:
+        return {"rows": self._brain().find(q, 15)}
+
     # ---------------------------------------------------------------- app lock
     def _pin_hash(self, pin: str, salt: str) -> str:
         import hashlib
@@ -1431,7 +1564,7 @@ class Api:
         if not leader:
             raise ValueError("Leader not found.")
         from .po.format import leader_name
-        return {"key": key, "html": leader_profile_html(ins, leader), "name": leader_name(leader), "store": leader.store or ""}
+        return {"key": key, "html": leader_profile_html(ins, leader), "name": leader_name(leader), "store": leader.store or "", "emp": leader.employee_id or ""}
 
     def api_po_turnover(self) -> dict:
         from .po import privacy
@@ -1518,7 +1651,7 @@ class Api:
                           '{"title": short title, "about": one sentence, "roles": {column name: one of store, section, department, '
                           "employee_id, employee_name, designation, manager, city, date, month, actual, budget, target, last_year, "
                           'forecast, count, score, reason, type or ""}}.\n' + json.dumps(cols, default=str)[:6000])
-                out = self.agent.complete(prompt, max_tokens=700, allow_offline=False)
+                out = self.agent.complete(prompt, max_tokens=700, allow_offline=False, task="insights")
                 if not out:
                     return
                 text = out[0]
