@@ -85,6 +85,11 @@ TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: s
                              "from_month": {"type": "string", "description": "YYYY-MM, YTD start (default January)"},
                              "to_month": {"type": "string", "description": "YYYY-MM, the month (MTD) or YTD end"}},
                              "required": ["question"]}})
+TOOLS.insert(1, {"name": "data_health", "description": "Is the data for a month complete and trustworthy? Returns the checklist of "
+              "expected reports (in, worked out from other periods, older period only, missing), checks across tabs (leavers still on "
+              "the Basic Sheet, unconfirmed store names, conflicting files, totals that do not add up, outliers), a 0-100 health score "
+              "and whether the month is locked. Use it for 'is my data ready', 'what is missing', 'can I trust these numbers'.",
+              "parameters": {"type": "object", "properties": {"month": {"type": "string", "description": "YYYY-MM; default the latest"}}}})
 TOOLS.insert(1, {"name": "datasets", "description": "Other tables the user imported that are not standard P&O reports (KPI sheets, "
               "training lists, surveys…). Without 'title' lists them; with 'title' returns that table's columns, grouped totals and "
               "computed insights. Optional group_by and measure are column names.",
@@ -192,6 +197,12 @@ class Toolbox:
         return {"title": v["title"], "rows": v["rows"], "columns": [{k: c.get(k) for k in ("name", "type", "role")} for c in v["columns"]],
                 "grouped_by": v["group"], "measure": v["measure"], "aggregation": v["agg"], "groups": v["series"][:30],
                 "trend": v["trend"][-24:], "insights": v["insights"]}
+
+    def t_data_health(self, month: str = "", **kw) -> dict:
+        r = self.svc.api.api_data_health(month or None)
+        return {"month": r["month_label"], "score": r["score"], "verdict": r["verdict"], "locked": r["locked"],
+                "checklist": [{"report": c["name"], "status": c["status"], "period": c["label"]} for c in r["checklist"]],
+                "checks": [{"level": c["level"], "area": c["area"], "message": c["message"], "examples": c["items"][:5]} for c in r["checks"]]}
 
     def t_po_review(self, question: str = "", period: str = "screen", from_month: str = "", to_month: str = "", **kw) -> dict:
         from ..po import privacy

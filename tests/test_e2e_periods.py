@@ -62,7 +62,16 @@ def test_period_bar_on_every_po_screen(tmp_path):
                 settle()
                 page.locator("[data-act=pv-type][data-t=latest]").click()
                 settle()
-            # import screen: period controls follow the type chosen
+            # data health: checklist, checks, dictionary, lock and unlock
+            page.evaluate("go('health')")
+            settle()
+            assert page.locator(".hrow").count() >= 10
+            page.locator(".hdict>summary").click()
+            page.locator("[data-act=h-lock]").click()
+            settle()
+            assert "Locked" in page.locator("[data-act=h-lock]").inner_text()
+            page.locator("[data-act=h-lock]").click()
+            settle()
             page.evaluate("go('import')")
             settle()
             browser.close()

@@ -72,18 +72,19 @@ const ICON = {
   shifts: '<rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7 13h2M11 13h2M15 13h2M7 17h2M11 17h2"/>',
   data: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6M4 11.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
   nps: '<path d="M12 21s-7-4.4-9.3-9A5.2 5.2 0 0 1 12 6.6 5.2 5.2 0 0 1 21.3 12C19 16.6 12 21 12 21z"/>',
+  health: '<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
 };
 const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[n] || ""}</svg>`;
 const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
   ["people", "People", "people"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
-  ["ask", "Ask P&O AI", "ask"], ["import", "Import data", "import"], ["settings", "Settings", "settings"]];
+  ["ask", "Ask P&O AI", "ask"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
 const NAV_GROUP = { retention: "Insights", ask: "Tools" };
 const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
 const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
   talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
-  data: "Other data", ask: "Ask P&O AI", import: "Import data", settings: "Settings" };
+  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -766,6 +767,39 @@ const CHAT_ACTS = {
   "msg-retry": b => { const m = S.chat[+b.dataset.m]; if (m && m.q != null) ask(m.q); },
 };
 
+/* data health: is everything in for the month, and can the numbers be trusted? */
+const HSTAT = { ok: ["In", "good"], derived: ["Worked out", "info"], older: ["Older period only", "warn"], stale: ["Old", "warn"], missing: ["Missing", "bad"] };
+PAGES.health = async () => {
+  const d = DATA.health = await API.call("data_health", { month: S.healthMonth || null });
+  S.healthMonth = d.month;
+  const ring = (v) => { const r = 34, c = 2 * Math.PI * r, tone = v >= 85 ? "var(--good)" : v >= 60 ? "var(--warn)" : "var(--bad)";
+    return `<svg class="hring" viewBox="0 0 84 84" width="96" height="96"><circle cx="42" cy="42" r="${r}" fill="none" stroke="var(--bg-2)" stroke-width="9"/>
+      <circle cx="42" cy="42" r="${r}" fill="none" stroke="${tone}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - v / 100)}" transform="rotate(-90 42 42)" class="hring-arc"/>
+      <text x="42" y="47" text-anchor="middle" font-size="22" font-weight="800" fill="var(--ink)">${v}</text></svg>`; };
+  const lvl = { bad: ["!", "bad"], warn: ["•", "warn"], info: ["i", ""] };
+  const months = d.months.length ? d.months : [{ value: d.month, label: d.month_label }];
+  return `<div class="ph"><div><h1>Data health</h1><p>Is everything for the month in, and can the numbers be trusted? Fix what is listed here before presenting.</p></div>
+      <div class="row"><label class="pv-l">Month<select class="input sm" id="h-month">${months.map(m => `<option value="${m.value}" ${m.value === d.month ? "selected" : ""}>${esc(m.label)}</option>`).join("")}</select></label>
+      <button class="btn ${d.locked ? "" : "ghost"}" data-act="h-lock" data-locked="${d.locked ? 0 : 1}" title="A locked month cannot be changed by later imports">${d.locked ? "🔒 Locked · unlock" : "🔓 Lock month"}</button></div></div>
+    <div class="grid hgrid">
+      <div class="panel hscore"><div class="row" style="gap:18px;align-items:center">${ring(d.score)}<div><span class="kpi-l">Data health · ${esc(d.month_label)}</span>
+        <h2 style="margin:4px 0">${esc(d.verdict)}</h2><small style="color:var(--muted)">${d.ready} of ${d.expected} reports in · ${d.checks.length} thing${d.checks.length === 1 ? "" : "s"} to check</small></div></div></div>
+      <div class="panel"><div class="phd"><h2>Monthly checklist</h2><button class="btn sm primary" data-go="import">${ic("import", 14)}Import missing</button></div>
+        <div class="hlist">${d.checklist.map(c => `<div class="hrow"><span class="chip ${HSTAT[c.status][1]}">${HSTAT[c.status][0]}</span><b>${esc(c.name)}</b>
+          <small>${esc(c.label || "")}${c.detail && c.detail !== "latest is " + c.label ? ` · ${esc(c.detail)}` : ""}</small></div>`).join("")}</div></div></div>
+    <div class="panel"><div class="phd"><h2>Checks</h2><small>Reconciliation across tabs, store names, conflicting files, totals and outliers</small></div>
+      ${d.checks.length ? d.checks.map((c, i) => `<details class="hcheck ${lvl[c.level][1]}"><summary><span class="ic">${lvl[c.level][0]}</span><span><b>${esc(c.area)}</b> · ${esc(c.message)}</span>
+        ${c.go ? `<button class="btn sm" data-go="${c.go}" ${c.tab ? `data-tab="${c.tab}"` : ""}>Open</button>` : ""}</summary>
+        ${c.items.length ? `<ul>${c.items.map(x => `<li>${esc(x)}</li>`).join("")}${c.count > c.items.length ? `<li style="color:var(--muted)">… and ${c.count - c.items.length} more</li>` : ""}</ul>` : ""}</details>`).join("")
+        : `<div class="empty">✓ Nothing to fix. The data agrees across every tab.</div>`}</div>
+    <details class="panel hdict"><summary><h2 style="margin:0;display:inline">Measure dictionary</h2> <small style="color:var(--muted)">what every figure means, where it comes from and how it works across MTD and YTD</small></summary>
+      <div class="tbl-wrap" style="margin-top:10px"><table class="t"><thead><tr><th>Measure</th><th>How it is worked out</th><th>From</th><th>Across periods</th></tr></thead>
+      <tbody>${d.measures.map(m => `<tr><td><b>${esc(m.name)}</b></td><td>${esc(m.formula)}</td><td>${esc(m.source)}</td><td><small>${esc(m.periods)}</small></td></tr>`).join("")}</tbody></table></div></details>`;
+};
+AFTER.health = () => { const m = $("#h-month"); if (m) m.onchange = () => { S.healthMonth = m.value; render(); }; };
+const HEALTH_ACTS = {};
+HEALTH_ACTS["h-lock"] = async b => { await call("lock_month", { month: S.healthMonth, locked: b.dataset.locked === "1" }); toast(b.dataset.locked === "1" ? "Month locked" : "Month unlocked"); render(); };
+
 /* import */
 function impPeriod(f, r, sess) {
   const p = r.period || { type: "general" };
@@ -1153,7 +1187,7 @@ const ACT = {
     b.disabled = true; b.innerHTML = `<span class="spin" style="width:14px;height:14px"></span> Importing…`;
     try {
       const r = await API.call("import_commit", { token: S.importSess.token, options: opts });
-      const lines = r.done.flatMap(f => f.error ? [`${f.file}: ${f.error}`] : f.results.map(x => `${x.kind}: ${x.status === "ok" ? x.rows.toLocaleString("en-US") + " rows" : x.message}`));
+      const lines = r.done.flatMap(f => f.error ? [`${f.file}: ${f.error}`] : f.results.map(x => `${x.kind}: ${x.status === "ok" ? x.rows.toLocaleString("en-US") + " rows" + (x.period ? " · " + x.period : "") : x.message}`));
       S.importSess = null;
       toast(lines.join(" · "), { ms: 7000 });
       await afterDataChange(true);
@@ -1266,7 +1300,7 @@ function periodBar(p) {
   const last = p.default_to || (p.months.length ? p.months[p.months.length - 1].value : "");
   const picks = v.type === "mtd" ? `<label class="pv-l">Month<select class="input sm" data-pv="to">${opt(v.to || last)}</select></label>`
     : v.type === "ytd" ? `<label class="pv-l">From<select class="input sm" data-pv="from">${opt(v.from)}</select></label><label class="pv-l">To<select class="input sm" data-pv="to">${opt(v.to || last)}</select></label>` : "";
-  const cov = (p.coverage || []).map(c => `<tr><td>${esc(c.name)}</td><td>${c.type ? `<span class="chip ${PTYPE[c.type] ? PTYPE[c.type][1] : ""}">${esc(PTYPE[c.type] ? PTYPE[c.type][0] : c.type)}</span>` : ""} ${esc(c.label)}</td><td class="n">${c.rows ? c.rows.toLocaleString("en-US") : "—"}</td><td>${c.note ? `<small style="color:var(--warn-ink)">${esc(c.note.split(": ").slice(1).join(": "))}</small>` : ""}</td></tr>`).join("");
+  const cov = (p.coverage || []).map(c => `<tr><td>${esc(c.name)}</td><td>${c.type ? `<span class="chip ${PTYPE[c.type] ? PTYPE[c.type][1] : ""}">${esc(PTYPE[c.type] ? PTYPE[c.type][0] : c.type)}</span>` : ""} ${esc(c.label)}</td><td class="n">${c.rows ? c.rows.toLocaleString("en-US") : "—"}${c.age != null ? `<span class="sub">${c.age === 0 ? "today" : c.age + "d ago"}</span>` : ""}</td><td>${c.note ? `<small style="color:var(--warn-ink)">${esc(c.note.split(": ").slice(1).join(": "))}</small>` : c.how ? `<small style="color:var(--good-ink, var(--good))">✓ ${esc(c.how)}</small>` : ""}</td></tr>`).join("");
   return `<div class="pbar"><span class="pbar-t">${ic("shifts", 15)}Period</span>
       <div class="seg sm">${[["latest", "Latest"], ["mtd", "Month (MTD)"], ["ytd", "Year to date (YTD)"]].map(([k, l]) => `<button data-act="pv-type" data-t="${k}" aria-pressed="${v.type === k}" ${k !== "latest" && !p.months.length ? "disabled" : ""}>${l}</button>`).join("")}</div>
       ${picks}<span class="spacer"></span>
@@ -1385,8 +1419,8 @@ PAGES.retention = async () => {
   const types = Object.fromEntries(d.by_type);
   const kpi = (l, v, s) => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
   return `<div class="ph"><div><h1>Turnover &amp; retention</h1><p>${esc(d.window === "last 12 months" ? "Last 12 months to " + fmtDate(d.as_of) : d.window)} · by requested date</p></div></div>
-    <div class="kpis po-kpis4">${kpi("Leavers · " + d.window, d.total, `${d.all_time} on file`)}${kpi("Voluntary", pct(d.voluntary_pct), `${types.Resignation || 0} resignations`)}
-      ${kpi("Terminations", types.Termination || 0, `${types.Absconding || 0} absconded`)}${kpi("Top reason", `<span class="txt">${esc(d.by_reason.length ? d.by_reason[0][0] : "—")}</span>`, d.by_reason.length ? d.by_reason[0][1] + " leavers" : "")}</div>
+    <div class="kpis k5">${kpi("Leavers · " + d.window, d.total, d.window_months && d.window_months !== 12 ? `≈ ${d.annualised} a year at this pace` : `${d.all_time} on file`)}${kpi("Voluntary", pct(d.voluntary_pct), `${types.Resignation || 0} resignations`)}
+      ${kpi("Turnover rate · yearly", d.rate_annualised == null ? "—" : d.rate_annualised.toFixed(1) + "%", d.headcount ? `${d.rate_leavers} leavers on ${d.headcount.toLocaleString("en-US")} people · ${d.rate_scope}` : "import the Basic Sheet for a rate")}${kpi("Terminations", types.Termination || 0, `${types.Absconding || 0} absconded`)}${kpi("Top reason", `<span class="txt">${esc(d.by_reason.length ? d.by_reason[0][0] : "—")}</span>`, d.by_reason.length ? d.by_reason[0][1] + " leavers" : "")}</div>
     <div class="panel"><div class="phd"><h2>Leavers per month</h2><small>Last 24 months</small></div><div id="ch-po-monthly"></div></div>
     <div class="grid g2"><div class="panel"><div class="phd"><h2>Why people leave</h2><small>${esc(d.window)}</small></div><div id="ch-po-reasons"></div></div>
       <div class="panel"><div class="phd"><h2>Leavers by store</h2><small>${esc(d.window)}</small></div><div id="ch-po-stores"></div></div></div>
@@ -1533,7 +1567,7 @@ AFTER.nps = () => {
 };
 ACT["nps-city"] = b => { S.nps.city = b.dataset.city; render(); };
 
-Object.assign(ACT, CHAT_ACTS);
+Object.assign(ACT, CHAT_ACTS, HEALTH_ACTS);
 document.addEventListener("click", e => {
   if (!e.target.closest(".menu-wrap")) document.querySelectorAll(".cmenu:not([hidden])").forEach(m => { m.hidden = true; });
   const g = e.target.closest("[data-go]");

@@ -138,6 +138,10 @@ def _commit_one(db: Database, res: ParseResult, analysis: dict, opt: dict, sourc
     known_month = bool(opt.get("period_to") or opt.get("month") or guessed.get("sure") or guessed.get("lined"))
     month = opt.get("month") or (pto if ptype != "general" and known_month and (opt.get("period_to") or not res.month) else None) or res.month
     as_of = opt.get("as_of") or res.as_of
+    from ..datahealth import lock_message
+    locked = lock_message(db, res.kind, ptype, pto, month)
+    if locked and not opt.get("unlock"):
+        return {"sheet": res.sheet, "kind": res.kind, "status": "locked", "message": locked}
     if res.kind == "roster" and not as_of:
         as_of = date.today().isoformat()
     if res.kind == "roster":

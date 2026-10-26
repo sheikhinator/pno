@@ -24,9 +24,29 @@ HELP = ("I can answer from the imported data, for example:\n"
         "- **Add 21 March 2027 as Eid holiday**")
 
 
+_HEALTH_RX = re.compile(r"data (health|ready|quality|complete|check)|is (my|the) data|what('?s| is) missing|missing (data|reports?|files?)|"
+                        r"trust (the|these|my) (numbers|data)|data (gaps?|issues?|problems?)|ready to present", re.I)
+
+
+def _health_answer(tb: Toolbox) -> str:
+    r = tb.t_data_health()
+    icon = {"ok": "✅", "derived": "🔁", "older": "🟡", "stale": "🟡", "missing": "❌"}
+    lines = [f"**Data health for {r['month']}: {r['score']}/100 · {r['verdict']}.**", "",
+             "| Report | Status | Period |", "|---|---|---|"]
+    lines += [f"| {c['report']} | {icon.get(c['status'], '')} {c['status']} | {c['period'] or '—'} |" for c in r["checklist"]]
+    if r["checks"]:
+        lines += ["", "### To check"] + [f"- **{c['area']}**: {c['message']}" for c in r["checks"][:8]]
+    if r["locked"]:
+        lines += ["", "> This month is **locked**: later imports cannot change it."]
+    lines += ["", "Open **Data health** in the menu to see every item and fix it."]
+    return "\n".join(lines)
+
+
 def answer(tb: Toolbox, question: str) -> str:
     q = question.strip()
     ql = q.lower()
+    if _HEALTH_RX.search(ql):
+        return _health_answer(tb)
     mm = tb._mm()
     if not mm.people and not getattr(mm, "sales", {}):
         return _dataset_answer(tb, q) or _po_answer(tb, q) or "There is no data yet. Import the roster, attendance, productivity and BO sales reports first (Import screen)."

@@ -511,12 +511,27 @@ class Api:
         """The period every P&O screen is showing, what each tab contributes to it, and the choices available."""
         from .po.insights import PACK_LABELS, _ml
         cov = sorted(ins.coverage, key=lambda c: (c.get("type") != "general", PACK_LABELS.get(c["kind"], c["kind"])))
+        from .datahealth import _age
+        created = {r["id"]: r["created_at"] for r in self.db.q("SELECT id, created_at FROM imports WHERE active=1")}
         return {"view": ins.view, "label": ins.view_label, "notes": ins.notes, "leaver_window": ins.leaver_window,
                 "sales_label": ins.periods.get("po_sales") or "",
                 "months": [{"value": m, "label": _ml(m)} for m in ins.available["months"]], "types": ins.available["types"],
                 "ytd_from": ins.available.get("ytd_from", {}), "default_to": ins.available.get("default_to"),
                 "coverage": [{"name": PACK_LABELS.get(c["kind"], c["kind"]), "type": c.get("type") or "", "label": c.get("label") or "—",
-                              "rows": c["rows"], "note": c.get("note", "")} for c in cov]}
+                              "rows": c["rows"], "note": c.get("note", ""), "how": c.get("how", ""),
+                              "age": _age(created.get(c.get("iid")))} for c in cov]}
+
+    def api_data_health(self, month: str | None = None) -> dict:
+        from . import datahealth
+        from .po.insights import Insights
+        from .po.store import PoStore
+        ins = Insights(PoStore(self.db), view={"type": "latest"})
+        return datahealth.report(self.db, ins, month)
+
+    def api_lock_month(self, month: str, locked: bool = True) -> dict:
+        from . import datahealth
+        datahealth.set_lock(self.db, month, bool(locked))
+        return self.api_data_health(month)
 
     def api_po_period(self) -> dict:
         ins = self._po()

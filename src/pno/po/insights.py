@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
-from . import canon
+from . import canon, derive
 
 DEFAULT_WEIGHTS: dict[str, float] = {
     "sales": 30.0,
@@ -65,7 +65,7 @@ def _info(i: dict[str, Any]) -> dict[str, Any]:
         lab = view_label({"type": "ytd", "from": i["from"], "to": i["to"]})
     else:
         lab = f"YTD {_ml(i['to'])}"
-    return {"type": i["type"], "from": i["from"], "to": i["to"], "label": lab}
+    return {"type": i["type"], "from": i["from"], "to": i["to"], "label": lab, "iid": i.get("iid")}
 
 
 def _split_imports(kind: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -283,7 +283,7 @@ class Insights:
         v = self.view
         if general and not timed:
             pick = max(general, key=lambda i: i["iid"])
-            return pick["rows"], {"type": "general", "label": "every period", "from": None, "to": None}
+            return pick["rows"], {"type": "general", "label": "every period", "from": None, "to": None, "iid": pick["iid"]}
         if not timed:
             return [], {"type": "", "label": "", "from": None, "to": None}
         if v["type"] == "latest":
@@ -301,19 +301,29 @@ class Insights:
             kept = [r for r in pick["rows"] if vf <= str(r.get(date_key) or "")[:7] <= vt]
             undated = [r for r in pick["rows"] if not r.get(date_key)]
             kept += undated
-            info = {"type": v["type"], "from": vf, "to": vt, "label": f"{view_label(v)} · cut from dated rows", "cut": True}
+            info = {"type": v["type"], "from": vf, "to": vt, "label": f"{view_label(v)} · cut from dated rows", "cut": True, "iid": pick["iid"]}
             if (pick["from"] or "") > vf or (pick["to"] or "") < vt:
                 info["note"] = f"{name}: the file only covers {_ml(pick['from'])}–{_ml(pick['to'])}."
             return kept, info
         exact = [i for i in timed if i["type"] == v["type"] and i["to"] == vt]
+        same_window = [i for i in exact if i["from"] == vf]
+        if same_window:
+            pick = max(same_window, key=lambda i: i["iid"])
+            return pick["rows"], _info(pick)
+        worked = derive.derive(kind, timed, vf, vt)          # e.g. MTD Sep = YTD Sep − YTD Aug
+        if worked:
+            rows_d, how = worked
+            return rows_d, {"type": v["type"], "from": vf, "to": vt, "label": f"{view_label(v)} · worked out", "how": how,
+                            "derived": True}
         if exact:
-            pick = max(exact, key=lambda i: (i["from"] == vf, i["iid"]))
+            pick = max(exact, key=lambda i: i["iid"])
             return pick["rows"], _info(pick)
         before = [i for i in timed if (i["to"] or "") <= vt]
         pool = before or timed
         pick = max(pool, key=lambda i: (i["type"] == v["type"], i["to"] or "", i["iid"]))
         info = _info(pick)
-        info["note"] = f"{name}: no {SHORT[v['type']]} data for {_ml(vt)}; showing {info['label']}."
+        hint = "" if derive.can_derive(kind) else " (percentages can't be worked out from other periods: import that period's file)"
+        info["note"] = f"{name}: no {SHORT[v['type']]} data for {_ml(vt)}; showing {info['label']}{hint}."
         return pick["rows"], info
 
     def _view_as_of(self) -> date | None:
@@ -323,6 +333,28 @@ class Insights:
         end = (date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1))
         dated = self._infer_as_of()
         return min(end, max(dated, date(y, m, 1))) if dated else min(end, date.today())
+
+    @property
+    def window_months(self) -> int:
+        """Months the leaver window covers (12 for the latest view)."""
+        if self.view["type"] == "latest":
+            return 12
+        return len(derive.months(self.view["from"], self.view["to"]))
+
+    def _rate(self, leavers: list[dict[str, Any]]) -> dict[str, Any]:
+        """Yearly turnover rate, only over the stores the Basic Sheet covers (leavers and headcount from the same stores)."""
+        covered = {r.get("store") for r in self.rows("po_master") if r.get("store")}
+        heads = self.headcount_total()
+        if not covered or not heads or not self.window_months:
+            return {"headcount": heads or None, "rate_annualised": None, "rate_scope": ""}
+        inside = [r for r in leavers if r.get("store") in covered]
+        all_stores = {r.get("store") for r in (self._full.get("po_turnover") or self.rows("po_turnover")) if r.get("store")} | set(self.stores())
+        scope = "all stores" if all_stores <= covered else f"{len(covered)} of {len(all_stores)} stores on the Basic Sheet"
+        return {"headcount": heads, "rate_annualised": round(100 * len(inside) * 12 / self.window_months / heads, 1),
+                "rate_scope": scope, "rate_leavers": len(inside)}
+
+    def headcount_total(self) -> int:
+        return self.headcount() or 0
 
     @property
     def leaver_window(self) -> str:
@@ -833,6 +865,9 @@ class Insights:
             rate[store_name] = (100 * count / heads) if heads else None
         return {
             "months": months, "total": len(rows), "all_time": len(all_rows), "window": self.leaver_window,
+            "window_months": self.window_months,
+            "annualised": round(len(rows) * 12 / self.window_months, 1) if self.window_months else None,
+            **self._rate(rows),
             "voluntary_pct": _pct(voluntary, len(rows)) if rows else None,
             "by_store": by_store.most_common(), "by_section": by_section.most_common(),
             "by_reason": by_reason.most_common(), "by_type": by_type.most_common(),

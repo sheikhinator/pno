@@ -125,3 +125,41 @@ def test_people_are_placed_from_remarks_and_other_tabs():
     assert canon.working_role("Leading Bakery & Deli", "Section Manager") == ""
     assert canon.store("DHA11") == "LAH DHA Rahbar"
     assert canon.is_leader("Deputy Store Manager") and canon.role_rank("Store Manager") >= canon.STORE_LEVEL
+
+
+def test_data_health_checklist_checks_and_locks(db, tmp_path):
+    api = Api(db)
+    r = api.dispatch("data_health", {"month": "2026-09"})
+    assert "error" not in r, r
+    status = {c["kind"]: c["status"] for c in r["checklist"]}
+    assert status["roster"] == "ok" and status["po_shrink"] == "ok" and status["po_turnover"] in ("ok", "missing")
+    assert 0 <= r["score"] <= 100 and r["verdict"] and r["measures"]
+    assert all(c["level"] in ("bad", "warn", "info") for c in r["checks"])
+    # lock September: a new YTD Sep file is refused, a general file still goes in
+    r = api.dispatch("lock_month", {"month": "2026-09", "locked": True})
+    assert r["locked"] and "2026-09" in r["locked_months"]
+    book = make_po_workbook(tmp_path / "again.xlsx")
+    a = importers.analyze_path(book)
+    a["hash"] = "another-file"
+    da = next(x for x in a["results"] if x.kind == "po_da")
+    a["results"] = [da]
+    out = importers.commit(db, a, {da.sheet: {"period_type": "ytd", "period_to": "2026-09"}})
+    assert out[0]["status"] == "locked" and "locked" in out[0]["message"]
+    api.dispatch("lock_month", {"month": "2026-09", "locked": False})
+    out = importers.commit(db, a, {da.sheet: {"period_type": "ytd", "period_to": "2026-09"}})
+    assert out[0]["status"] == "ok"
+    conflicts = [c for c in api.dispatch("data_health", {"month": "2026-09"})["checks"] if c["area"] == "Files"]
+    assert conflicts and "different" in conflicts[0]["message"]
+
+
+def test_annualised_turnover(db):
+    full = Insights(PoStore(db))
+    month = max(r["date"] for r in full.rows("po_turnover") if r.get("date"))[:7]
+    t = Insights(PoStore(db), view={"type": "mtd", "to": month}).turnover_summary()
+    assert t["window_months"] == 1 and t["annualised"] == t["total"] * 12
+
+
+def test_ai_answers_data_health(db):
+    api = Api(db)
+    r = api.dispatch("agent_ask", {"question": "Is my data ready for September?", "month": "2026-09"})
+    assert "Data health" in r["answer"] and "/100" in r["answer"]
