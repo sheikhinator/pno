@@ -208,9 +208,38 @@ def _goal_answer(tb: Toolbox, q: str) -> str:
     return "\n".join(lines)
 
 
+_INT_RX = re.compile(r"(who|which|anyone)\b.*\b(replace|ready for|could (be|become|take|fill)|can (be|become|take|fill)|internal candidates?|step up|promot)", re.I)
+_ROLE_WORDS = [("store manager", "store_manager"), ("department head", "department_head"), ("dept head", "department_head"),
+               ("section manager", "section_manager"), ("team leader", "team_leader")]
+
+
+def _internal_answer(tb: Toolbox, q: str) -> str | None:
+    ql = q.lower()
+    role = next((k for w, k in _ROLE_WORDS if w in ql), None)
+    if not role:
+        return None
+    from ..po import canon
+    store = canon.store(q)
+    store = store if store and store != q.strip() else ""
+    section = canon.section(q)
+    section = section if section in canon.DEPARTMENT_OF else ""
+    r = tb.t_internal_candidates(role, store, section)
+    v = r["verdict"]
+    lines = [f"**{v['title']}**", "", v["text"], ""] + [f"> {n}" for n in r["notes"]]
+    if r["candidates"]:
+        lines += ["", "| Candidate | Now | Move | Fit | If they move |", "|---|---|---|---|---|"]
+        lines += [f"| {c['name']} | {c['designation']} · {c['store']} | {c['move']} | {c['recommend']:.0f} | {c['backfill']['summary']} ({c['backfill']['risk']} risk) |"
+                  for c in r["candidates"]]
+    return "\n".join(lines + ["", "Open **Hiring**, create the vacancy and use **Internal talent first** for the full profiles and chains of moves."])
+
+
 def answer(tb: Toolbox, question: str) -> str:
     q = question.strip()
     ql = q.lower()
+    if _INT_RX.search(ql):
+        a = _internal_answer(tb, q)
+        if a:
+            return a
     if _POLICY_RX.search(ql):
         return _policy_answer(tb, q)
     if _GOAL_RX.search(ql):

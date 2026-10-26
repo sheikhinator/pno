@@ -45,6 +45,14 @@ def analyze_workbook(wb: Workbook, force_kind: str | None = None) -> dict:
                 continue
             kind = force_kind
         if not kind:
+            from .. import smart                # no exact reader: work out what it is from its columns
+            try:
+                res, _cands = smart.read(sh, wb.name)
+            except Exception:  # noqa: BLE001 - never lose a file to the smart reader
+                res = None
+            if res is not None:
+                results.append(res)
+                continue
             res = generic.parse(sh)            # not a known report: keep it as a dataset rather than skip it
             if res.rows and len(res.extra.get("columns", [])) >= 2:
                 res.confidence = 0.3
@@ -83,15 +91,31 @@ def guess_period(analysis: dict, res: ParseResult) -> dict:
     return period.guess(res.kind, res.rows, f"{analysis['file']} {res.sheet}", res.month, res.as_of)
 
 
-def describe(analysis: dict) -> dict:
-    """What the import screen shows before saving."""
-    return {"kinds": [{"value": k, "label": KIND_LABEL[k]} for k in CHOOSABLE],
+def describe(analysis: dict, db: Database | None = None) -> dict:
+    """What the import screen shows before saving: what each sheet is, how sure, which column is which, and problems."""
+    from .. import smart
+    cross = smart.checks.cross(db, analysis["results"]) if db is not None else []
+    for r in analysis["results"]:                 # show which column is which for reports read by their exact reader too
+        if r.kind not in ("dataset", "attendance", "po_shift") and not r.extra.get("columns"):
+            sh = (analysis.get("sheets") or {}).get(r.sheet)
+            try:
+                skind = r.kind
+                ms = smart.mapper.analyse(sh, analysis["file"], kind=skind) if sh is not None and skind in smart.mapper.HEADERS else []
+                if ms and ms[0].table is not None:
+                    r.extra["columns"] = [{"index": c.index, "header": c.header, "examples": c.examples[:3]} for c in ms[0].table.columns if c.header or c.n]
+                    r.extra["mapping"] = ms[0].describe()
+            except Exception:  # noqa: BLE001 - display only
+                pass
+    return {"kinds": [{"value": k, "label": KIND_LABEL[k]} for k in CHOOSABLE], "fields": smart.field_choices(),
         "period_types": [{"value": k, "label": v} for k, v in period.TYPES.items()],
         "file": analysis["file"], "skipped": analysis["skipped"], "warnings": analysis["warnings"],
         "results": [{"kind": r.kind, "label": KIND_LABEL[r.kind], "sheet": r.sheet, "rows": len(r.rows), "month": r.month,
                      "as_of": r.as_of, "summary": r.summary, "warnings": r.warnings, "needs": r.needs,
                      "period": guess_period(analysis, r), "dated": r.kind in period.DATED_KINDS,
-                     "confidence": round(r.confidence, 2), "preview": r.preview} for r in analysis["results"]],
+                     "confidence": round(r.confidence, 2), "preview": r.preview, "smart": bool(r.extra.get("smart")),
+                     "mapping": r.extra.get("mapping") or [], "columns": r.extra.get("columns") or [],
+                     "issues": smart.checks.validate(r.kind, r.rows) + [c for c in cross if c.get("sheet") == r.sheet]}
+                    for r in analysis["results"]],
     }
 
 
@@ -105,21 +129,29 @@ def commit(db: Database, analysis: dict, options: dict | None = None, source: st
     return out
 
 
-def reparse(analysis: dict, res: ParseResult, kind: str) -> ParseResult:
-    """The user said what a sheet is: read it again with that report's reader (or as general data)."""
+def reparse(analysis: dict, res: ParseResult, kind: str, mapping: dict | None = None) -> ParseResult:
+    """The user said what a sheet is (and maybe which column is which): read it again that way."""
     sheet = (analysis.get("sheets") or {}).get(res.sheet)
-    if sheet is None or kind == res.kind:
+    if sheet is None or (kind == res.kind and not mapping):
         return res
     if kind == "dataset":
         new = generic.parse(sheet)
     else:
+        from .. import smart
         mod = dict(PARSERS).get(kind)
-        if mod is None:
+        if mod is None and kind not in smart.SMART_KINDS:
             raise ValueError(f"Unknown report type: {kind}")
-        if mod.score(sheet)[0] <= 0:
+        new = None
+        if not mapping and mod is not None and mod.score(sheet)[0] > 0:
+            new = mod.parse(sheet, analysis["file"]) if kind == "productivity" else mod.parse(sheet)
+        else:
+            skind = "sales_simple" if kind == "sales" else kind
+            fixed = {f: int(j) for f, j in (mapping or {}).items() if j not in (None, "", -1)}
+            if skind in smart.SMART_KINDS:
+                new, _ = smart.read(sheet, analysis["file"], fixed=fixed, kind=skind)
+        if new is None:
             raise ValueError(f"'{res.sheet}' does not have the columns of a {KIND_LABEL.get(kind, kind)}. "
-                             "Choose another type or 'Other data'.")
-        new = mod.parse(sheet, analysis["file"]) if kind == "productivity" else mod.parse(sheet)
+                             "Match the columns yourself (Check columns) or choose 'Other data'.")
     if not new.rows:
         raise ValueError(f"No rows could be read from '{res.sheet}' as {KIND_LABEL.get(kind, kind)}.")
     return new
@@ -132,8 +164,8 @@ def _commit_one(db: Database, res: ParseResult, analysis: dict, opt: dict, sourc
             res = reparse(analysis, res, hint)
         except ValueError:
             pass
-    if opt.get("kind") and opt["kind"] != res.kind:
-        res = reparse(analysis, res, opt["kind"])
+    if opt.get("mapping") or (opt.get("kind") and opt["kind"] != res.kind):
+        res = reparse(analysis, res, opt.get("kind") or res.kind, opt.get("mapping"))
     if res.kind == "dataset" and (opt.get("title") or opt.get("note")):
         res.extra = {**res.extra, **({"title": opt["title"].strip()[:80]} if opt.get("title") else {}),
                      **({"user_description": opt["note"].strip()[:600]} if opt.get("note") else {})}
@@ -155,6 +187,8 @@ def _commit_one(db: Database, res: ParseResult, analysis: dict, opt: dict, sourc
     if res.kind == "productivity" and not month:
         return {"sheet": res.sheet, "kind": res.kind, "status": "needs_month",
                 "message": "Choose the month this productivity report belongs to."}
+    if res.kind == "sales" and not as_of and month:
+        as_of = month_bounds(month)[1].isoformat()
     if res.kind == "productivity" and not as_of and month:
         as_of = month_bounds(month)[1].isoformat()
     dup = db.q1("SELECT id FROM imports WHERE active=1 AND kind=? AND file_hash=? AND summary LIKE ?",

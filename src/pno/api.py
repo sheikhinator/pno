@@ -67,6 +67,22 @@ def template_key(name: str) -> str:
     return " ".join(w for w in n.split() if len(w) > 1 and w not in ("and", "the", "of", "for", "to", "copy", "final", "new"))[:80]
 
 
+IMPORT_GUIDE = {
+    "roster": "Employee master / Basic Sheet from the HR system: one row per person with employee number, name, store, section, designation.",
+    "po_role": "Leaders with the date they started their current role (any layout with a 'since' date).",
+    "po_rating": "Appraisal results: employee number or name and the rating (1-5), with the year if possible.",
+    "attendance": "Biometric attendance for the month: daily in/out times per employee.",
+    "sales": "BO 200-10-05 store performance, or any table of store sales with budget.",
+    "productivity": "Section productivity: store productivity vs target.",
+    "po_shrink": "Shrinkage and stock days by section.",
+    "po_nps": "Customer NPS.",
+    "po_da": "Disciplinary actions: a pivot by section and store, or a list of cases.",
+    "po_turnover": "Leavers: employee, leaving date, exit type and reason.",
+    "po_shift": "The shift roster: one row per person, one column per day (M / Mid / E / OFF).",
+    "leave": "Leave register: employee number, from and to dates, leave type and status.",
+}
+
+
 class Api:
     def __init__(self, db: Database, host: Host | None = None):
         self.real_db = db
@@ -237,6 +253,12 @@ class Api:
             return {"cancelled": True}
         return self.hiring.add_cvs(paths, vacancy_id, source)
 
+    def api_hire_internal(self, vacancy_id: int) -> dict:
+        return self.hiring.internal_search(int(vacancy_id))
+
+    def api_hire_internal_add(self, vacancy_id: int, key: str) -> dict:
+        return self.hiring.add_internal(int(vacancy_id), str(key))
+
     def api_hire_candidate(self, candidate_id: int, vacancy_id: int | None = None, blind: bool = False) -> dict:
         return self.hiring.candidate(int(candidate_id), vacancy_id, bool(blind))
 
@@ -360,11 +382,27 @@ class Api:
                 "stores": [{"store_id": s["id"], "name": s["name"], "sub": FORMAT_LABEL.get(s["format"], "")} for s in sts]}
 
     # ---------------------------------------------------------------- imports
-    def api_pick_files(self) -> dict:
+    def api_pick_files(self, month: str | None = None) -> dict:
         paths = self.host.pick_files("reports")
-        return self.api_import_analyze(paths=paths) if paths else {"cancelled": True}
+        return self.api_import_analyze(paths=paths, month=month) if paths else {"cancelled": True}
 
-    def api_import_analyze(self, paths: list | None = None, text: str | None = None, name: str = "Pasted data") -> dict:
+    def api_import_calendar(self, year: int | None = None) -> dict:
+        """Every month of a year with how much of its data is in, for the import calendar."""
+        from . import datahealth
+        from .period import month_label as ml
+        y = int(year or date.today().year)
+        cur = date.today().strftime("%Y-%m")
+        months = []
+        for m in range(1, 13):
+            key = f"{y}-{m:02d}"
+            cl = datahealth.checklist(self.db, key)
+            ok = sum(1 for c in cl if c["status"] in ("ok", "derived"))
+            months.append({"month": key, "label": ml(key), "short": date(y, m, 1).strftime("%b"), "ok": ok, "total": len(cl),
+                           "future": key > cur, "locked": key in datahealth.locked_months(self.db),
+                           "items": [{"kind": c["kind"], "name": c["name"], "status": c["status"], "label": c["label"], "detail": c["detail"]} for c in cl]})
+        return {"year": y, "months": months, "today": cur, "guide": IMPORT_GUIDE}
+
+    def api_import_analyze(self, paths: list | None = None, text: str | None = None, name: str = "Pasted data", month: str | None = None) -> dict:
         analyses = []
         errors = []
         for p in paths or []:
@@ -374,13 +412,21 @@ class Api:
                 errors.append({"file": Path(p).name, "error": str(e)})
         if text:
             analyses.append(importers.analyze_text(text, name))
-        token = uuid.uuid4().hex[:12]
-        self.sessions[token] = {"analyses": analyses, "created": now()}
-        suggested = self._suggest_month()
-        return {"token": token, "files": self._lined_up([importers.describe(a) for a in analyses], analyses), "errors": errors,
-                "suggested_month": suggested}
+        return self._new_session(analyses, errors, month)
 
-    def api_import_upload(self, files: list) -> dict:
+    def _new_session(self, analyses: list, errors: list, month: str | None) -> dict:
+        token = uuid.uuid4().hex[:12]
+        self.sessions[token] = {"analyses": analyses, "created": now(), "month": month}
+        files = self._lined_up([importers.describe(a, self.db) for a in analyses], analyses, month)
+        from .smart import checks
+        cross = checks.cross(self.db, [r for a in analyses for r in a["results"]])       # people checked across every file
+        for f in files:
+            for r in f["results"]:
+                have = {i["text"] for i in r.get("issues", [])}
+                r.setdefault("issues", []).extend(c for c in cross if c.get("sheet") == r["sheet"] and c["text"] not in have)
+        return {"token": token, "files": files, "errors": errors, "suggested_month": month or self._suggest_month(), "month": month}
+
+    def api_import_upload(self, files: list, month: str | None = None) -> dict:
         """Files sent from a browser (development / tests): [{name, b64}]."""
         import base64
         analyses, errors = [], []
@@ -389,21 +435,26 @@ class Api:
                 analyses.append(importers.analyze_bytes(base64.b64decode(f["b64"]), f["name"]))
             except Exception as e:
                 errors.append({"file": f.get("name", "?"), "error": str(e)})
-        token = uuid.uuid4().hex[:12]
-        self.sessions[token] = {"analyses": analyses, "created": now()}
-        return {"token": token, "files": self._lined_up([importers.describe(a) for a in analyses], analyses), "errors": errors,
-                "suggested_month": self._suggest_month()}
+        return self._new_session(analyses, errors, month)
 
     def _suggest_month(self) -> str:
         m = engine.months_available(self.db)
         return m[-1] if m else date.today().strftime("%Y-%m")
 
-    def _lined_up(self, files: list[dict], analyses: list[dict]) -> list[dict]:
-        """Give sheets without a month of their own the month of the other sheets, and remember it for saving."""
+    def _lined_up(self, files: list[dict], analyses: list[dict], month: str | None = None) -> list[dict]:
+        """Give sheets without a month of their own the month of the other sheets (or the month picked on the
+        calendar), and remember it for saving."""
         from .period import line_up
         known = self.db.q1("""SELECT MAX(period_to) FROM imports WHERE active=1 AND period_type IN ('ytd','mtd')
                               AND kind NOT IN ('po_turnover','po_shift','attendance')""")
-        line_up([r for f in files for r in f["results"]], known[0] if known else None)
+        line_up([r for f in files for r in f["results"]], month or (known[0] if known else None))
+        if month:
+            for f in files:
+                for r in f["results"]:
+                    p = r["period"]
+                    if p["type"] in ("mtd", "ytd") and not p.get("sure") and not r.get("dated"):
+                        p.update(to=month, **({"from": f"{month[:4]}-01"} if p["type"] == "ytd" else {"from": month}),
+                                 why=f"The month you picked on the calendar ({month}).")
         tpls = self.db.get_setting("import_templates", {}) or {}
         for f in files:
             for r in f["results"]:
@@ -413,6 +464,19 @@ class Api:
                 r["remembered"] = t
                 if t.get("kind") and t["kind"] != r["kind"]:
                     r["kind_hint"] = t["kind"]
+                if t.get("columns") and r.get("smart"):
+                    by_title = {c["header"]: c["index"] for c in r.get("columns", []) if c.get("header")}
+                    fixed = {f: by_title[h] for f, h in t["columns"].items() if h in by_title}
+                    a = next((x for x in analyses if x["file"] == f["file"]), None)
+                    if a is not None and fixed and r["sheet"] not in (a.get("mapping_used") or {}):
+                        try:
+                            k = next(i for i, x in enumerate(a["results"]) if x.sheet == r["sheet"])
+                            a["results"][k] = importers.reparse(a, a["results"][k], t.get("kind") or r["kind"], fixed)
+                            fresh = importers.describe(a, self.db)["results"][k]
+                            r.update({x: fresh[x] for x in ("kind", "label", "rows", "summary", "mapping", "issues", "preview", "confidence")})
+                            r.pop("kind_hint", None)
+                        except (ValueError, StopIteration):
+                            pass
                 pt = t.get("period_type")
                 if pt and pt != r["period"]["type"]:
                     p = r["period"]
@@ -423,6 +487,62 @@ class Api:
             a["period_hint"] = {(r["sheet"], r["kind"]): r["period"] for r in f["results"]}
             a["kind_hint"] = {r["sheet"]: r["kind_hint"] for r in f["results"] if r.get("kind_hint")}
         return files
+
+    def _session_sheet(self, token: str, file: str, sheet: str):
+        sess = self.sessions.get(token)
+        if not sess:
+            raise ValueError("This preview has expired. Please add the files again.")
+        a = next((x for x in sess["analyses"] if x["file"] == file), None)
+        if a is None:
+            raise ValueError("File not found in this import.")
+        i = next((k for k, r in enumerate(a["results"]) if r.sheet == sheet), None)
+        if i is None:
+            raise ValueError("Sheet not found in this import.")
+        return a, i
+
+    def api_import_remap(self, token: str, file: str, sheet: str, kind: str, mapping: dict | None = None) -> dict:
+        """Read a sheet again as the type the user chose, with the column matches the user set."""
+        a, i = self._session_sheet(token, file, sheet)
+        new = importers.reparse(a, a["results"][i], kind, mapping or None)
+        a["results"][i] = new
+        a.setdefault("mapping_used", {})[sheet] = mapping or {}
+        sess = self.sessions.get(token) or {}
+        return {"file": self._lined_up([importers.describe(a, self.db)], [a], sess.get("month"))[0]}
+
+    def api_import_ai(self, token: str, file: str, sheet: str) -> dict:
+        """Ask the AI what a sheet is and which column is which. Only column titles and the kind of values are sent,
+        never names, numbers or other cell contents."""
+        from . import smart
+        from .smart import profile
+        a, i = self._session_sheet(token, file, sheet)
+        sh = (a.get("sheets") or {}).get(sheet)
+        tables = profile.find_tables(sh.rows) if sh else []
+        if not tables:
+            raise ValueError("No table found in this sheet.")
+        t = tables[0]
+        cols = []
+        for c in t.columns:
+            if not c.n:
+                continue
+            kinds = ", ".join(f"{k} {round(100 * v)}%" for k, v in sorted(c.share.items(), key=lambda kv: -kv[1]) if v >= 0.3) or "text"
+            cols.append(f"{c.index}: '{c.header or '(no title)'}' — values look like: {kinds}; {c.distinct} distinct")
+        kinds = ", ".join(f"{k} ({v['label']})" for k, v in smart.KINDS.items())
+        fields = ", ".join(f"{k} ({v['label']})" for k, v in smart.FIELDS.items())
+        prompt = (f"A sheet named '{sheet}' in file '{file}' (title: '{t.title[:120]}') has these columns:\n" + "\n".join(cols) +
+                  f"\n\nReport types: {kinds}, dataset (anything else).\nFields: {fields}.\n\nReply with JSON only: "
+                  '{"kind": "<type>", "mapping": {"<field>": <column number>, ...}, "why": "<one sentence>"}')
+        out = self.agent.complete(prompt, system="You map HR spreadsheet columns to a fixed schema. Reply with JSON only.", max_tokens=500)
+        if not out or not out[0]:
+            raise ValueError("No AI is set up. Add a key in Settings → AI, or match the columns yourself.")
+        m = re.search(r"\{.*\}", out[0], re.S)
+        if not m:
+            raise ValueError("The AI's answer could not be read. Match the columns yourself.")
+        ans = json.loads(m.group(0))
+        kind = ans.get("kind") or "dataset"
+        kind = "sales" if kind == "sales_simple" else kind
+        mapping = {f: int(j) for f, j in (ans.get("mapping") or {}).items() if f in smart.FIELDS and str(j).lstrip("-").isdigit()}
+        r = self.api_import_remap(token, file, sheet, kind, mapping if kind != "dataset" else None)
+        return {**r, "why": ans.get("why", ""), "engine": out[1]}
 
     def api_import_commit(self, token: str, options: dict | None = None) -> dict:
         sess = self.sessions.get(token)
@@ -451,7 +571,12 @@ class Api:
                     continue
                 row = self.db.q1("SELECT kind, period_type FROM imports WHERE id=?", (r["import_id"],))
                 if row and template_key(r["sheet"]):
-                    tpls[template_key(r["sheet"])] = {"kind": row["kind"], "period_type": row["period_type"], "sheet": r["sheet"], "at": now()[:10]}
+                    t = {"kind": row["kind"], "period_type": row["period_type"], "sheet": r["sheet"], "at": now()[:10]}
+                    a = next((x for x in analyses if x["file"] == f.get("file")), None)
+                    res = next((x for x in (a or {}).get("results", []) if x.sheet == r["sheet"]), None)
+                    if res is not None and res.extra.get("smart") and res.extra.get("mapping"):
+                        t["columns"] = {m["field"]: m["header"] for m in res.extra["mapping"] if m.get("header")}
+                    tpls[template_key(r["sheet"])] = t
         if len(tpls) > 300:
             tpls = dict(sorted(tpls.items(), key=lambda kv: kv[1].get("at", ""))[-300:])
         self.db.set_setting("import_templates", tpls)
@@ -472,6 +597,7 @@ class Api:
             r["warnings"] = json.loads(r["warnings"] or "[]")
             r["summary"] = (r["summary"] or "").rsplit(" [", 1)[0]
             r["period_label"] = period_label(r.get("period_type"), r.get("period_from"), r.get("period_to")) if r.get("period_type") else ""
+            r["kind_label"] = importers.KIND_LABEL.get(r["kind"], r["kind"])
         return {"rows": rows}
 
     def api_import_undo(self, import_id: int) -> dict:

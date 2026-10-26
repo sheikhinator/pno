@@ -10,6 +10,7 @@ Names are matched within the same city and format; links PNO is unsure about are
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from dataclasses import dataclass
 
 from .db import Database
@@ -39,6 +40,7 @@ class Parsed:
 _CITY_CODE = {"Lahore": "LAH", "Karachi": "KCH", "Islamabad": "ISL", "Faisalabad": "FAI", "Gujranwala": "GUJ"}
 
 
+@lru_cache(maxsize=50000)
 def canon_store(text: str) -> str:
     """The catalogue store a name points to, whatever the format ('H&B … EMP (MYLI)' and 'HM … Emporium' → 'LAH Emporium Mall')."""
     from .po import canon

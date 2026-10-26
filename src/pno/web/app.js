@@ -891,7 +891,7 @@ PAGES.health = async () => {
       <div class="row"><label class="pv-l">Month<select class="input sm" id="h-month">${months.map(m => `<option value="${m.value}" ${m.value === d.month ? "selected" : ""}>${esc(m.label)}</option>`).join("")}</select></label>
       <button class="btn ${d.locked ? "" : "ghost"}" data-act="h-lock" data-locked="${d.locked ? 0 : 1}" title="A locked month cannot be changed by later imports">${d.locked ? "🔒 Locked · unlock" : "🔓 Lock month"}</button></div></div>
     <div class="grid hgrid">
-      <div class="panel hcard"><div class="row" style="gap:18px;align-items:center">${ring(d.score)}<div><span class="kpi-l">Data health · ${esc(d.month_label)}</span>
+      <div class="panel hhealth"><div class="row" style="gap:18px;align-items:center">${ring(d.score)}<div><span class="kpi-l">Data health · ${esc(d.month_label)}</span>
         <h2 style="margin:4px 0">${esc(d.verdict)}</h2><small style="color:var(--muted)">${d.ready} of ${d.expected} reports in · ${d.checks.length} thing${d.checks.length === 1 ? "" : "s"} to check</small></div></div></div>
       <div class="panel"><div class="phd"><h2>Monthly checklist</h2><div class="row"><button class="btn sm" data-act="h-request">✉ Ask for missing reports</button><button class="btn sm" data-act="month-close">✓ Close the month</button><button class="btn sm primary" data-go="import">${ic("import", 14)}Import missing</button></div></div>
         <div class="hlist">${d.checklist.map(c => `<div class="hrow"><span class="chip ${HSTAT[c.status][1]}">${HSTAT[c.status][0]}</span><b>${esc(c.name)}</b>
@@ -938,45 +938,110 @@ document.addEventListener("change", e => {
   box.querySelector(".imp-to span").textContent = t === "ytd" ? "Up to month" : "Month";
   box.querySelector(".imp-why").textContent = t === "general" ? "Used for every period (MTD and YTD views)." : t === "ytd" ? "Year to date: figures add up from the first month to the last." : "Month to date: figures for this one month.";
 });
+const KIND_ICON = { roster: "👥", attendance: "🕘", productivity: "📈", sales: "🧾", leave: "🏖️", po_rating: "⭐", po_role: "🪪", po_shift: "🗓️", po_turnover: "🚪", po_da: "⚖️", po_nps: "💬", po_shrink: "📦", dataset: "📊" };
+const IMP_STATUS = { ok: ["In", "good"], derived: ["Worked out", "good"], older: ["Older period only", "warn"], stale: ["Old copy", "warn"], missing: ["Needed", "bad"] };
+function impSheetCard(f, r, sess) {
+  const a = `data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}"`;
+  const conf = Math.round((r.confidence || 0) * 100);
+  const issues = r.issues || [];
+  const lvl = { bad: "bad", warn: "warn", info: "info" };
+  return `<div class="isheet ${r.kind === "dataset" ? "other" : ""}">
+    <div class="isheet-h"><span class="isheet-ic">${KIND_ICON[r.kind] || "📄"}</span><div style="flex:1;min-width:0"><b>${esc(r.label)}</b><span class="sub">${esc(f.file)} · sheet “${esc(r.sheet)}” · ${r.rows.toLocaleString("en-US")} rows</span></div>
+      ${r.kind === "dataset" ? `<span class="chip">Not a standard report</span>` : `<span class="conf ${conf >= 85 ? "hi" : conf >= 60 ? "mid" : "lo"}" title="How sure P&O is about what this sheet is"><i style="width:${conf}%"></i><b>${conf}% sure</b></span>`}
+      ${r.remembered ? `<span class="chip gold" title="Set up the way you imported it last time">✓ remembered</span>` : ""}</div>
+    <small style="color:var(--muted)">${esc(r.summary)}</small>
+    ${r.smart ? `<div class="imap"><small><b>Smart Import read the columns:</b></small> ${r.mapping.map(m => `<span class="mchip ${m.score >= 0.7 ? "" : "weak"}" title="${esc((m.examples || []).join(" · "))}">${esc(m.header || "(no title)")} → <b>${esc(m.label)}</b></span>`).join("")}</div>` : ""}
+    <div class="imp-opts">
+      <label class="dx-l">This sheet is<select class="input" data-imp-kind ${a}>${(f.kinds || []).map(k => `<option value="${k.value}" ${k.value === (r.kind_hint || r.kind) ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select></label>
+      ${impPeriod(f, r, sess)}
+      ${["roster"].includes(r.kind) ? `<label class="dx-l">Roster as of<input class="input" type="date" data-opt="as_of" ${a} value="${esc(r.as_of || new Date().toISOString().slice(0, 10))}"></label>` : ""}
+      <div class="row" style="align-self:end;gap:6px"><button class="btn sm" data-act="imp-map" ${a}>⚙ Check columns</button>${S.init.ai && S.init.ai.active && S.init.ai.active !== "basic" ? `<button class="btn sm ghost" data-act="imp-ai" ${a}>✨ Ask AI to read it</button>` : ""}</div>
+      ${r.kind === "dataset" ? `<details class="imp-more"><summary>Name and description (optional)</summary><div class="imp-more-b">
+        <label class="dx-l">Name<input class="input" data-opt="title" ${a} placeholder="${esc(r.sheet)}"></label>
+        <label class="dx-l imp-note">What is this sheet about?<textarea class="input" rows="2" data-opt="note" ${a} placeholder="e.g. Weekly footfall by store from Ops, week 41"></textarea></label></div></details>` : ""}
+    </div>
+    ${issues.length ? `<div class="iissues">${issues.map(i => `<div class="iiss ${lvl[i.level] || "info"}"><span>${i.level === "bad" ? "✕" : i.level === "warn" ? "!" : "i"}</span><div>${esc(i.text)}${i.examples && i.examples.length ? `<small>${esc(i.examples.slice(0, 5).join(" · "))}${i.examples.length > 5 ? " …" : ""}</small>` : ""}</div></div>`).join("")}</div>` : `<div class="iiss good"><span>✓</span><div>No problems found in this sheet.</div></div>`}
+    ${r.warnings.filter(w => !/Read by Smart Import|Choose the month/.test(w)).map(w => `<small style="color:var(--warn-ink)">⚠ ${esc(w)}</small>`).join("")}
+    ${r.preview && r.preview.length ? `<details><summary class="imp-prev">Preview the first rows</summary><div class="tbl-wrap" style="max-height:220px;margin-top:6px"><table class="t"><thead><tr>${Object.keys(r.preview[0]).filter(k => typeof r.preview[0][k] !== "object").map(k => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>${r.preview.map(p => `<tr>${Object.keys(r.preview[0]).filter(k => typeof r.preview[0][k] !== "object").map(k => `<td>${esc(p[k] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>` : ""}
+  </div>`;
+}
 PAGES.import = async () => {
-  const h = await API.call("imports");
+  const yr = S.impYear || +(S.impMonth || S.month || new Date().toISOString()).slice(0, 4);
+  const [h, cal] = await Promise.all([API.call("imports"), API.call("import_calendar", { year: yr })]);
+  DATA.cal = cal;
+  const cur = cal.today;
+  S.impMonth = S.impMonth || (S.month && S.month.slice(0, 4) == yr ? S.month : cal.months.filter(m => !m.future).slice(-1)[0]?.month) || cur;
+  const mon = cal.months.find(m => m.month === S.impMonth) || cal.months[0];
   const sess = S.importSess;
-  const kindIcon = { roster: "👥", attendance: "🕘", productivity: "📈", sales: "🧾", leave: "🏖️", po_rating: "⭐", po_role: "🪪", po_shift: "🗓️", po_turnover: "🚪", po_da: "⚖️", po_nps: "💬", po_shrink: "📦", dataset: "📊" };
-  const preview = sess ? sess.files.map((f, fi) => `<div class="fcard"><div class="kind">${ic("file", 18)}<b>${esc(f.file)}</b>${f.results.length ? "" : `<span class="chip bad">Not recognised</span>`}</div>
-      ${f.results.map(r => `<div style="display:flex;flex-direction:column;gap:6px;padding-left:4px;border-left:3px solid var(--gold-2);padding:4px 10px">
-        <div class="row"><b>${kindIcon[r.kind] || ""} ${esc(r.label)}</b><span class="chip">${esc(r.sheet)}</span><span class="chip good">${r.rows.toLocaleString("en-US")} rows</span>${r.remembered ? `<span class="chip gold" title="Set up the way you imported it last time">✓ remembered</span>` : ""}${r.month ? `<span class="chip info">${esc(r.month)}</span>` : ""}</div>
-        <small style="color:var(--muted)">${esc(r.summary)}</small>
-        <div class="imp-opts">
-          <label class="dx-l">This sheet is<select class="input" data-opt="kind" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}">${(f.kinds || []).map(k => `<option value="${k.value}" ${k.value === (r.kind_hint || r.kind) ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select></label>
-          ${impPeriod(f, r, sess)}
-          <label class="dx-l">${r.kind === "roster" ? "Roster as of" : "Last day (optional)"}<input class="input" type="date" data-opt="as_of" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" value="${r.kind === "roster" ? (r.as_of || new Date().toISOString().slice(0, 10)) : esc(r.as_of || "")}"></label>
-          <details class="imp-more"><summary>Name and description (optional, helps the AI)</summary><div class="imp-more-b">
-          <label class="dx-l">Name<input class="input" data-opt="title" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" placeholder="${esc(r.sheet)}"></label>
-          <label class="dx-l imp-note">What is this sheet about?<textarea class="input" rows="2" data-opt="note" data-file="${esc(f.file)}" data-sheet="${esc(r.sheet)}" placeholder="e.g. Weekly footfall and conversion by store from the Ops team, week 41"></textarea></label></div></details>
-        </div>
-        ${r.warnings.filter(w => !(/Choose the month/.test(w) && r.period && r.period.to)).map(w => `<small style="color:var(--warn-ink)">⚠ ${esc(w)}</small>`).join("")}
-        ${r.preview && r.preview.length ? `<details><summary style="cursor:pointer;color:var(--brand);font-weight:700;font-size:12.5px">Preview</summary><div class="tbl-wrap" style="max-height:220px;margin-top:6px"><table class="t"><thead><tr>${Object.keys(r.preview[0]).filter(k => typeof r.preview[0][k] !== "object").map(k => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>${r.preview.map(p => `<tr>${Object.keys(r.preview[0]).filter(k => typeof r.preview[0][k] !== "object").map(k => `<td>${esc(p[k] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>` : ""}</div>`).join("")}
-      ${f.skipped.length ? `<small style="color:var(--muted)">Ignored sheets: ${esc(f.skipped.join(", "))}</small>` : ""}</div>`).join("") + (sess.errors || []).map(e => `<div class="errbox">${esc(e.file)}: ${esc(e.error)}</div>`).join("") : "";
-  const kinds = { roster: "Roster", attendance: "Attendance", productivity: "Productivity", sales: "BO sales", leave: "Leave", holiday: "Holiday",
-    po_rating: "Ratings", po_role: "Time in role", po_shift: "Shift roster", po_turnover: "Turnover", po_da: "DA", po_nps: "NPS", po_shrink: "Shrinkage", dataset: "Other data" };
-  return `<div class="ph"><div><h1>Import data</h1><p>Drop files or paste cells from Excel, one sheet or many. Each sheet is recognised by its columns; you can
-    change what it is, whether it is general data or covers a month (MTD) or year to date (YTD), and describe it before saving. Anything else is kept under Other data with charts and insights.</p></div></div>
+  const found = new Set(sess ? sess.files.flatMap(f => f.results.map(r => r.kind_hint || r.kind)) : []);
+  const tiles = cal.months.map(m => { const pct = m.total ? m.ok / m.total : 0; const cls = m.future ? "fut" : pct >= 0.99 ? "full" : pct >= 0.5 ? "part" : pct > 0 ? "low" : "none";
+    return `<button class="mtile ${cls} ${m.month === S.impMonth ? "on" : ""}" data-act="imp-month" data-m="${m.month}" ${m.future ? "disabled" : ""}><b>${m.short}</b><span class="mring" style="--p:${Math.round(pct * 100)}"></span><small>${m.future ? "—" : `${m.ok}/${m.total}`}</small>${m.locked ? `<i title="Locked">🔒</i>` : ""}</button>`; }).join("");
+  const slots = mon.items.map(it => { const st = found.has(it.kind) ? ["Ready to save", "info"] : IMP_STATUS[it.status] || ["", ""];
+    return `<div class="slot ${found.has(it.kind) ? "found" : it.status}"><div class="slot-ic">${KIND_ICON[it.kind] || "📄"}</div><div class="slot-b"><b>${esc(it.name)}</b><small>${esc(it.status === "missing" && !found.has(it.kind) ? (cal.guide[it.kind] || "") : (it.label || it.detail || ""))}</small></div><span class="chip ${st[1]}">${st[0]}</span></div>`; }).join("");
+  const nres = sess ? sess.files.reduce((a, f) => a + f.results.length, 0) : 0;
+  return `<div class="ph"><div><h1>Import data</h1><p>Pick the month, then drop every file you have for it: any report, any layout, any file name. Smart Import works out what each sheet is from its columns, checks it for problems and shows you before anything is saved.</p></div></div>
     ${S.init.unsure_stores ? `<div class="banner">🏬 ${S.init.unsure_stores} store name${S.init.unsure_stores > 1 ? "s were" : " was"} matched with less certainty. <button class="btn sm" data-go="settings" data-tab="stores">Check store names</button></div>` : ""}
-    <div class="drop" id="drop"><div class="ic">${ic("import", 26)}</div><h3>Drop report files here</h3><p style="margin:0;color:var(--muted)">Excel (.xlsx, .xls, .xlsm), CSV or text · as many as you like</p>
-      <div class="row" style="justify-content:center"><button class="btn primary" data-act="pick">${ic("file", 16)}Choose files</button><button class="btn" data-act="paste">${ic("paste", 16)}Paste data</button></div>
-      <input type="file" id="filein" multiple hidden accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.txt,.tsv,.htm,.html"></div>
-    ${sess ? `<div class="panel"><div class="phd"><h2>Ready to import</h2><div class="tools"><button class="btn" data-act="import-cancel">Cancel</button><button class="btn primary" data-act="import-commit" ${sess.files.some(f => f.results.length) ? "" : "disabled"}>Import ${sess.files.reduce((a, f) => a + f.results.length, 0)} table${sess.files.reduce((a, f) => a + f.results.length, 0) === 1 ? "" : "s"}</button></div></div>${preview}</div>` : ""}
-    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Import history</h2><small>Undo removes an import's data; Restore brings it back</small></div><div class="tbl-wrap" style="max-height:520px"><table class="t"><thead><tr><th>When</th><th>Type</th><th>File</th><th>Period</th><th class="n">Rows</th><th>Summary</th><th></th></tr></thead>
-    <tbody>${h.rows.map(r => `<tr style="${r.active ? "" : "opacity:.5"}"><td>${esc(r.created_at.replace("T", " ").slice(0, 16))}</td><td><span class="chip">${esc(kinds[r.kind] || r.kind)}</span></td><td>${esc(r.file_name)}<span class="sub">${esc(r.source)}</span></td>
+    <div class="panel icald"><div class="phd"><h2>1 · Which month are you loading?</h2><div class="row"><button class="btn sm ghost" data-act="imp-year" data-y="${yr - 1}">‹ ${yr - 1}</button><b>${yr}</b><button class="btn sm ghost" data-act="imp-year" data-y="${yr + 1}" ${yr + 1 > +cur.slice(0, 4) ? "disabled" : ""}>${yr + 1} ›</button></div></div>
+      <div class="mtiles">${tiles}</div></div>
+    <div class="grid g2 imp-grid">
+      <div class="panel"><div class="phd"><h2>2 · What ${esc(mon.label)} needs</h2><small>${mon.ok} of ${mon.total} in${found.size ? ` · ${found.size} in this upload` : ""}</small></div><div class="slots">${slots}</div></div>
+      <div class="drop big" id="drop"><div class="ic">${ic("import", 30)}</div><h3>3 · Drop all the files for ${esc(mon.label)}</h3><p style="margin:0;color:var(--muted)">Excel, CSV, text or HTML exports · any number · any names · several sheets in one workbook are fine</p>
+        <div class="row" style="justify-content:center"><button class="btn primary" data-act="pick">${ic("file", 16)}Choose files</button><button class="btn" data-act="paste">${ic("paste", 16)}Paste cells</button></div>
+        <small style="color:var(--muted)">Files stay on this computer. Nothing is saved until you press Save.</small>
+        <input type="file" id="filein" multiple hidden accept=".xlsx,.xls,.xlsm,.xlsb,.ods,.csv,.txt,.tsv,.htm,.html"></div></div>
+    ${sess ? `<div class="panel"><div class="phd"><h2>4 · Check and save</h2><div class="tools"><button class="btn" data-act="import-cancel">Cancel</button><button class="btn primary" data-act="import-commit" ${nres ? "" : "disabled"}>Save ${nres} table${nres === 1 ? "" : "s"}</button></div></div>
+      <div class="isheets">${sess.files.map(f => f.results.length ? f.results.map(r => impSheetCard(f, r, sess)).join("") : `<div class="iiss bad"><span>✕</span><div><b>${esc(f.file)}</b>: no table could be read.${f.skipped.length ? ` <small>${esc(f.skipped.join(", "))}</small>` : ""}</div></div>`).join("")}</div>
+      ${(sess.errors || []).map(e => `<div class="errbox">${esc(e.file)}: ${esc(e.error)}</div>`).join("")}</div>` : ""}
+    <details class="panel flush" open><summary class="phd" style="padding:14px 16px;cursor:pointer"><h2 style="display:inline">Import history</h2> <small>Undo removes an import's data; Restore brings it back</small></summary><div class="tbl-wrap" style="max-height:520px"><table class="t"><thead><tr><th>When</th><th>Type</th><th>File</th><th>Period</th><th class="n">Rows</th><th>Summary</th><th></th></tr></thead>
+    <tbody>${h.rows.map(r => `<tr style="${r.active ? "" : "opacity:.5"}"><td>${esc(r.created_at.replace("T", " ").slice(0, 16))}</td><td><span class="chip">${KIND_ICON[r.kind] || ""} ${esc(r.kind_label || r.kind)}</span></td><td>${esc(r.file_name)}<span class="sub">${esc(r.source)}</span></td>
       <td class="nw">${r.period_label ? `<span class="chip ${r.period_type === "ytd" ? "gold" : r.period_type === "mtd" ? "info" : ""}">${esc(r.period_label)}</span>` : esc(r.as_of || r.month || "")}</td><td class="n">${r.rows.toLocaleString("en-US")}</td><td>${esc(r.summary)}${r.warnings.length ? `<span class="sub">⚠ ${esc(r.warnings[0])}</span>` : ""}</td>
-      <td class="n">${r.active ? `<button class="btn sm" data-act="undo" data-id="${r.id}">${ic("undo", 13)}Undo</button>` : `<button class="btn sm" data-act="redo" data-id="${r.id}">Restore</button>`}</td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">Nothing imported yet.</div></td></tr>`}</tbody></table></div></div>`;
+      <td class="n">${r.active ? `<button class="btn sm" data-act="undo" data-id="${r.id}">${ic("undo", 13)}Undo</button>` : `<button class="btn sm" data-act="redo" data-id="${r.id}">Restore</button>`}</td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">Nothing imported yet.</div></td></tr>`}</tbody></table></div></details>`;
 };
+function impReplace(file) {
+  const s = S.importSess; if (!s) return;
+  const i = s.files.findIndex(f => f.file === file.file);
+  if (i >= 0) s.files[i] = { ...s.files[i], ...file };
+  render();
+}
+function impMapForm(file, sheet) {
+  const f = S.importSess.files.find(x => x.file === file), r = f.results.find(x => x.sheet === sheet);
+  const cur = {}; (r.mapping || []).forEach(m => { cur[m.column] = m.field; });
+  const cols = r.columns && r.columns.length ? r.columns : (r.mapping || []).map(m => ({ index: m.column, header: m.header, examples: m.examples }));
+  const fields = f.fields || [];
+  const m = modal(`<h3>Which column is which?</h3><p style="color:var(--muted);margin:0 0 10px">Sheet “${esc(sheet)}”. Set what each column holds, or “Ignore”. P&O remembers this for next month's file.</p>
+    <label class="dx-l" style="max-width:320px">This sheet is<select class="input" id="mf-kind">${f.kinds.map(k => `<option value="${k.value}" ${k.value === r.kind ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select></label>
+    <div class="tbl-wrap" style="max-height:52vh;margin-top:10px"><table class="t"><thead><tr><th>Column in the file</th><th>Example values</th><th>Holds</th></tr></thead><tbody>
+    ${cols.map(c => `<tr><td><b>${esc(c.header || "(no title)")}</b><span class="sub">column ${String.fromCharCode(65 + (c.index % 26))}${c.index >= 26 ? Math.floor(c.index / 26) : ""}</span></td><td><small>${esc((c.examples || []).join(" · "))}</small></td>
+      <td><select class="input sm" data-mfcol="${c.index}"><option value="">Ignore</option>${fields.map(x => `<option value="${x.value}" ${cur[c.index] === x.value ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></td></tr>`).join("")}</tbody></table></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="mf-go">Read it again</button></div>`);
+  $("#mf-go", m).onclick = async () => {
+    const mapping = {}; $$("[data-mfcol]", m).forEach(s => { if (s.value) mapping[s.value] = +s.dataset.mfcol; });
+    const b = $("#mf-go", m); b.disabled = true; b.innerHTML = `<span class="spin" style="width:13px;height:13px"></span> Reading…`;
+    try { const res = await call("import_remap", { token: S.importSess.token, file, sheet, kind: $("#mf-kind", m).value, mapping }); closeModal(); impReplace(res.file); toast("Read again with your column matches"); }
+    catch (e) { b.disabled = false; b.textContent = "Read it again"; }
+  };
+}
+const IMP_ACTS = {
+  "imp-month": b => { S.impMonth = b.dataset.m; if (S.importSess) toast(`Files in this upload will be saved for ${b.dataset.m}. Re-add them if they belong to another month.`); render(); },
+  "imp-year": b => { S.impYear = +b.dataset.y; S.impMonth = null; render(); },
+  "imp-map": b => impMapForm(b.dataset.file, b.dataset.sheet),
+  "imp-ai": async b => { b.disabled = true; b.innerHTML = `<span class="spin" style="width:13px;height:13px"></span> Reading…`;
+    try { const r = await call("import_ai", { token: S.importSess.token, file: b.dataset.file, sheet: b.dataset.sheet }); impReplace(r.file); toast(`AI: ${r.why || "columns matched"}`, { ms: 7000 }); }
+    catch (e) { b.disabled = false; b.textContent = "✨ Ask AI to read it"; } },
+};
+document.addEventListener("change", async e => {
+  const k = e.target.closest && e.target.closest("[data-imp-kind]");
+  if (!k || !S.importSess) return;
+  try { const r = await call("import_remap", { token: S.importSess.token, file: k.dataset.file, sheet: k.dataset.sheet, kind: k.value }); impReplace(r.file); toast("Read again as " + k.options[k.selectedIndex].text); }
+  catch (err) { render(); }
+});
 AFTER.import = () => {
-  const drop = $("#drop"), fi = $("#filein");
+  const drop = $("#drop"), fi = $("#filein"), page = $(".page");
   if (!drop) return;
-  ["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
-  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, () => drop.classList.remove("over")));
-  drop.addEventListener("drop", e => { e.preventDefault(); if (e.dataTransfer.files.length && !window.qt) uploadFiles(e.dataTransfer.files); });
+  [drop, page].forEach(el => { if (!el) return;
+    ["dragenter", "dragover"].forEach(ev => el.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+    ["dragleave", "drop"].forEach(ev => el.addEventListener(ev, () => drop.classList.remove("over")));
+    el.addEventListener("drop", e => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.files.length && !window.qt) uploadFiles(e.dataTransfer.files); }); });
   fi.onchange = () => { if (fi.files.length) uploadFiles(fi.files); };
 };
 async function uploadFiles(fileList) {
@@ -987,7 +1052,8 @@ async function uploadFiles(fileList) {
     for (let i = 0; i < bytes.length; i += 32768) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768));
     files.push({ name: f.name, b64: btoa(bin) });
   }
-  S.importSess = await call("import_upload", { files });
+  toast(`Reading ${files.length} file${files.length > 1 ? "s" : ""}…`);
+  S.importSess = await call("import_upload", { files, month: S.impMonth || null });
   render();
 }
 window.PNO_drop = async paths => {
@@ -995,7 +1061,7 @@ window.PNO_drop = async paths => {
   if (S.page === "hiring" && S.hire.vid) { toast(`Reading ${paths.length} CV${paths.length > 1 ? "s" : ""}…`); hireAfterAdd(await call("hire_add_paths", { paths, vacancy_id: S.hire.vid })); return; }
   if (S.page !== "import") { S.page = "import"; $$("#nav button").forEach(b => b.toggleAttribute("aria-current", b.dataset.go === "import")); }
   toast("Reading " + paths.length + " file" + (paths.length > 1 ? "s" : "") + "…");
-  S.importSess = await call("import_analyze", { paths });
+  S.importSess = await call("import_analyze", { paths, month: S.impMonth || null });
   render();
 };
 
@@ -1301,11 +1367,11 @@ const ACT = {
   "att-rm": b => { S.attach.splice(+b.dataset.i, 1); drawChat(); },
   confirm: async b => { const r = await call("agent_confirm", { action_id: b.dataset.id, approve: true }); markAction(b, "ok"); toast(r.message); await afterDataChange(false); },
   cancel: async b => { await call("agent_confirm", { action_id: b.dataset.id, approve: false }); markAction(b, "no"); },
-  pick: async () => { if (window.qt) { const r = await call("pick_files"); if (!r.cancelled) { S.importSess = r; render(); } } else $("#filein").click(); },
+  pick: async () => { if (window.qt) { const r = await call("pick_files", { month: S.impMonth || null }); if (!r.cancelled) { S.importSess = r; render(); } } else $("#filein").click(); },
   paste: () => {
     const m = modal(`<h3>Paste data</h3><p style="color:var(--muted);margin:0 0 10px">Copy the cells in Excel (including the header rows) and paste them here.</p><textarea class="input" id="paste-t" rows="12" style="width:100%;font-family:monospace;font-size:12px"></textarea>
       <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="paste-go">Preview</button></div>`);
-    $("#paste-go", m).onclick = async () => { const t = $("#paste-t", m).value; if (!t.trim()) return; closeModal(); S.importSess = await call("import_analyze", { text: t, name: "Pasted data" }); render(); };
+    $("#paste-go", m).onclick = async () => { const t = $("#paste-t", m).value; if (!t.trim()) return; closeModal(); S.importSess = await call("import_analyze", { text: t, name: "Pasted data", month: S.impMonth || null }); render(); };
     setTimeout(() => $("#paste-t", m).focus(), 100);
   },
   "import-cancel": () => { S.importSess = null; render(); },
@@ -1315,7 +1381,10 @@ const ACT = {
     b.disabled = true; b.innerHTML = `<span class="spin" style="width:14px;height:14px"></span> Importing…`;
     try {
       const r = await API.call("import_commit", { token: S.importSess.token, options: opts });
-      const lines = r.done.flatMap(f => f.error ? [`${f.file}: ${f.error}`] : f.results.map(x => `${x.kind}: ${x.status === "ok" ? x.rows.toLocaleString("en-US") + " rows" + (x.period ? " · " + x.period : "") : x.message}`));
+      const lab = {}; (S.importSess.files[0]?.kinds || []).forEach(k => lab[k.value] = k.label);
+      const ok = r.done.flatMap(f => (f.results || []).filter(x => x.status === "ok"));
+      const bad = r.done.flatMap(f => f.error ? [`${f.file}: ${f.error}`] : (f.results || []).filter(x => x.status !== "ok").map(x => `${lab[x.kind] || x.kind}: ${x.message}`));
+      const lines = [`Saved ${ok.length} table${ok.length === 1 ? "" : "s"}: ` + ok.map(x => `${lab[x.kind] || x.kind} (${x.rows.toLocaleString("en-US")} rows${x.period ? ", " + x.period : ""})`).join(", "), ...bad];
       S.importSess = null;
       toast(lines.join(" · "), { ms: 7000 });
       await afterDataChange(true);
@@ -1851,12 +1920,61 @@ function hireOpenForm(v) {
   const role = $("#hv-role", m); role.onchange = () => ACT["h-draft"]();
 }
 
+/* ============================================================== 2.6 Internal talent first */
+function intCard(c, i) {
+  const bf = c.backfill || {};
+  const risk = { Low: "good", Medium: "warn", High: "bad" }[bf.risk] || "";
+  const ring = Math.round(c.recommend);
+  const steps = (bf.steps || []).map(s => `<div class="cstep ${s.how}"><small>${esc(s.seat)}</small><b>${s.by ? esc(s.by) : "Hire from outside"}</b>${s.by ? `<span class="chip ${s.ready === "Ready now" ? "good" : s.ready === "Ready in a year" ? "warn" : "bad"}">${esc(s.ready || "")}</span>` : `<span class="chip">external</span>`}</div>`).join(`<span class="carrow">→</span>`);
+  return `<div class="icand ${i === 0 ? "top" : ""}">
+    <div class="icand-h"><div class="iring" style="--p:${ring}"><b>${ring}</b><small>/100</small></div>
+      <div style="flex:1;min-width:0"><div class="row" style="gap:8px;flex-wrap:wrap"><b class="iname">${esc(c.name)}</b><span class="chip ${c.move === "Promotion" ? "good" : "info"}">${esc(c.move)}</span>${i === 0 ? `<span class="chip gold">Best option</span>` : ""}${c.flight_risk === "High" ? `<span class="chip warn" title="Flight risk">at risk of leaving</span>` : ""}</div>
+        <span class="sub">${esc(c.designation)} · ${esc(c.leads || "")} · ${esc(c.store)}${c.emp ? ` · #${esc(c.emp)}` : ""}</span></div>
+      <div class="row" style="gap:6px">${c.in_pipeline ? `<span class="chip good">In the pipeline</span>` : `<button class="btn sm primary" data-act="int-add" data-key="${esc(c.key)}">+ Shortlist</button>`}<button class="btn sm ghost" data-act="int-more" data-i="${i}">Profile</button></div></div>
+    <div class="icand-b"><div class="iparts">${c.parts.map(p => `<div><small>${esc(p.label)} <i>${p.weight}%</i></small><div class="ibar"><i style="width:${p.score}%"></i></div><b>${p.score}</b></div>`).join("")}</div>
+      <div class="iwhy">${c.why.map(w => `<div class="g">✓ ${esc(w)}</div>`).join("")}${c.watch.map(w => `<div class="w">! ${esc(w)}</div>`).join("")}</div></div>
+    <div class="iback"><div class="row" style="justify-content:space-between;gap:8px"><small><b>If ${esc(c.name.split(" ")[0])} moves:</b> ${esc(bf.summary || "")}</small><span class="chip ${risk}">${esc(bf.risk || "")} risk to ${esc(c.store)}</span></div>
+      ${steps ? `<div class="chainv">${steps}</div>` : ""}</div></div>`;
+}
+async function drawInternal() {
+  const box = $("#h-internal"); if (!box) return;
+  try {
+    const r = DATA.hint = await API.call("hire_internal", { vacancy_id: S.hire.vid });
+    const vcls = { internal: "good", internal_backfill: "gold", develop: "warn", external: "info" }[r.verdict.decision] || "";
+    box.innerHTML = `<div class="iverdict ${vcls}"><div class="iv-ic">${r.verdict.decision === "external" ? "🌐" : r.verdict.decision === "develop" ? "🌱" : "🏆"}</div><div><small>P&O recommends</small><h3>${esc(r.verdict.title)}</h3><p>${esc(r.verdict.text)}</p></div>
+        <div class="iv-act">${r.verdict.decision !== "internal" ? `<button class="btn primary" data-act="h-vtab" data-t="external">Start external search →</button>` : `<button class="btn" data-act="h-vtab" data-t="external">Also screen outside CVs</button>`}</div></div>
+      ${(r.notes || []).map(n => `<div class="banner">ℹ ${esc(n)}</div>`).join("")}
+      <div class="row" style="justify-content:space-between;margin:10px 0 6px"><small style="color:var(--muted)">${r.candidates.length} internal option${r.candidates.length === 1 ? "" : "s"} from ${r.pool.leaders} leaders${r.pool.staff ? ` and ${r.pool.staff} staff` : ""} · ${esc(r.method)}</small></div>
+      <div class="icands">${r.candidates.map(intCard).join("") || `<div class="empty">No internal candidates at the right level.</div>`}</div>
+      <div class="panel" style="margin-top:14px"><div class="phd"><h2>Outside the company</h2><small>${r.external_pipeline} CVs screened for this vacancy</small></div>
+        ${r.bank.length ? `<div class="hint-list">${r.bank.map(b => `<div><b>${esc(b.name)}</b><small>${esc(b.city || "")} · past applicant · ${b.score}/100 · ${esc(b.band_label)}</small></div>`).join("")}</div>` : `<small style="color:var(--muted)">No strong past applicants in the talent bank.</small>`}
+        <div class="row" style="margin-top:8px"><button class="btn" data-act="h-vtab" data-t="external">Screen CVs</button><button class="btn ghost" data-act="h-matchbank">Add talent bank matches</button></div></div>`;
+  } catch (e) { box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`; }
+}
+function intProfile(c) {
+  const comp = Object.entries(c.components || {});
+  modal(`<div class="row" style="gap:14px;align-items:center"><div class="iring" style="--p:${Math.round(c.recommend)}"><b>${Math.round(c.recommend)}</b><small>/100</small></div><div><h3 style="margin:0">${esc(c.name)}</h3><small style="color:var(--muted)">${esc(c.designation)} · ${esc(c.leads || "")} · ${esc(c.store)}</small></div></div>
+    <div class="grid g2" style="margin-top:12px"><div><h4>Profile</h4><table class="t"><tbody>
+      ${[["Employee number", c.emp], ["Store", c.store], ["City", c.city], ["Leads", c.leads], ["Grade", c.grade], ["Reports to", c.manager], ["Joined", c.joined ? fmtDate(c.joined) : ""],
+         ["With Carrefour", c.service_months != null ? `${Math.floor(c.service_months / 12)} yr ${c.service_months % 12} mo` : ""], ["In this role since", c.role_since ? fmtDate(c.role_since) : ""],
+         ["Leader index", c.index != null ? (c.index / 10).toFixed(1) + " / 10" : ""], ["Flight risk", c.flight_risk || ""], ["1:1 notes", c.notes || ""]].filter(x => x[1]).map(([k, v]) => `<tr><td><small>${k}</small></td><td><b>${esc(v)}</b></td></tr>`).join("")}</tbody></table></div>
+      <div><h4>Ratings</h4>${c.ratings.length ? `<table class="t"><tbody>${c.ratings.map(r => `<tr><td>${esc(r.cycle || "")}</td><td><b>${r.rating ?? "—"}</b></td><td><small>${esc(r.label || "")}</small></td></tr>`).join("")}</tbody></table>` : `<small style="color:var(--muted)">No ratings on file</small>`}
+        ${comp.length ? `<h4>Results of their area (/10)</h4><div class="iparts">${comp.map(([k, v]) => `<div><small>${esc(k.replace("_", " "))}</small><div class="ibar"><i style="width:${v * 10}%"></i></div><b>${v}</b></div>`).join("")}</div>` : ""}
+        ${c.training.length ? `<h4>Training</h4>${c.training.map(t => `<div><small>${esc(t)}</small></div>`).join("")}` : ""}</div></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Close</button>${c.in_pipeline ? "" : `<button class="btn primary" data-act="int-add" data-key="${esc(c.key)}">+ Shortlist</button>`}</div>`).classList.add("wide");
+}
+const INT_ACTS = {
+  "h-vtab": b => { S.hire.vtab = b.dataset.t; render(); },
+  "int-add": async b => { b.disabled = true; await call("hire_internal_add", { vacancy_id: S.hire.vid, key: b.dataset.key }); closeModal(); toast("Added to the pipeline as an internal candidate"); drawInternal(); },
+  "int-more": b => intProfile(DATA.hint.candidates[+b.dataset.i]),
+};
+
 async function hireVacancy(head) {
   const H = S.hire;
   const v = DATA.hvac = await API.call("hire_vacancy", { vacancy_id: H.vid, blind: H.blind });
   const b = v.bands;
   const rows = v.apps.map((a, i) => `<tr class="click" data-act="h-cand" data-id="${a.candidate_id}">
-      <td class="n">${i + 1}</td><td><b>${esc(a.name)}</b><span class="sub">${esc(a.level || "level not found")}${a.retailers.length ? " · " + esc(a.retailers.join(", ")) : ""}</span></td>
+      <td class="n">${i + 1}</td><td><b>${esc(a.name)}</b>${a.source === "Internal" ? ` <span class="chip gold">Internal</span>` : ""}<span class="sub">${esc(a.level || "level not found")}${a.retailers.length ? " · " + esc(a.retailers.join(", ")) : ""}</span></td>
       <td style="min-width:130px">${hBar(a.score, a.band)}</td><td>${hBand(a.band)}</td>
       <td class="n">${a.years ?? "—"}</td><td class="n">${a.retail_years ?? "—"}</td><td>${esc(a.city || "—")}</td>
       <td>${a.knockouts.length ? `<span class="chip bad" title="${esc(a.knockouts.join("; "))}">knock-out</span>` : ""}${a.flags.length ? `<span class="chip warn" title="${esc(a.flags.join("; "))}">${a.flags.length} to ask</span>` : ""}${a.tags.length ? `<span class="chip info" title="${esc(a.tags.join("; "))}">history</span>` : ""}</td>
@@ -1868,7 +1986,8 @@ async function hireVacancy(head) {
       `<button class="btn ghost" data-act="h-back">${ic("back", 15)}All vacancies</button><label class="switch-l" title="Hide names and contact details while reviewing"><input type="checkbox" id="h-blind" ${H.blind ? "checked" : ""}> Blind review</label>
        <button class="btn" data-act="h-edit">Edit</button><div class="menu-wrap"><button class="btn" data-act="h-expmenu">${ic("export", 15)}Export ▾</button><div class="cmenu" id="h-exp" hidden>
        <button data-act="h-export" data-fmt="pdf"><b>Shortlist PDF</b><small>ranked list and the top 6 profiles with evidence</small></button><button data-act="h-export" data-fmt="pptx"><b>PowerPoint</b><small>for the hiring meeting</small></button><button data-act="h-export" data-fmt="xlsx"><b>Excel</b><small>every candidate and score</small></button></div></div>`) +
-    `<div class="kpis k5">
+    `<div class="seg vtabs"><button data-act="h-vtab" data-t="internal" aria-pressed="${(H.vtab || "internal") === "internal"}">🏢 Internal talent first</button><button data-act="h-vtab" data-t="external" aria-pressed="${H.vtab === "external"}">🌐 Candidates (${v.apps.length})</button></div>
+    ${(H.vtab || "internal") === "internal" ? `<div id="h-internal"><div class="skel" style="height:180px"></div></div>` : `<div class="kpis k5">
       <div class="kpi"><span class="kpi-l">CVs screened</span><span class="kpi-v">${v.apps.length}</span><span class="kpi-s"><span>${v.funnel.find(f => f.stage === "interview1").count} in interview</span></span></div>
       <div class="kpi"><span class="kpi-l">Strong · interview</span><span class="kpi-v t-good">${b.strong}</span><span class="kpi-s"><span>score 75+</span></span></div>
       <div class="kpi"><span class="kpi-l">Possible · phone screen</span><span class="kpi-v">${b.possible}</span><span class="kpi-s"><span>55–74</span></span></div>
@@ -1881,7 +2000,7 @@ async function hireVacancy(head) {
     <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Ranked candidates</h2><small>Click a candidate for the score breakdown, interview kit and messages</small></div>
       <div class="tbl-wrap"><table class="t"><thead><tr><th class="n">#</th><th>Candidate</th><th>Match</th><th>Recommendation</th><th class="n">Years</th><th class="n">Retail</th><th>City</th><th>Checks</th><th>Stage</th><th class="n">Panel</th></tr></thead>
       <tbody>${rows || `<tr><td colspan="10"><div class="empty">No CVs yet. Drop them above.</div></td></tr>`}</tbody></table></div></div>
-    ${internal}
+`}
     <details class="panel"><summary style="cursor:pointer"><h2 style="display:inline;margin:0">Job description</h2></summary><div class="md">${md(v.jd || "")}</div></details>`;
 }
 
@@ -1995,6 +2114,7 @@ async function hireStats(head) {
       <div class="row"><input class="input sm" type="number" min="1" id="h-keep" value="${set.keep_months}" style="width:70px"> months <button class="btn sm" data-act="h-keep">Save</button></div></div></div>`;
 }
 AFTER.hiring = () => {
+  if (S.hire.tab === "vac" && S.hire.vid && (S.hire.vtab || "internal") === "internal") drawInternal();
   const H = S.hire;
   const bl = $("#h-blind"); if (bl) bl.onchange = () => { H.blind = bl.checked; render(); };
   const fi = $("#hfile"), dz = $("#hdrop");
@@ -2422,6 +2542,8 @@ const MORE_ACTS = {
   "po-leader-open": b => { S.po.tab = "leaders"; S.po.leader = b.dataset.key; render(); },
 };
 Object.assign(ACT, MORE_ACTS);
+Object.assign(ACT, IMP_ACTS);
+Object.assign(ACT, INT_ACTS);
 ACT["tpl-forget"] = async b => { await call("import_templates", { forget: b.dataset.k }); toast("Forgotten"); render(); };
 
 /* ============================================================== 2.2 Policy assistant */

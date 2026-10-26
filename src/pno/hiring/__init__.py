@@ -211,8 +211,12 @@ class Hiring:
         c = self.db.q1("SELECT parsed, text, name, phone FROM candidates WHERE id=?", (cid,))
         if not v or not c:
             raise ValueError("Vacancy or candidate not found.")
-        res = scoring.score(_j(c["parsed"], {}), c["text"] or "", _j(v["rubric"], templates.default_rubric(v["role"] or "associate")))
-        res["tags"] = self._history_tags(c["name"])
+        parsed = _j(c["parsed"], {})
+        if parsed.get("internal"):                   # an internal candidate is judged on P&O's data, not a CV
+            res = parsed["internal_result"]
+        else:
+            res = scoring.score(parsed, c["text"] or "", _j(v["rubric"], templates.default_rubric(v["role"] or "associate")))
+            res["tags"] = self._history_tags(c["name"])
         existing = self.db.q1("SELECT id FROM applications WHERE vacancy_id=? AND candidate_id=?", (vid, cid))
         if existing:
             self.db.x("UPDATE applications SET score=?, band=?, result=? WHERE id=?", (res["score"], res["band"], json.dumps(res), existing[0]))
@@ -437,6 +441,46 @@ class Hiring:
                 out.append({"id": c["id"], "name": c["name"], "city": c["city"] or "", "score": r["score"], "band": r["band"], "band_label": r["band_label"]})
         out.sort(key=lambda x: -x["score"])
         return {"rows": out[:limit]}
+
+    def internal_search(self, vid: int) -> dict:
+        from . import internal
+        v = self.db.q1("SELECT * FROM vacancies WHERE id=?", (vid,))
+        if not v:
+            raise ValueError("Vacancy not found.")
+        r = internal.search(self.api, dict(v))
+        added = {str(_j(x["parsed"], {}).get("emp")) for x in self.db.q(
+            "SELECT c.parsed FROM applications a JOIN candidates c ON c.id=a.candidate_id WHERE a.vacancy_id=? AND c.source='Internal'", (vid,))}
+        for c in r["candidates"]:
+            c["in_pipeline"] = str(c["emp"]) in added
+        r["bank"] = self.match_bank(vid, 8)["rows"]
+        r["external_pipeline"] = self.db.q1("SELECT COUNT(*) FROM applications a JOIN candidates c ON c.id=a.candidate_id WHERE a.vacancy_id=? AND c.source!='Internal'", (vid,))[0]
+        return r
+
+    def add_internal(self, vid: int, key: str) -> dict:
+        """Put an internal candidate into the vacancy's pipeline, with their P&O profile instead of a CV."""
+        from . import internal
+        v = self.db.q1("SELECT * FROM vacancies WHERE id=?", (vid,))
+        r = internal.search(self.api, dict(v), limit=200)
+        c = next((x for x in r["candidates"] if str(x["key"]) == str(key)), None)
+        if not c:
+            raise ValueError("This person is no longer in the internal list.")
+        band = "strong" if c["fit"] >= 75 else "possible" if c["fit"] >= 60 else "weak"
+        result = {"score": c["fit"], "band": band, "band_label": f"Internal · {c['move']}", "parts": [], "flags": c["watch"], "knockouts": [],
+                  "tags": ["Internal", c["move"]], "internal": {k: c[k] for k in ("designation", "store", "leads", "index", "ratings", "why", "watch", "backfill", "parts", "move")}}
+        parsed = {"internal": True, "emp": c["emp"], "name": c["name"], "internal_result": result, "years_total": round(c["service_months"] / 12, 1) if c.get("service_months") else None,
+                  "top_level_label": c["designation"], "jobs": [{"title": c["designation"], "company": "Carrefour (MAF)"}], "retailers": ["Carrefour"]}
+        ex = self.db.q1("SELECT id FROM candidates WHERE source='Internal' AND json_extract(parsed, '$.emp')=?", (str(c["emp"]),))
+        text = f"{c['name']} · {c['designation']} · {c['store']} · {c['leads']}\n" + "\n".join(c["why"] + c["watch"])
+        if ex:
+            cid = ex[0]
+            self.db.x("UPDATE candidates SET parsed=?, text=?, updated_at=? WHERE id=?", (json.dumps(parsed, default=str), text, now(), cid))
+        else:
+            cid = self.db.x("""INSERT INTO candidates(name, email, phone, city, file_name, file_path, file_hash, text, parsed, source, created_at, updated_at, bank)
+                               VALUES(?,?,?,?,?,?,?,?,?,'Internal',?,?,0)""", (c["name"], None, None, c.get("city") or "", "", "", f"internal-{c['emp']}",
+                                                                             text, json.dumps(parsed, default=str), now(), now())).lastrowid
+        self.apply(vid, cid)
+        self.db.log("hiring", f"internal candidate {c['emp']} added to vacancy #{vid}")
+        return self.internal_search(vid)
 
     def internal_matches(self, v: dict) -> list[dict]:
         """People already in the business who could step up into this vacancy (one level below, same area)."""

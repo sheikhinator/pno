@@ -1,76 +1,134 @@
-"""Any table becomes a dataset; store names in either word order; store leads without the Store Manager title."""
+"""2.5 Smart Import: any layout, any names; discrepancies; column matching; calendar."""
 
 from __future__ import annotations
 
+import base64
+from datetime import date, timedelta
+
+import openpyxl
 import pytest
 
-from pno import engine, importers
+from pno import importers
 from pno.api import Api
 from pno.db import Database
-from pno.stores import parse_name
 
-KPI = """Weekly store KPI report
-Week 41
-Store\tDepartment\tFootfall\tConversion %\tSales Actual\tSales Budget
-HM PK LAH Fortress\tFresh Food\t12,450\t38.2%\t21,500,000\t20,000,000
-HM PK LAH Fortress\tNon Food\t8,100\t21.0%\t9,800,000\t11,000,000
-HM PK KCH Lucky One\tFresh Food\t10,200\t35.1%\t18,000,000\t19,500,000
-PK HM GUJ Steel Casting\tFresh Food\t4,100\t30.0%\t5,100,000\t5,600,000
-Grand Total\t\t34,850\t\t54,400,000\t56,100,000"""
-
-ROSTER = """Employee Number\tBusiness Unit\tDepartment\tSection\tEmployee Name\tDesignation\tGrade\tGender\tReporting Manager
-60000001\tPK HM GUJ Steel Casting\t99:Services\tMGM - Management\tTariq Saeed\tStore Manager\t16\tMale\tCountry Director
-60000002\tPK HM GUJ Steel Casting\t02:Market\tFFD - Bakery\tBahadur Ali\tSection Manager\t8\tMale\tTariq Saeed
-60000003\tSM PK LAH ASKARI 10\t01:CGD-FMCG\tCGD - FMCG (Common)\tImran Khan\tDeputy Manager\t13\tMale\tCountry Director
-60000004\tSM PK LAH ASKARI 10\t01:CGD-FMCG\tCGD - Grocery\tAli Raza\tTeam Leader\t9\tMale\tImran Khan"""
+FILES = {
+    "Staff list Oct.csv": "MAF Carrefour Pakistan\nStaff list as of 15 Oct 2026\n\nEmp Code,Full Name,Store,Dept,Job Title,DOJ,Line Manager,Sex\n"
+                          "20060874,Muhammad Awais Anwar,HM PK FAI Lyallpur Galleria,CGD,Team Leader,13/09/2023,Muhammad Waqas Hameed,Male\n"
+                          "20011111,Ali Khan,HM PK LAH Packages Mall,Fresh Food,Section Manager,01/02/2019,Imran Ali,Male\n"
+                          "20022222,Sara Ahmed,SM PK LAH DHA 7,Non Food,Cashier,05/06/2024,Ali Khan,Female\n",
+    "appraisals.csv": "Staff ID,Name,Year,Final Rating,Location\n20060874,Muhammad Awais Anwar,2025,3,Lyallpur\n20011111,Ali Khan,2025,4.5,Packages Mall\n"
+                      "29999999,Someone Else,2025,7,Packages Mall\n",
+    "exits.csv": "ID,Employee,Location,Last Working Day,Separation Type,Reason\n20033333,Bilal,HM PK LAH Fortress,12-Aug-2026,Resignation,Better job\n"
+                 "20044444,Kamran,HM PK KCH Lucky One,03-Sep-2026,Termination,Absence\n20055555,Usman,Emporium,20-Sep-2026,Resignation,Studies\n",
+    "role dates.csv": "Emp #,Name,Branch,Position,In role since\n20060874,Muhammad Awais Anwar,Lyallpur Galleria,Team Leader,1-Mar-24\n20011111,Ali Khan,Packages,Section Manager,10-Jan-22\n",
+    "leave oct.csv": "Employee Code,Leave Category,Start,End,Approval\n20060874,Annual Leave,02/10/2026,04/10/2026,Approved\n20011111,Sick Leave,10/10/2026,10/10/2026,Rejected\n"
+                     "20022222,Casual,12/10/2026,13/10/2026,Approved\n",
+    "Disciplinary cases.csv": "Store,Section,Employee,Date,Violation\nHM PK LAH Fortress,Bakery,Ali,01/09/2026,Late\nHM PK LAH Fortress,Bakery,Bilal,03/09/2026,Absence\n"
+                              "Emporium,Butchery,Usman,04/09/2026,Misconduct\n",
+    "store sales.csv": "Store,Net Sales,Budget,LY\nHM PK LAH Fortress,774053169,725576093,667287214\nHM PK LAH Packages Mall,540306284,504671006,474346000\nTotal,1314359453,1230247099,1141633214\n",
+    "export.csv": "20060874,Muhammad Awais Anwar,HM PK FAI Lyallpur Galleria,Team Leader,13/09/2023\n20011111,Ali Khan,HM PK LAH Packages Mall,Section Manager,01/02/2019\n"
+                  "20022222,Sara Ahmed,SM PK LAH DHA 7,Cashier,05/06/2024\n",
+}
+EXPECT = {"Staff list Oct.csv": "roster", "appraisals.csv": "po_rating", "exits.csv": "po_turnover", "role dates.csv": "po_role", "leave oct.csv": "leave",
+          "Disciplinary cases.csv": "po_da", "store sales.csv": "sales", "export.csv": "roster"}
 
 
 @pytest.fixture()
 def api(tmp_path, monkeypatch):
     monkeypatch.setenv("PNO_HOME", str(tmp_path / "home"))
-    return Api(Database(tmp_path / "pno.sqlite3"))
+    return Api(Database(tmp_path / "p.sqlite3"))
 
 
-def test_store_word_order():
-    a, b = parse_name("PK HM GUJ Steel Casting"), parse_name("HM PK GUJ Steel Casting")
-    assert (a.format, a.city, a.tokens) == (b.format, b.city, b.tokens) == ("HM", "GUJ", ["STEEL", "CASTING"])
-    assert a.name == "Steel Casting"
+def up(api, files, month="2026-09"):
+    return api.dispatch("import_upload", {"files": [{"name": n, "b64": base64.b64encode(t.encode()).decode()} for n, t in files.items()], "month": month})
 
 
-def test_store_leads_are_found(api):
-    importers.commit(api.db, importers.analyze_text(ROSTER, "pasted"), {"*": {"as_of": "2026-10-20"}}, source="paste")
-    mm = engine.model(api.db, "2026-10")
-    roles = {p.name: (p.role, p.store, p.store_format) for p in mm.people.values()}
-    assert roles["Tariq Saeed"] == ("GM", "Steel Casting", "HM")
-    assert roles["Imran Khan"][0] == "GM"            # supermarket Deputy Manager runs the store
-    assert roles["Bahadur Ali"][0] == "SM"
+@pytest.mark.parametrize("name", list(FILES))
+def test_any_layout_is_recognised(name):
+    d = importers.describe(importers.analyze_bytes(FILES[name].encode(), name))
+    assert [r["kind"] for r in d["results"]] == [EXPECT[name]], d
+    assert d["results"][0]["rows"] >= 2
 
 
-def test_old_store_links_are_repaired(api):
-    sid = api.db.x("INSERT INTO stores(key,name,format,city,code,is_ho) VALUES('||GUJ STEEL CASTING','HM GUJ Steel Casting','','','',0)").lastrowid
-    api.db.x("INSERT INTO store_aliases(alias,raw,store_id,confirmed,source) VALUES('PK HM GUJ STEEL CASTING','PK HM GUJ Steel Casting',?,1,'roster')", (sid,))
-    api.dispatch("init", {})
-    row = api.db.q1("SELECT s.name, s.format, s.city FROM store_aliases a JOIN stores s ON s.id=a.store_id")
-    assert tuple(row) == ("Steel Casting", "HM", "GUJ")
+def test_details_are_read_correctly():
+    d = importers.analyze_bytes(FILES["appraisals.csv"].encode(), "appraisals.csv")
+    rows = {r["employee_id"]: r for r in d["results"][0].rows}
+    assert rows["20011111"]["rating"] == 4.5 and rows["20011111"]["cycle"] == 2025 and rows["20011111"]["store"] == "LAH Packages Mall"
+    d = importers.analyze_bytes(FILES["leave oct.csv"].encode(), "leave.csv")
+    assert {r["emp_no"] for r in d["results"][0].rows} == {"20060874", "20022222"}          # the rejected request is left out
+    d = importers.analyze_bytes(FILES["Disciplinary cases.csv"].encode(), "da.csv")
+    cnt = {(r["store"], r["section"]): r["count"] for r in d["results"][0].rows}
+    assert cnt[("LAH Fortress", "Bakery")] == 2 and cnt[("LAH Emporium Mall", "Butchery")] == 1
+    d = importers.analyze_bytes(FILES["store sales.csv"].encode(), "s.csv")
+    assert len(d["results"][0].rows) == 2                                                     # the Total line is not a store
 
 
-def test_any_table_becomes_an_explained_dataset(api):
-    a = importers.analyze_text(KPI, "Weekly store KPI")
-    assert [r.kind for r in a["results"]] == ["dataset"]
-    res = importers.commit(api.db, a, {"*": {"month": "2026-10"}})
-    assert res[0]["status"] == "ok"
-    sets = api.dispatch("datasets", {})["datasets"]
-    v = api.dispatch("dataset", {"import_id": sets[0]["id"]})
-    roles = {c["name"]: c["role"] for c in v["columns"]}
-    assert roles["Store"] == "store" and roles["Sales Actual"] == "actual" and roles["Sales Budget"] == "budget"
-    assert v["group"] == "_store" and v["measure"] == "Sales Actual"
-    assert {k for k, _ in v["series"]} == {"LAH Fortress", "KCH Lucky One", "GUJ Steel Casting"}
-    assert v["rows"] == 4                            # the Grand Total row is not counted twice
-    text = " ".join(v["insights"])
-    assert "of budget" in text and "GUJ Steel Casting" in text
-    by_dept = api.dispatch("dataset", {"import_id": sets[0]["id"], "group": "Department", "measure": "Conversion %"})
-    assert by_dept["agg"] == "avg" and dict(by_dept["series"])["Fresh Food"] == pytest.approx(34.43, abs=0.01)
-    ai = api.dispatch("dataset_ai", {"import_id": sets[0]["id"]})
-    assert ai["engine"] == "basic" and ai["insights"]
-    r = api.dispatch("agent_ask", {"question": "What does the weekly store KPI show?"})
-    assert "Weekly store KPI" in r["answer"]
+def test_xlsx_with_titles_and_two_row_header(tmp_path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Leavers Q3"
+    ws.append(["MAF Carrefour · People & Organisation"])
+    ws.append([])
+    ws.append(["Employee", None, "Exit", None, None])
+    ws.append(["Number", "Name", "Date", "Type", "Reason"])
+    ws.append([20033333, "Bilal Ahmed", date(2026, 8, 12), "Resignation", "Better job"])
+    ws.append([20044444, "Kamran Ali", date(2026, 9, 3), "Termination", "Absence"])
+    p = tmp_path / "q3.xlsx"
+    wb.save(p)
+    a = importers.analyze_path(p)
+    r = a["results"][0]
+    assert r.kind == "po_turnover" and len(r.rows) == 2 and r.rows[0]["date"] == "2026-08-12"
+
+
+def test_discrepancies_are_reported(api):
+    s = up(api, {k: FILES[k] for k in ("Staff list Oct.csv", "appraisals.csv")})
+    res = {r["kind"]: r for f in s["files"] for r in f["results"]}
+    texts = " ".join(i["text"] for i in res["po_rating"]["issues"])
+    assert "outside 0–5" in texts and "not on the employee master" in texts
+    future = "Emp Code,Full Name,Store,Job Title,DOJ,Line Manager\n1,Ali Khan,Narnia Mall,Cashier,01/01/2099,X\n2,Sara Khan,Narnia Mall,Cashier,01/01/2020,X\n"
+    s = up(api, {"x.csv": future})
+    t = " ".join(i["text"] for i in s["files"][0]["results"][0]["issues"])
+    assert "future" in t and "not in P&O's store list" in t
+
+
+def test_remap_and_remembered_columns(api):
+    s = up(api, {"appraisals.csv": FILES["appraisals.csv"]})
+    f = s["files"][0]
+    r = f["results"][0]
+    cols = {c["header"]: c["index"] for c in r["columns"]}
+    # the user says 'Year' is not the cycle and 'Location' is the store; read it again
+    out = api.dispatch("import_remap", {"token": s["token"], "file": f["file"], "sheet": r["sheet"], "kind": "po_rating",
+                                        "mapping": {"employee_id": cols["Staff ID"], "employee_name": cols["Name"], "rating": cols["Final Rating"],
+                                                    "store": cols["Location"]}})
+    assert "error" not in out, out
+    r2 = out["file"]["results"][0]
+    assert {m["field"] for m in r2["mapping"]} >= {"employee_id", "rating", "store"} and "cycle" not in {m["field"] for m in r2["mapping"]}
+    c = api.dispatch("import_commit", {"token": s["token"], "options": {}})
+    assert c["done"][0]["results"][0]["status"] == "ok"
+    # next month's file with the same titles is set up the same way
+    s2 = up(api, {"appraisals Nov.csv": FILES["appraisals.csv"].replace("2025", "2026")})
+    r3 = s2["files"][0]["results"][0]
+    assert r3.get("remembered") and "cycle" not in {m["field"] for m in r3["mapping"]}
+
+
+def test_kind_change_and_ai_without_key(api):
+    s = up(api, {"exits.csv": FILES["exits.csv"]})
+    f = s["files"][0]
+    out = api.dispatch("import_remap", {"token": s["token"], "file": f["file"], "sheet": f["results"][0]["sheet"], "kind": "dataset"})
+    assert out["file"]["results"][0]["kind"] == "dataset"
+    e = api.dispatch("import_ai", {"token": s["token"], "file": f["file"], "sheet": f["results"][0]["sheet"]})
+    assert "error" in e
+
+
+def test_everything_saves_for_the_calendar_month(api):
+    s = up(api, FILES, month="2026-09")
+    assert all(f["results"] for f in s["files"])
+    c = api.dispatch("import_commit", {"token": s["token"], "options": {}})
+    st = [x for f in c["done"] for x in f.get("results", [])]
+    assert all(x["status"] == "ok" for x in st), st
+    cal = api.dispatch("import_calendar", {"year": 2026})
+    sep = next(m for m in cal["months"] if m["month"] == "2026-09")
+    got = {i["kind"] for i in sep["items"] if i["status"] == "ok"}
+    assert {"roster", "po_role", "po_rating", "po_turnover", "po_da", "sales"} <= got
+    assert len(cal["months"]) == 12 and cal["guide"]["roster"]

@@ -103,6 +103,9 @@ def test_period_bar_on_every_po_screen(tmp_path):
             assert "Team Leader" in page.locator("#hv-jd").input_value()
             page.locator("[data-act=h-save]").click()
             settle()
+            page.wait_for_selector(".iverdict", timeout=15000)          # internal talent first
+            page.locator("[data-act=h-vtab][data-t=external]").first.click()
+            settle()
             assert page.locator("#hdrop").count() == 1
             page.locator("[data-act=h-edit]").click()
             time.sleep(0.5)

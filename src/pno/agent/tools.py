@@ -86,6 +86,11 @@ TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: s
                              "from_month": {"type": "string", "description": "YYYY-MM, YTD start (default January)"},
                              "to_month": {"type": "string", "description": "YYYY-MM, the month (MTD) or YTD end"}},
                              "required": ["question"]}})
+TOOLS.insert(1, {"name": "internal_candidates", "description": "Who inside the company could fill a role (store manager, department_head, "
+              "section_manager, team_leader) in a store and section: fit score with reasons, and what their move leaves behind (backfill, chain "
+              "of moves, risk). Use for 'who can replace X', 'who is ready for department head at Fortress', 'internal candidates for ...'.",
+              "parameters": {"type": "object", "properties": {"role": {"type": "string", "enum": ["store_manager", "department_head", "section_manager", "team_leader"]},
+                             "store": {"type": "string"}, "section": {"type": "string"}}, "required": ["role"]}})
 TOOLS.insert(1, {"name": "hr_policy", "description": "Search the HR policy library (leave, attendance, discipline, pay, conduct…) the "
               "user added, and return the matching clauses with their policy and section. Use for any 'what does the policy say', "
               "'how many days', 'are we allowed to' question. Quote the clauses and cite the policy name.",
@@ -231,6 +236,15 @@ class Toolbox:
         return {"title": v["title"], "rows": v["rows"], "columns": [{k: c.get(k) for k in ("name", "type", "role")} for c in v["columns"]],
                 "grouped_by": v["group"], "measure": v["measure"], "aggregation": v["agg"], "groups": v["series"][:30],
                 "trend": v["trend"][-24:], "insights": v["insights"]}
+
+    def t_internal_candidates(self, role: str = "section_manager", store: str = "", section: str = "", **kw) -> dict:
+        from ..hiring import internal
+        from ..po import canon
+        r = internal.search(self.svc.api, {"role": role, "store": canon.store(store) if store else "", "section": section, "title": role.replace("_", " ").title()}, limit=6)
+        return {"verdict": r["verdict"], "notes": r.get("notes", []), "candidates": [
+            {k: c[k] for k in ("name", "designation", "store", "leads", "move", "fit", "recommend", "why", "watch")} |
+            {"backfill": {k: c["backfill"].get(k) for k in ("summary", "risk", "status")},
+             "chain": [f"{s['seat']} ← {s['by'] or 'hire from outside'}" for s in c["backfill"].get("steps", [])]} for c in r["candidates"]]}
 
     def t_hr_policy(self, question: str = "", **kw) -> dict:
         from .. import workplace

@@ -279,13 +279,13 @@ def shift(value: Any) -> str:
     raw = text(value).casefold()
     if not raw:
         return "Not rostered"
-    if raw.startswith("mor") or raw == "morning":
+    if raw.startswith("mor") or raw in ("morning", "m", "am", "a", "s1", "1st", "early", "opening", "open"):
         return "Morning"
-    if raw.startswith("mid"):
+    if raw.startswith("mid") or raw in ("md", "g", "general", "s2", "2nd", "day"):
         return "Mid"
-    if raw.startswith(("eve", "clos")):
+    if raw.startswith(("eve", "clos")) or raw in ("e", "pm", "s3", "3rd", "late", "night", "n"):
         return "Evening"
-    if "off" in raw and "tol" not in raw:
+    if ("off" in raw and "tol" not in raw) or raw in ("o", "wo", "w/o", "do", "rest", "r", "weekly off", "x"):
         return "Off"
     if raw in {"al", "c/l", "cl", "sl", "tol", "leave", "ml"} or "leave" in raw:
         return "Leave"
