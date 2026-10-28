@@ -28,14 +28,54 @@ CRITERIA: dict[str, dict] = {
     "oos": dict(short="OOS", label="Out of stock", fmt="pct1", unit="", better="down", green=3, amber=6),
     "waste": dict(short="Waste", label="Waste", fmt="pct1", unit="", better="down", green=1, amber=2),
     "attendance": dict(short="Attendance", label="Attendance", fmt="pct1", unit="", better="up", green=95, amber=90),
-    "leavers": dict(short="Leavers", label="Leavers (12 m)", fmt="int", unit="", better="down", green=None, amber=None),
-    "da": dict(short="DA cases", label="Disciplinary cases", fmt="int", unit="", better="down", green=None, amber=None),
+    "leavers": dict(short="Leavers", label="Leavers (12 m)", fmt="int", unit="", better="down", green=0, amber=2, count=True),
+    "da": dict(short="DA cases", label="Disciplinary cases", fmt="int", unit="", better="down", green=0, amber=2, count=True),
     "nps": dict(short="NPS", label="Customer NPS", fmt="int", unit="", better="up", green=50, amber=30),
     "rating": dict(short="Rating", label="Rating", fmt="dec1", unit="/5", better="up", green=4, amber=3),
     "score": dict(short="Score", label="Score", fmt="dec1", unit="/10", better="up", green=7, amber=5),
 }
 UNIT_KEYS = ["sales", "growth", "productivity", "shrink", "stock_days", "oos", "waste", "attendance", "leavers", "da", "nps"]
 PEOPLE_KEYS = ["sales", "growth", "productivity", "shrink", "stock_days", "oos", "waste", "attendance", "leavers", "da", "nps", "rating", "score"]
+
+
+# how much each criterion counts in a person's score (0 = shown but not counted); the director can change all of it
+WEIGHTS = {"sales": 20, "growth": 5, "productivity": 15, "shrink": 10, "stock_days": 5, "oos": 10, "waste": 5, "attendance": 10,
+           "leavers": 5, "da": 5, "nps": 5, "rating": 5}
+
+
+def config(db) -> dict:
+    """Per criterion: shown on the Review, its weight in the score, and where green and amber start."""
+    t = targets(db)
+    saved = db.get_setting("review_criteria", {}) or {}
+    out = {}
+    for k, c in CRITERIA.items():
+        if k == "score":
+            continue
+        s = saved.get(k, {})
+        out[k] = {"show": bool(s.get("show", True)), "weight": float(s.get("weight", WEIGHTS.get(k, 0))), **t[k]}
+    return out
+
+
+def points(key: str, v: float | None, t: dict) -> float | None:
+    """A result on a 0-10 scale against its benchmark: amber line = 5, green line = 7, one step (green − amber) past green = 10."""
+    if v is None:
+        return None
+    g, a = t[key]["green"], t[key]["amber"]
+    if g is None or a is None:
+        return None
+    up = CRITERIA[key]["better"] == "up"
+    x = v if up else -v
+    g, a = (g, a) if up else (-g, -a)
+    span = max(abs(g - a), 1e-9)
+    if CRITERIA[key].get("count") and x >= g:
+        p = 10.0                                         # none at all is the best result possible
+    elif x >= g:
+        p = 7 + 3 * min(1.0, (x - g) / span)
+    elif x >= a:
+        p = 5 + 2 * (x - a) / span
+    else:
+        p = 5 * max(0.0, 1 - (a - x) / (2 * span))
+    return round(max(0.0, min(10.0, p)), 2)
 
 
 def targets(db) -> dict:
@@ -84,6 +124,7 @@ class Review:
         self.api = api
         self.ins = api._po()
         self.t = targets(api.db)
+        self.cfg = config(api.db)
         self._att = None
 
     # ---------------------------------------------------------------------------- attendance from the roster model
@@ -172,8 +213,9 @@ class Review:
             "nps": round(_mean(nps)) if nps else None,
         }
 
-    def cells(self, vals: dict, keys: list[str]) -> list[dict]:
-        return [{"key": k, "value": vals.get(k), "status": status(k, vals.get(k), self.t)} for k in keys]
+    def cells(self, vals: dict, keys: list[str], person: bool = False) -> list[dict]:
+        return [{"key": k, "value": vals.get(k),
+                 "status": "neutral" if CRITERIA[k].get("count") and not person and vals.get(k) is not None else status(k, vals.get(k), self.t)} for k in keys]
 
     # ---------------------------------------------------------------------------- people
     def leader_row(self, l, secs: list[str] | None) -> dict:
@@ -191,8 +233,26 @@ class Review:
             for c in row["cells"]:
                 if c["key"] in ("sales", "growth", "productivity", "shrink", "stock_days", "oos", "waste", "nps") and u.get(c["key"]) is not None:
                     c["value"], c["status"] = u[c["key"]], status(c["key"], u[c["key"]], self.t)
-            row["measured"] = sum(1 for c in row["cells"] if c["value"] is not None and c["key"] != "score")
+        self.score_row(row)
+        row["measured"] = sum(1 for c in row["cells"] if c["value"] is not None and c["key"] != "score")
         return row
+
+    def score_row(self, row: dict) -> None:
+        """Score = weighted average of each criterion's points (0-10 against its benchmark), using the weights in Settings."""
+        parts = []
+        for c in row["cells"]:
+            w = self.cfg.get(c["key"], {}).get("weight", 0)
+            pt = points(c["key"], c["value"], self.t) if w > 0 else None
+            if pt is not None:
+                parts.append({"key": c["key"], "label": CRITERIA[c["key"]]["label"], "points": pt, "weight": w})
+        total = sum(p["weight"] for p in parts)
+        sc = round(sum(p["points"] * p["weight"] for p in parts) / total, 1) if total and len(parts) >= 3 else None
+        for p in parts:
+            p["share"] = round(100 * p["weight"] / total) if total else 0
+        row["parts"] = parts
+        for c in row["cells"]:
+            if c["key"] == "score":
+                c["value"], c["status"] = sc, status("score", sc, self.t)
 
     def _leader_row(self, l) -> dict:
         k = l.kpis or {}
@@ -225,7 +285,7 @@ class Review:
         }
         return {"emp": str(l.employee_id or ""), "key": l.key, "name": l.name, "store": l.store, "role": l.designation,
                 "area": l.section_text if hasattr(l, "section_text") else ", ".join(l.sections), "level": canon.role_rank(l.designation),
-                "acting": l.acting, "cells": self.cells(vals, PEOPLE_KEYS),
+                "acting": l.acting, "cells": self.cells(vals, PEOPLE_KEYS, person=True),
                 "measured": sum(1 for kk in PEOPLE_KEYS if vals.get(kk) is not None and kk != "score")}
 
     def people(self, stores: list[str], dept: str | None, section: str | None, role: str | None) -> list[dict]:
@@ -302,7 +362,9 @@ class Review:
             all_stores = [s for s in all_stores if not s.endswith("Myli")]
         stores = [store] if store else all_stores
         vals = self.unit(stores, dept, section)
-        tiles = [{"key": k, "label": CRITERIA[k]["label"], "value": vals[k], "status": status(k, vals[k], self.t)} for k in UNIT_KEYS]
+        shown = [k for k in UNIT_KEYS if self.cfg[k]["show"]]
+        tiles = [{"key": k, "label": CRITERIA[k]["label"], "value": vals[k],
+                  "status": "neutral" if CRITERIA[k].get("count") and vals[k] is not None else status(k, vals[k], self.t)} for k in shown]
         # next level down
         if not store:
             kind, grid = "stores", [{"name": s, "go": {"store": s}, "cells": self.cells(self.unit([s], dept, section), UNIT_KEYS)} for s in all_stores]
@@ -315,13 +377,14 @@ class Review:
             kind, grid = "", []
         grid = [g for g in grid if any(c["value"] is not None for c in g["cells"] if c["key"] not in ("leavers", "da"))]
         ppl = self.people(stores, dept, section, role)
-        used = [k for k in UNIT_KEYS if vals[k] is not None or any(next(c for c in g["cells"] if c["key"] == k)["value"] is not None for g in grid)]
-        pused = [k for k in PEOPLE_KEYS if any(next(c for c in p["cells"] if c["key"] == k)["value"] is not None for p in ppl)]
+        used = [k for k in shown if vals[k] is not None or any(next(c for c in g["cells"] if c["key"] == k)["value"] is not None for g in grid)]
+        pused = [k for k in PEOPLE_KEYS if (k == "score" or self.cfg[k]["show"]) and any(next(c for c in p["cells"] if c["key"] == k)["value"] is not None for p in ppl)]
         label = " · ".join(x for x in [store or "Country", SHORT.get(dept, dept) if dept else "", section or "", ROLES[role][0] if role in ROLES else ""] if x)
-        return {"empty": False, "label": label, "as_of": str(ins.as_of), "period": ins.view_label if isinstance(getattr(ins, "view_label", ""), str) else ins.view_label(),
+        return {"empty": False, "label": label, "as_of": str(ins.as_of), "period_label": ins.view_label if isinstance(getattr(ins, "view_label", ""), str) else ins.view_label(),
                 "filters": {"store": store, "dept": dept, "section": section, "role": role},
                 "options": {"stores": ins.stores(include_myli=True), "depts": [[d, SHORT[d]] for d in DEPARTMENTS],
-                            "sections": sections_of(dept) if dept else [], "roles": [[k, v[0]] for k, v in ROLES.items()]},
+                            "sections": sections_of(dept) if dept else [], "roles": [[k, v[0]] for k, v in ROLES.items()],
+                            "section_groups": [[SHORT[d], d, sections_of(d)] for d in DEPARTMENTS if d not in ("Non Food",) and sections_of(d)]},
                 "criteria": {k: {"label": v["label"], "short": v["short"], "fmt": v["fmt"], "better": v["better"], **self.t[k]} for k, v in CRITERIA.items()},
                 "tiles": [t for t in tiles if t["key"] in used], "grid_kind": kind, "grid": grid, "grid_keys": used,
                 "people": ppl, "people_keys": pused, "notes": self.notes([t for t in tiles if t["key"] in used], grid, kind, ppl)}
@@ -356,7 +419,7 @@ def person(api, emp: str = "", key: str = "") -> dict:
     if len(ratings) >= 2:
         d = ratings[-1]["rating"] - ratings[-2]["rating"]
         trend = "improving" if d > 0 else "slipping" if d < 0 else "steady"
-    comps = [{"key": k, "label": CRITERIA.get(k, {}).get("label", k.replace("_", " ").title()), "value": round(v / 10, 1)} for k, v in (l.components or {}).items()]
+    comps = [{"key": x["key"], "label": x["label"], "value": x["points"], "weight": x["weight"], "share": x["share"]} for x in row.get("parts", [])]
     peers = [p for p in rv.people([l.store] if False else rv.ins.stores(include_myli=True), None, None, None) if p["level"] == row["level"]]
     bench = {}
     for c in row["cells"]:
@@ -370,4 +433,17 @@ def person(api, emp: str = "", key: str = "") -> dict:
                       "Area": row["area"], "In role": f"{l.months_in_role} months" if l.months_in_role is not None else "—",
                       "With the company": f"{l.months_service // 12} yrs {l.months_service % 12} m" if l.months_service else "—",
                       "Reports to": l.manager_name or "—", "Attendance days": f"{a['worked']} of {a['due']}" if a else "—"},
-            "remarks": l.remarks}
+            "remarks": l.remarks, "record": _record(api, str(l.employee_id or ""))}
+
+
+def _record(api, emp: str) -> dict | None:
+    """Everything else P&O holds on the person: every fact with its source, the timeline, attendance, corrections, team."""
+    if not emp:
+        return None
+    try:
+        pg = api._brain().person_page(emp)
+    except Exception:  # noqa: BLE001
+        return None
+    keep = ("facts", "timeline", "attendance", "corrections", "insights", "reports", "team", "sources", "left", "manager", "department",
+            "service_months", "in_role_months")
+    return {k: pg.get(k) for k in keep}

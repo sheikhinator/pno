@@ -1203,17 +1203,54 @@ class Api:
     # ---------------------------------------------------------------- 4.0 review
     def api_review(self, store: str | None = None, dept: str | None = None, section: str | None = None, role: str | None = None) -> dict:
         from . import review
-        key = ("rv", self.db.version, store, dept, section, role)
+        key = ("rv", self.db.version, json.dumps(self.db.get_setting("po_view", None), sort_keys=True), store, dept, section, role)
         c = self.__dict__.setdefault("_rv_cache", {})
         if key not in c:
             if len(c) > 40:
                 c.clear()
             c[key] = review.Review(self).build(store or None, dept or None, section or None, role or None)
-        return c[key]
+        out = dict(c[key])
+        ins = self._po()
+        out["has_data"] = not ins.empty
+        out["period"] = self._po_period(ins)          # the period bar: latest, one month or year to date
+        return out
 
     def api_review_person(self, emp: str = "", key: str = "") -> dict:
         from . import review
         return review.person(self, emp, key)
+
+    def api_review_criteria(self, rows: list | None = None, reset: bool = False) -> dict:
+        """Settings → Criteria: for each criterion whether it shows on the Review, its weight in the score, and its green / amber lines."""
+        from . import review
+        if reset:
+            self.db.set_setting("review_criteria", {})
+            self.db.set_setting("review_targets", {})
+        elif rows:
+            crit = self.db.get_setting("review_criteria", {}) or {}
+            tg = self.db.get_setting("review_targets", {}) or {}
+            for r in rows:
+                k = r.get("key")
+                if k not in review.CRITERIA or k == "score":
+                    continue
+                w = float(r.get("weight") or 0)
+                if not 0 <= w <= 100:
+                    raise ValueError("Weights go from 0 to 100.")
+                crit[k] = {"show": bool(r.get("show", True)), "weight": w}
+                g, a = r.get("green"), r.get("amber")
+                if g not in (None, "") and a not in (None, ""):
+                    g, a = float(g), float(a)
+                    up = review.CRITERIA[k]["better"] == "up"
+                    if (up and a > g) or (not up and a < g):
+                        raise ValueError(f"{review.CRITERIA[k]['label']}: amber must be {'below' if up else 'above'} green.")
+                    tg[k] = {"green": g, "amber": a}
+            self.db.set_setting("review_criteria", crit)
+            self.db.set_setting("review_targets", tg)
+        self.db.version += 1                           # every screen recalculates with the new criteria
+        cfg = review.config(self.db)
+        total = sum(v["weight"] for v in cfg.values())
+        return {"rows": [{"key": k, "label": review.CRITERIA[k]["label"], "better": review.CRITERIA[k]["better"], "fmt": review.CRITERIA[k]["fmt"],
+                          "count": bool(review.CRITERIA[k].get("count")), **v, "share": round(100 * v["weight"] / total) if total else 0}
+                         for k, v in cfg.items()], "total": total, "score": {"green": review.targets(self.db)["score"]["green"], "amber": review.targets(self.db)["score"]["amber"]}}
 
     def api_review_targets(self, targets: dict | None = None, reset: bool = False) -> dict:
         from . import review

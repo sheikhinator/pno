@@ -56,7 +56,7 @@ def test_status_and_targets(api):
     t = review.targets(api.db)
     assert review.status("attendance", 96, t) == "good" and review.status("attendance", 91, t) == "warn" and review.status("attendance", 80, t) == "bad"
     assert review.status("oos", 2, t) == "good" and review.status("oos", 9, t) == "bad"
-    assert review.status("leavers", 5, t) == "neutral"
+    assert review.status("leavers", 5, t) == "bad"                     # per person; unit totals are shown uncoloured
     api.dispatch("review_targets", {"targets": {"attendance": {"green": 98, "amber": 96}}})
     assert review.status("attendance", 96.5, review.targets(api.db)) == "warn"
     api.dispatch("review_targets", {"reset": True})
@@ -86,20 +86,67 @@ def test_two_tab_app(api):
             errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
             pg.goto(f"http://127.0.0.1:{srv.server_address[1]}/web/index.html"); pg.wait_for_function("window.PNO_ready === true", timeout=60000)
             pg.wait_for_selector(".rtiles", timeout=20000)
-            assert [x.inner_text().strip() for x in pg.locator("#nav button").all()] == ["Review", "Ask P&O AI"]
-            pg.locator("[data-act=rv-dept][data-v='Consumer Goods']").click(); pg.wait_for_selector("text=Country · CG", timeout=10000)
-            pg.locator("[data-act=rv-role][data-v=dept]").click(); time.sleep(0.6)
+            assert [x.inner_text().strip() for x in pg.locator("#nav button").all()] == ["Review", "Ask P&O AI", "Data"]
+            pg.select_option("#rv-dept", "Consumer Goods"); pg.wait_for_selector("text=Country · CG", timeout=10000)
+            pg.select_option("#rv-role", "dept"); time.sleep(0.6)
             pg.locator("tr[data-act=rv-person]").first.click(); pg.wait_for_selector(".pfacts", timeout=10000)
             pg.keyboard.press("Escape"); time.sleep(0.3)
-            pg.locator("[data-act=rv-role][data-v='']").click(); time.sleep(0.5)
+            pg.select_option("#rv-role", ""); time.sleep(0.5)
+            pg.select_option("#rv-sec", "Grocery"); time.sleep(0.6)
+            assert "Grocery" in pg.locator(".rhead h1").inner_text()
+            pg.locator("[data-act=rv-clear]").click(); time.sleep(0.6)
+            pg.select_option("#rv-sec", "Bakery"); time.sleep(0.6)
+            assert "Fresh Food" in pg.locator(".rhead h1").inner_text()             # a section sets its department
+            pg.locator("[data-act=rv-clear]").click(); time.sleep(0.6)
             pg.locator("tr[data-act=rv-drill]").first.click(); time.sleep(0.8)
             assert "sections" in pg.locator(".rpanel").first.inner_text().lower() or pg.locator("[data-act=rv-crumb]").count() >= 1
             pg.locator("[data-act=rv-sort][data-k=score]").click(); time.sleep(0.4)
             pg.evaluate("go('hiring')"); time.sleep(0.5)
             assert pg.evaluate("window.PNO_state.page") == "rv"                      # hidden modules can't be reached
             pg.locator("#top [data-act=present]").click(); time.sleep(0.4); pg.keyboard.press("Escape")
+            pg.locator("#nav [data-go=import]").click(); pg.wait_for_selector(".datatabs", timeout=10000)
+            for t in ("health", "brain", "import"):
+                pg.locator(f".datatabs [data-go={t}]").click(); time.sleep(0.8)
+                assert pg.evaluate("window.PNO_state.page") == t and not pg.locator(".errbox").count()
+            pg.locator("[data-act=rv-settings]").click(); pg.wait_for_selector("tr[data-ck]", timeout=10000)
+            pg.locator("tr[data-ck=nps] .switch span").click(); pg.locator("[data-act=crit-save]").click(); time.sleep(0.8)
+            pg.locator("#nav [data-go=rv]").click(); pg.wait_for_selector(".rtiles", timeout=10000)
+            assert "Customer NPS" not in pg.locator(".rtiles").inner_text()
+            pg.locator("#nav [data-go=import]").click(); pg.wait_for_selector(".datatabs", timeout=10000)
+            for t in ("health", "brain", "import"):
+                pg.locator(f".datatabs [data-go={t}]").click(); time.sleep(0.8)
+                assert pg.evaluate("window.PNO_state.page") == t and not pg.locator(".errbox").count()
             pg.locator("[data-go=ask]").click(); pg.wait_for_selector("#askq", timeout=10000)
             assert not errs, errs
             b.close()
     finally:
         srv.shutdown()
+
+
+def test_criteria_and_score(api):
+    from pno.review import points, config, targets
+    t = targets(api.db)
+    assert points("attendance", 90, t) == 5 and points("attendance", 95, t) == 7 and points("attendance", 100, t) == 10
+    assert points("oos", 3, t) == 7 and points("oos", 6, t) == 5
+    rows = api.dispatch("review_criteria", {})["rows"]
+    assert {r["key"] for r in rows} >= {"sales", "oos", "attendance", "rating"} and abs(sum(r["share"] for r in rows) - 100) <= 3
+    before = api.dispatch("review", {})["people"][0]
+    w = [{"key": r["key"], "show": r["key"] != "nps", "weight": (100 if r["key"] == "sales" else 0), "green": r["green"], "amber": r["amber"]} for r in rows]
+    api.dispatch("review_criteria", {"rows": w})
+    v = api.dispatch("review", {})
+    assert all(t["key"] != "nps" for t in v["tiles"])
+    p = next(x for x in v["people"] if x["key"] == before["key"])
+    sales = next(c for c in p["cells"] if c["key"] == "sales")["value"]
+    score = next(c for c in p["cells"] if c["key"] == "score")["value"]
+    assert score is None or abs(score - points("sales", sales, targets(api.db))) < 0.11       # only sales counts now
+    with pytest.raises(Exception):
+        api.api_review_criteria(rows=[{"key": "attendance", "show": True, "weight": 10, "green": 90, "amber": 95}])
+    api.dispatch("review_criteria", {"reset": True})
+    assert config(api.db)["nps"]["show"] is True
+
+
+def test_person_record(api):
+    p = api.dispatch("review", {})["people"][0]
+    s = api.dispatch("review_person", {"emp": p["emp"], "key": p["key"]})
+    assert s["record"] and s["record"]["facts"] and "timeline" in s["record"]
+    assert s["components"] and all("share" in c for c in s["components"])

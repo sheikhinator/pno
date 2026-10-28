@@ -108,15 +108,17 @@ const NAV_FULL = [["home", "Overview", "home"], ["review", "Business review", "r
   ["people", "People", "people"], ["brain", "People Brain", "brain"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["insights", "People insights", "insights"], ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
   ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["forecast", "Workforce plan", "forecast"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["relations", "Employee relations", "relations"], ["calendar", "HR calendar", "calendar"], ["brief", "Weekly brief", "brief"], ["engagement", "Engagement", "engagement"], ["recognition", "Recognition", "recognition"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
-const NAV_SIMPLE = [["rv", "Review", "review"], ["ask", "Ask P&O AI", "ask"]];
+const NAV_SIMPLE = [["rv", "Review", "review"], ["ask", "Ask P&O AI", "ask"], ["import", "Data", "import"]];
+const DATA_PAGES = ["import", "health", "brain"];
+const dataTabs = page => `<div class="seg datatabs">${[["import", "Import & history"], ["health", "Data health"], ["brain", "People records & corrections"]].map(([k, l]) => `<button data-go="${k}" aria-pressed="${page === k}">${l}</button>`).join("")}</div>`;
 let NAV = NAV_SIMPLE;
-let ALLOWED = new Set(["rv", "ask", "settings"]);
+let ALLOWED = new Set(["rv", "ask", "settings", "import", "health", "brain"]);
 // the full toolkit (every 2.x/3.x module) stays in the app, switched off; Settings → Appearance turns it on
 function applyMode() {
   const full = !!(S.init && S.init.full_mode);
   NAV = full ? [["rv", "Review", "review"]].concat(NAV_FULL) : NAV_SIMPLE;
   NAV_GROUP = full ? NAV_GROUP_FULL : {};
-  ALLOWED = full ? null : new Set(["rv", "ask", "settings"]);
+  ALLOWED = full ? null : new Set(["rv", "ask", "settings", ...DATA_PAGES]);
 }
 let NAV_GROUP = {};
 const NAV_GROUP_FULL = { insights: "Insights", hiring: "Talent", ask: "Tools" };
@@ -347,14 +349,14 @@ function go(page, arg = null, opts = {}) {
   if (!opts.back && S.page && (S.page !== page || S.arg !== arg)) { S.hist = (S.hist || []).concat([[S.page, S.arg]]).slice(-30); }
   S.page = page; S.arg = arg;
   topbar();
-  $$("#nav button").forEach(b => b.toggleAttribute("aria-current", b.dataset.go === (page === "store" ? "stores" : page)));
+  $$("#nav button").forEach(b => b.toggleAttribute("aria-current", b.dataset.go === (page === "store" ? "stores" : (DATA_PAGES.includes(page) && !(S.init && S.init.full_mode)) ? "import" : page)));
   $$("#nav button[aria-current]").forEach(b => b.setAttribute("aria-current", "page"));
   store.set("page", page === "store" ? "stores" : page);
   render();
 }
 window.go = go;
 
-const PERIOD_PAGES = ["review", "talent", "retention", "shifts", "nps"];
+const PERIOD_PAGES = ["review", "talent", "retention", "shifts", "nps", "rv"];
 async function render() {
   const view = $("#view");
   if (!view) return;
@@ -377,6 +379,7 @@ async function render() {
       if (!pd.has_data && pd.period.view && pd.period.view.type !== "latest")
         html = `<div class="ph"><div><h1>${esc(PAGE_TITLE[page] || "")}</h1></div></div><div class="panel"><div class="empty">Nothing in this tab for <b>${esc(pd.period.label)}</b>. Pick another period above, or import data for it.</div></div>`;
     }
+    if (DATA_PAGES.includes(page) && !(S.init && S.init.full_mode)) html = dataTabs(page) + html;
     view.innerHTML = `<div class="page" data-page="${page}" data-snap="${esc(snapKey)}">${html}</div>`;
     if (pd && pd.period) {
       const pg = view.firstElementChild, ph = pg.querySelector(":scope > .ph");
@@ -1136,8 +1139,8 @@ window.PNO_drop = async paths => {
 /* settings */
 PAGES.settings = async () => {
   const tabs = S.init.full_mode
-    ? [["bench", "Benchmarks"], ["scoring", "Scoring"], ["ai", "AI assistant"], ["stores", "Stores"], ["sections", "Sections"], ["holidays", "Holidays"], ["leave", "Leave"], ["data", "Data & backup"], ["backups", "Backups & columns"], ["look", "Appearance"]]
-    : [["bench", "Benchmarks"], ["ai", "AI"], ["stores", "Stores"], ["backups", "Backups & columns"], ["data", "Data"], ["look", "Appearance"]];
+    ? [["bench", "Criteria"], ["scoring", "Scoring"], ["ai", "AI assistant"], ["stores", "Stores"], ["sections", "Sections"], ["holidays", "Holidays"], ["leave", "Leave"], ["data", "Data & backup"], ["backups", "Backups & columns"], ["look", "Appearance"]]
+    : [["bench", "Criteria"], ["ai", "AI"], ["stores", "Stores"], ["backups", "Backups & columns"], ["data", "Data"], ["look", "Appearance"]];
   if (!tabs.some(x => x[0] === S.setTab)) S.setTab = S.init.full_mode ? "scoring" : "bench";
   const t = S.setTab;
   const body = await SETTINGS[t]();
@@ -2190,7 +2193,7 @@ function brainFix(field) {
     <label class="dx-l" style="grid-column:1/-1">Why (optional)<input class="input" id="bf-n" placeholder="e.g. promoted in September, HRIS not updated yet"></label></div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="bf-go">Save correction</button></div>`);
   $("#bf-f", m).onchange = () => { $("#bf-cyc-l", m).hidden = $("#bf-f", m).value !== "rating"; const c = (p.facts.find(f => f.field === $("#bf-f", m).value) || {}).value; $("#bf-v", m).value = c ?? ""; };
-  $("#bf-go", m).onclick = async () => { await call("correction_add", { emp: p.emp, field: $("#bf-f", m).value, value: $("#bf-v", m).value, note: $("#bf-n", m).value, cycle: $("#bf-f", m).value === "rating" ? +$("#bf-cyc", m).value : null }); closeModal(); toast("Corrected · every screen now uses the new value"); render(); };
+  $("#bf-go", m).onclick = async () => { await call("correction_add", { emp: p.emp, field: $("#bf-f", m).value, value: $("#bf-v", m).value, note: $("#bf-n", m).value, cycle: $("#bf-f", m).value === "rating" ? +$("#bf-cyc", m).value : null }); closeModal(); if (RV_AFTER_FIX) { const [e0, k0] = RV_AFTER_FIX; RV_AFTER_FIX = null; render(); setTimeout(() => rvPerson(e0, k0, "profile"), 300); } toast("Corrected · every screen now uses the new value"); render(); };
 }
 AFTER.brain = () => {
   const B = S.brain;
@@ -2532,7 +2535,8 @@ const RVF = (k, v) => {
   return f === "pct0" ? `${v.toFixed(0)}%` : f === "pct1" ? `${v.toFixed(1)}%` : f === "pct1s" ? `${v > 0 ? "+" : ""}${v.toFixed(1)}%`
     : f === "pp2s" ? `${v > 0 ? "+" : ""}${v.toFixed(2)}` : f === "dec1" ? v.toFixed(1) : String(Math.round(v));
 };
-const rvBench = k => { const c = DATA.rv.criteria[k]; if (c.green == null) return "No benchmark: shown for information";
+const rvBench = (k, unit) => { const c = DATA.rv.criteria[k]; if (c.green == null) return "No benchmark: shown for information";
+  if (unit && ["leavers", "da"].includes(k)) return "Total for the group · each person is judged on their own";
   const u = { pct0: "%", pct1: "%", pct1s: "%", pp2s: " pts" }[c.fmt] || "";
   return c.better === "up" ? `Green ${c.green}${u} or more · amber ${c.amber}${u} or more` : `Green ${c.green}${u} or less · amber ${c.amber}${u} or less`; };
 PAGES.rv = async () => {
@@ -2547,7 +2551,7 @@ PAGES.rv = async () => {
   if (F.store) crumbs.push([F.store, { dept: "", section: "" }]);
   if (F.dept) crumbs.push([(o.depts.find(x => x[0] === F.dept) || [0, F.dept])[1], { section: "" }]);
   if (F.section) crumbs.push([F.section, {}]);
-  const tile = t => `<div class="rtile ${t.status}" title="${esc(rvBench(t.key))}"><span class="rt-l">${esc(t.label)}</span><span class="rt-v">${RVF(t.key, t.value)}</span><span class="rt-b">${esc(rvBench(t.key).split(" · ")[0])}</span></div>`;
+  const tile = t => `<div class="rtile ${t.status}" title="${esc(rvBench(t.key))}"><span class="rt-l">${esc(t.label)}</span><span class="rt-v">${RVF(t.key, t.value)}</span><span class="rt-b">${esc(rvBench(t.key, true).split(" · ")[0])}</span></div>`;
   const cell = c => `<td class="n rc ${c.status}">${RVF(c.key, c.value)}</td>`;
   const head = keys => keys.map(k => `<th class="n" title="${esc(C[k].label + " · " + rvBench(k))}">${esc(C[k].short)}</th>`).join("");
   // people: sortable, never ranked
@@ -2557,12 +2561,14 @@ PAGES.rv = async () => {
   const pk = d.people_keys;
   return `<div class="rhead">
       <div><div class="rcrumbs">${crumbs.map((c, i) => i === crumbs.length - 1 ? `<b>${esc(c[0])}</b>` : `<button data-act="rv-crumb" data-i="${i}">${esc(c[0])}</button><span>›</span>`).join("")}</div>
-        <h1>${esc(d.label)}</h1><p class="muted">Data as of ${fmtDate(d.as_of)}${d.period ? " · " + esc(d.period) : ""}</p></div></div>
-    <div class="rfilters">
-      <div class="rf"><label>Store</label><select id="rv-store" class="input"><option value="">All stores</option>${o.stores.map(s => `<option ${s === F.store ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
-      <div class="rf"><label>Department</label><div class="rchips">${chip("rv-dept", "", "All", !F.dept)}${o.depts.map(([k, l]) => chip("rv-dept", k, l, F.dept === k)).join("")}</div></div>
-      ${o.sections.length ? `<div class="rf"><label>Section</label><div class="rchips">${chip("rv-sec", "", "All", !F.section)}${o.sections.map(s => chip("rv-sec", s, s, F.section === s)).join("")}</div></div>` : ""}
-      <div class="rf"><label>People</label><div class="rchips">${chip("rv-role", "", "All leaders", !F.role)}${o.roles.map(([k, l]) => chip("rv-role", k, l, F.role === k)).join("")}</div></div>
+        <h1>${esc(d.label)}</h1><p class="muted">Data as of ${fmtDate(d.as_of)}${d.period_label ? " · " + esc(d.period_label) : ""}</p></div></div>
+    <div class="rfilters four">
+      <div class="rf"><label>Store</label><select id="rv-store" class="input"><option value="">All stores</option>${o.stores.map(x => `<option ${x === F.store ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
+      <div class="rf"><label>Department</label><select id="rv-dept" class="input"><option value="">All departments</option>${o.depts.map(([k, l]) => `<option value="${esc(k)}" ${F.dept === k ? "selected" : ""}>${esc(l === k ? k : l + " · " + k)}</option>`).join("")}</select></div>
+      <div class="rf"><label>Section</label><select id="rv-sec" class="input"><option value="">All sections</option>${o.section_groups.filter(([, d]) => !F.dept || F.dept === d || (F.dept === "Non Food" && ["Light Household", "Heavy Household", "Textile"].includes(d)))
+        .map(([l, d, secs]) => `<optgroup label="${esc(l)}">${secs.map(x => `<option value="${esc(x)}" data-d="${esc(d)}" ${F.section === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</optgroup>`).join("")}</select></div>
+      <div class="rf"><label>People</label><select id="rv-role" class="input"><option value="">All leaders</option>${o.roles.map(([k, l]) => `<option value="${k}" ${F.role === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div>
+      ${F.store || F.dept || F.section || F.role ? `<button class="btn sm ghost" data-act="rv-clear">Clear</button>` : ""}
     </div>
     <div class="rtiles">${d.tiles.map(tile).join("")}</div>
     <div class="rnotes">
@@ -2580,26 +2586,50 @@ PAGES.rv = async () => {
       <div class="rlegend"><span class="good">On or above benchmark</span><span class="warn">Close</span><span class="bad">Below benchmark</span><span class="na">— not measured for this role</span></div>`
       : `<div class="empty">No leaders in this view.</div>`}</div>`;
 };
-AFTER.rv = () => { const s = $("#rv-store"); if (s) s.onchange = () => { Object.assign(S.rv, { store: s.value, section: "" }); render(); }; };
-async function rvPerson(emp, key) {
-  const p = await call("review_person", { emp, key }), C = p.criteria, r = p.row;
-  const rows = r.cells.filter(c => c.value != null || p.peer_median[c.key] != null).map(c => {
-    const bench = C[c.key].green == null ? "—" : RVF(c.key, C[c.key].green);
-    return `<tr><td>${esc(C[c.key].label)}</td><td class="n rc ${c.status}">${RVF(c.key, c.value)}</td><td class="n">${bench}</td><td class="n">${RVF(c.key, p.peer_median[c.key])}</td></tr>`; }).join("");
+AFTER.rv = () => {
+  const on = (id, f) => { const e = $(id); if (e) e.onchange = () => { f(e); render(); }; };
+  on("#rv-store", e => { S.rv.store = e.value; });
+  on("#rv-dept", e => Object.assign(S.rv, { dept: e.value, section: "", sort: null }));
+  on("#rv-sec", e => { const o = e.selectedOptions[0]; S.rv.section = e.value; if (e.value && o && o.dataset.d && S.rv.dept !== "Non Food") S.rv.dept = o.dataset.d; });
+  on("#rv-role", e => { S.rv.role = e.value; });
+};
+async function rvPerson(emp, key, tab = "results") {
+  const p = DATA.rvp = await call("review_person", { emp, key }), C = p.criteria, r = p.row, R = p.record || {};
+  const sc = r.cells.find(c => c.key === "score") || {};
+  const rows = r.cells.filter(c => c.key !== "score" && (c.value != null || p.peer_median[c.key] != null)).map(c => {
+    const part = p.components.find(x => x.key === c.key);
+    return `<tr><td>${esc(C[c.key].label)}</td><td class="n rc ${c.status}">${RVF(c.key, c.value)}</td><td class="n">${C[c.key].green == null ? "—" : RVF(c.key, C[c.key].green)}</td>
+      <td class="n">${RVF(c.key, p.peer_median[c.key])}</td><td class="n">${part ? part.value.toFixed(1) : "—"}</td><td class="n">${part ? part.share + "%" : "—"}</td></tr>`; }).join("");
+  const tabs = [["results", "Results"], ["profile", "Profile"], ["history", "History"]].concat(R.attendance ? [["att", "Attendance"]] : []);
+  const factRows = (R.facts || []).map(f => `<tr><td>${esc(f.label)}</td><td><b>${esc(String(f.value ?? ""))}</b>${f.corrected ? ` <span class="chip good">corrected</span>` : ""}</td><td><small class="muted">${esc(f.source || "")}${f.when ? " · " + esc(String(f.when).slice(0, 10)) : ""}</small></td></tr>`).join("");
+  const att = R.attendance || {};
+  const body = {
+    results: `<div class="grid pgrid"><div class="tbl-wrap"><table class="t rtable"><thead><tr><th>Criterion</th><th class="n">Result</th><th class="n">Green from</th><th class="n">Peers</th><th class="n">Points</th><th class="n">Weight</th></tr></thead><tbody>${rows}</tbody></table>
+        <small class="muted">Peers: median of the ${p.peers} leaders at the same level. Points: 0-10 against the criterion's lines.</small></div>
+      <div><h4 class="ih">What the score is made of</h4><div id="pp-comp"></div>${p.remarks ? `<h4 class="ih">Remarks</h4><div class="il">${esc(p.remarks)}</div>` : ""}
+        ${(R.insights || []).length ? `<h4 class="ih">Observations</h4>${R.insights.slice(0, 6).map(i => `<div class="il">${esc(typeof i === "string" ? i : i.text || "")}</div>`).join("")}` : ""}</div></div>`,
+    profile: `<div class="grid g2" style="gap:16px"><div><table class="t"><thead><tr><th>Detail</th><th>Value</th><th>Source</th></tr></thead><tbody>${factRows || `<tr><td colspan="3"><div class="empty">No details recorded.</div></td></tr>`}</tbody></table>
+        ${r.emp ? `<button class="btn sm" style="margin-top:8px" data-act="rv-fix">Correct a detail…</button>` : ""}</div>
+      <div>${(R.reports || []).length ? `<h4 class="ih">Reports to them (${R.reports.length})</h4>${R.reports.slice(0, 12).map(x => `<div class="il">${esc(x.name)} · ${esc(x.designation || "")}</div>`).join("")}` : ""}
+        ${(R.corrections || []).length ? `<h4 class="ih">Corrections made</h4>${R.corrections.map(c => `<div class="il">${esc(c.label || c.field)}: ${esc(String(c.old_value ?? "—"))} → <b>${esc(String(c.value ?? ""))}</b> <small class="muted">${esc((c.created_at || "").slice(0, 10))}</small></div>`).join("")}` : ""}
+        <h4 class="ih">Sources</h4><small class="muted">${esc((R.sources || []).join(" · ") || "—")}</small></div></div>`,
+    history: `<div class="grid g2" style="gap:16px"><div><h4 class="ih">Ratings over time${p.trend ? ` · <span class="${p.trend === "improving" ? "t-good" : p.trend === "slipping" ? "t-bad" : ""}">${esc(p.trend)}</span>` : ""}</h4>${p.ratings.length ? `<div id="pp-rat"></div>` : `<small class="muted">No ratings recorded.</small>`}</div>
+      <div><h4 class="ih">Timeline</h4>${(R.timeline || []).length ? `<div class="tline">${R.timeline.slice().reverse().map(t => `<div class="tl"><span class="tl-ic">•</span><div><small>${esc(String(t.date || "").slice(0, 10))}</small><div>${esc(t.what)}</div></div></div>`).join("")}</div>` : `<small class="muted">Nothing recorded yet.</small>`}</div></div>`,
+    att: `<div class="pfacts">${[["Presence", att.presence != null ? att.presence + "%" : "—"], ["Days worked", att.worked ?? "—"], ["Absent", att.absent ?? "—"], ["Leave", att.leave ?? "—"], ["Avg. hours", att.avg_hours ?? (att.avg_minutes ? (att.avg_minutes / 60).toFixed(1) : "—")], ["Longest absence", att.longest_absence ?? "—"], ["Punch fixes", att.fixes ?? "—"], ["Month", att.month || "—"]].map(([k, v]) => `<div><small>${k}</small><b>${esc(String(v))}</b></div>`).join("")}</div>`,
+  };
   const m = modal(`<div class="row" style="justify-content:space-between;align-items:flex-start"><div><h3 style="margin:0">${esc(r.name)}</h3><small class="muted">${esc(r.role)} · ${esc(r.area)} · ${esc(r.store)}</small></div>
-      <div class="pscore ${(r.cells.find(c => c.key === "score") || {}).status}"><b>${RVF("score", (r.cells.find(c => c.key === "score") || {}).value)}</b><small>score / 10</small></div></div>
+      <div class="pscore ${sc.status}"><b>${RVF("score", sc.value)}</b><small>score / 10</small></div></div>
     <div class="pfacts">${Object.entries(p.facts).map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(String(v ?? "—"))}</b></div>`).join("")}</div>
-    <div class="grid g2" style="gap:14px;margin-top:12px"><div><h4 class="ih">Criteria</h4><table class="t rtable"><thead><tr><th>Criterion</th><th class="n">Result</th><th class="n">Benchmark</th><th class="n">Peers (median)</th></tr></thead><tbody>${rows}</tbody></table>
-      <small class="muted">Peers: the ${p.peers} leaders at the same level across the country.</small></div>
-      <div><h4 class="ih">What the score is made of</h4><small class="muted">Points out of 10 for each part, weighted into the score. Exactly on budget or target earns 5; 10 is the best result seen as achievable.</small><div id="pp-comp"></div>
-      <h4 class="ih">Ratings over time${p.trend ? ` · <span class="${p.trend === "improving" ? "t-good" : p.trend === "slipping" ? "t-bad" : ""}">${esc(p.trend)}</span>` : ""}</h4>
-      ${p.ratings.length ? `<div id="pp-rat"></div>` : `<small class="muted">No ratings recorded.</small>`}
-      ${p.remarks ? `<h4 class="ih">Remarks</h4><div class="il">${esc(p.remarks)}</div>` : ""}</div></div>
+    <div class="seg ptabs">${tabs.map(([k, l]) => `<button data-act="rv-ptab" data-t="${k}" aria-pressed="${tab === k}">${l}</button>`).join("")}</div>
+    <div class="pbody">${body[tab]}</div>
     <div class="row" style="justify-content:flex-end;margin-top:12px;gap:6px">${r.emp ? `<button class="btn" data-act="rv-pdf" data-emp="${esc(r.emp)}">Data sheet PDF</button>` : ""}<button class="btn primary" data-act="modal-close">Close</button></div>`);
-  m.classList.add("wide", "xwide");
-  if (p.components.length) Charts.hbar($("#pp-comp", m), { labels: p.components.map(c => c.label), values: p.components.map(c => c.value), max: 10, fmt: "score", color: "#94481A" });
-  else $("#pp-comp", m).innerHTML = `<small class="muted">Not enough results yet to score.</small>`;
-  if (p.ratings.length) Charts.columns($("#pp-rat", m), { labels: p.ratings.map(x => x.cycle || ""), series: [{ name: "Rating", values: p.ratings.map(x => x.rating), colors: p.ratings.map(x => x.rating >= 4 ? "#16A34A" : x.rating >= 3 ? "#F59E0B" : "#DC2626") }], height: 150, fmt: "score" });
+  m.classList.add("wide", "xwide"); m.dataset.emp = emp; m.dataset.key = key;
+  const cp = $("#pp-comp", m);
+  if (cp) { if (p.components.length) Charts.hbar(cp, { labels: p.components.map(c => `${c.label} (${c.share}%)`), values: p.components.map(c => c.value), max: 10, fmt: "score",
+      colors: p.components.map(c => c.value >= 7 ? "#16A34A" : c.value >= 5 ? "#F59E0B" : "#DC2626") });
+    else cp.innerHTML = `<small class="muted">Fewer than three criteria measured: no score yet.</small>`; }
+  const rt = $("#pp-rat", m);
+  if (rt) Charts.columns(rt, { labels: p.ratings.map(x => x.cycle || ""), series: [{ name: "Rating", values: p.ratings.map(x => x.rating), colors: p.ratings.map(x => x.rating >= 4 ? "#16A34A" : x.rating >= 3 ? "#F59E0B" : "#DC2626") }], height: 170, fmt: "score" });
 }
 async function rvUpdate() {
   let sess;
@@ -2611,7 +2641,9 @@ async function rvUpdate() {
   rvConfirm(sess);
 }
 window.PNO_drop = async paths => { if (S.page === "ask") { S.attach.push(...paths); drawChat(); return; } toast(`Reading ${paths.length} file${paths.length > 1 ? "s" : ""}…`); rvConfirm(await call("import_analyze", { paths, month: null })); };
+let PENDING_SESS = null, RV_AFTER_FIX = null;
 function rvConfirm(sess) {
+  PENDING_SESS = sess;
   const sheets = []; (sess.files || []).forEach(f => (f.sheets || f.results || []).forEach(s => sheets.push({ file: f.file || f.name, ...s })));
   // the month the reports themselves carry wins over today's date
   const own = r => (r.period && r.period.sure && r.period.to) || (r.as_of || "").slice(0, 7) || null;    // a month the sheet itself shows
@@ -2620,10 +2652,10 @@ function rvConfirm(sess) {
   const month = (best && best[0]) || sess.suggested_month || sess.month || new Date().toISOString().slice(0, 7);
   const m = modal(`<h3>Update data</h3><p class="muted" style="margin:0 0 10px">P&amp;O read these files. Check the month, then save.</p>
     <div class="ulist">${sheets.map(s => `<div class="uitem"><b>${esc(s.label || s.kind_label || s.kind || "Sheet")}${own(s) ? ` <span class="chip">${esc(own(s))}</span>` : ""}</b><small>${esc(s.file || "")} · ${esc(s.sheet || "")}${s.summary ? " · " + esc(s.summary) : ""}</small>
-      ${(s.warnings || []).slice(0, 2).map(w => `<small class="t-warn">⚠ ${esc(w)}</small>`).join("")}</div>`).join("") || `<div class="empty">Nothing usable in these files.</div>`}</div>
+      ${(s.warnings || []).filter(w => !(own(s) && /no date inside it|choose the month/i.test(w))).slice(0, 2).map(w => `<small class="t-warn">⚠ ${esc(w)}</small>`).join("")}</div>`).join("") || `<div class="empty">Nothing usable in these files.</div>`}</div>
     ${(sess.errors || []).map(e => `<div class="il bad">${esc(e.file || "")}: ${esc(e.error || e)}</div>`).join("")}
     <div class="row" style="justify-content:space-between;margin-top:12px"><label class="dx-l" style="margin:0">Month for files with no date<input class="input" type="month" id="u-m" value="${esc(month)}"></label>
-      <div class="row" style="gap:6px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="u-go" ${sheets.length ? "" : "disabled"}>Save</button></div></div>`);
+      <div class="row" style="gap:6px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn" data-act="rv-detail" title="Change a file's month, period or type, fix columns, see every warning">Check in detail…</button><button class="btn primary" id="u-go" ${sheets.length ? "" : "disabled"}>Save</button></div></div>`);
   m.classList.add("wide");
   $("#u-go", m).onclick = async () => { const b = $("#u-go", m); b.disabled = true; b.textContent = "Saving…";
     try { const mo = $("#u-m", m).value, opts = {};
@@ -2639,19 +2671,39 @@ const RV_ACTS = {
   "rv-drill": b => { Object.assign(S.rv, DATA.rv.grid[+b.dataset.i].go); render(); },
   "rv-sort": b => { const k = b.dataset.k; if (S.rv.sort === k) { if (S.rv.desc) S.rv.sort = null; else S.rv.desc = true; } else { S.rv.sort = k; S.rv.desc = false; } render(); },
   "rv-person": b => rvPerson(b.dataset.emp, b.dataset.key),
+  "rv-fix": b => { const p = DATA.rvp, m = b.closest(".modal"); DATA.brp = { name: p.row.name, emp: p.row.emp, facts: (p.record || {}).facts || [] };
+    closeModal(); brainFix("designation"); RV_AFTER_FIX = [m.dataset.emp, m.dataset.key]; },
+  "rv-ptab": b => { const m = b.closest(".modal"); closeModal(); rvPerson(m.dataset.emp, m.dataset.key, b.dataset.t); },
   "rv-pdf": async b => { const r = await call("profile_export", { emp: b.dataset.emp, fmt: "pdf" }); if (!r.cancelled) toast("Data sheet saved"); },
   "rv-update": () => rvUpdate(),
+  "rv-clear": () => { Object.assign(S.rv, { store: "", dept: "", section: "", role: "", sort: null }); render(); },
+  "rv-detail": () => { S.importSess = PENDING_SESS; closeModal(); go("import"); },
   "rv-settings": () => go("settings"),
 };
 SETTINGS.bench = async () => {
-  const t = await API.call("review_targets", {});
-  return `<div class="panel"><div class="phd"><h2>Benchmarks</h2><small>where each colour starts on the Review screen</small></div>
-    <table class="t"><thead><tr><th>Criterion</th><th>Better when</th><th class="n">Green from</th><th class="n">Amber from</th></tr></thead><tbody>
-    ${t.rows.map(r => `<tr><td>${esc(r.label)}</td><td>${r.better === "up" ? "higher" : "lower"}</td><td class="n"><input class="input sm" style="width:90px" type="number" step="any" data-tg="${r.key}" data-b="green" value="${r.green}"></td>
-      <td class="n"><input class="input sm" style="width:90px" type="number" step="any" data-tg="${r.key}" data-b="amber" value="${r.amber}"></td></tr>`).join("")}</tbody></table>
-    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-act="tg-reset">Reset to defaults</button></div></div>`;
+  const t = DATA.crit = await API.call("review_criteria", {});
+  const u = r => ({ pct0: "%", pct1: "%", pct1s: "%", pp2s: " pts" }[r.fmt] || "");
+  return `<div class="panel"><div class="phd"><h2>Criteria</h2><small>what the Review shows, how much each counts in the score, and where the colours start</small></div>
+    <p class="muted" style="margin:0 0 12px">Each result becomes points out of 10 against its own lines: at the amber line it earns 5, at the green line 7, and 10 once it is as far past green as amber is below it (none at all for leavers and cases).
+      The score is the weighted average of those points. A weight of 0 shows the criterion without counting it; switch it off to hide it everywhere.</p>
+    <div class="tbl-wrap"><table class="t crit"><thead><tr><th>Criterion</th><th>Show</th><th class="n">Weight</th><th class="n">Share of score</th><th>Better when</th><th class="n">Green from</th><th class="n">Amber from</th></tr></thead><tbody>
+    ${t.rows.map(r => `<tr data-ck="${r.key}"><td><b>${esc(r.label)}</b>${r.count ? `<span class="sub">per person; store and country totals are shown without colour</span>` : ""}</td>
+      <td><label class="switch"><input type="checkbox" data-cf="show" ${r.show ? "checked" : ""}><span></span></label></td>
+      <td class="n"><input class="input sm num" type="number" min="0" max="100" step="1" data-cf="weight" value="${r.weight}"></td>
+      <td class="n"><div class="share"><i style="width:${r.share}%"></i><b>${r.share}%</b></div></td>
+      <td>${r.better === "up" ? "Higher" : "Lower"}</td>
+      <td class="n"><input class="input sm num" type="number" step="any" data-cf="green" value="${r.green ?? ""}"><small>${u(r)}</small></td>
+      <td class="n"><input class="input sm num" type="number" step="any" data-cf="amber" value="${r.amber ?? ""}"><small>${u(r)}</small></td></tr>`).join("")}</tbody></table></div>
+    <div class="row" style="justify-content:space-between;margin-top:12px"><small class="muted">Total weight ${t.total}. Score colours: green from ${t.score.green}, amber from ${t.score.amber}.</small>
+      <div class="row" style="gap:6px"><button class="btn" data-act="tg-reset">Reset to defaults</button><button class="btn primary" data-act="crit-save">Save criteria</button></div></div></div>`;
 };
-Object.assign(RV_ACTS, { "tg-reset": async () => { await call("review_targets", { reset: true }); toast("Benchmarks reset"); render(); } });
+Object.assign(RV_ACTS, {
+  "tg-reset": async () => { await call("review_criteria", { reset: true }); toast("Criteria reset to defaults"); render(); },
+  "crit-save": async () => {
+    const rows = $$("tr[data-ck]").map(tr => ({ key: tr.dataset.ck, show: $("[data-cf=show]", tr).checked, weight: +$("[data-cf=weight]", tr).value || 0,
+      green: $("[data-cf=green]", tr).value, amber: $("[data-cf=amber]", tr).value }));
+    await call("review_criteria", { rows }); toast("Criteria saved: the Review and every score use them now"); render(); },
+});
 
 async function hireVacancy(head) {
   const H = S.hire;
