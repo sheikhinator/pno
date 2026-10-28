@@ -24,6 +24,7 @@ def test_period_bar_on_every_po_screen(tmp_path):
     a = importers.analyze_path(make_po_workbook(tmp_path / "po.xlsx"))
     out = importers.commit(db, a, {"*": {"as_of": "2026-09-30", "period_to": "2026-09"}})
     assert all(r["status"] == "ok" for r in out), out
+    db.set_setting("full_mode", True)
     srv = make_server(db, 0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     errors: list[str] = []

@@ -95,6 +95,15 @@ TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: s
                              "from_month": {"type": "string", "description": "YYYY-MM, YTD start (default January)"},
                              "to_month": {"type": "string", "description": "YYYY-MM, the month (MTD) or YTD end"}},
                              "required": ["question"]}})
+TOOLS.insert(0, {"name": "review", "description": "THE REVIEW SCREEN (use first for any performance question). For any slice "
+              "(whole country, a store, a department such as Consumer Goods / Fresh Food / Light Household / Heavy Household / Textile / Non Food, "
+              "a section such as Bakery or Grocery, and optionally a role) returns every criterion with its value and green/amber/red status "
+              "against the benchmark (sales vs budget, growth, productivity vs target, shrinkage vs budget, stock days, out of stock, waste, "
+              "attendance, leavers, disciplinary cases, NPS), what is strong / weak / the focus, the next level down (stores, departments or "
+              "sections) and the people benchmark table (each leader's results and score). These are exactly the numbers on the director's "
+              "screen: quote them as they are. Never rank people by position; describe strengths and gaps.",
+              "parameters": {"type": "object", "properties": {"store": {"type": "string"}, "dept": {"type": "string"}, "section": {"type": "string"},
+                             "role": {"type": "string", "enum": ["store", "dept", "section", "tl"], "description": "store managers, department heads, section managers, team leaders"}}}})
 TOOLS.insert(1, {"name": "internal_candidates", "description": "Who inside the company could fill a role (store manager, department_head, "
               "section_manager, team_leader) in a store and section: fit score with reasons, and what their move leaves behind (backfill, chain "
               "of moves, risk). Use for 'who can replace X', 'who is ready for department head at Fortress', 'internal candidates for ...'.",
@@ -277,6 +286,28 @@ class Toolbox:
             m = workplace.manager_effectiveness(ins)
             out["managers"] = [{k: r[k] for k in ("manager", "store", "team", "team_index", "team_rating", "leavers", "da", "score", "band", "why")} for r in m["rows"][:15]]
         return out
+
+    def t_review(self, store: str = "", dept: str = "", section: str = "", role: str = "", **kw) -> dict:
+        from .. import review
+        api = self.svc.api
+        ins = api._po()
+        if store and not ins.empty and store not in ins.stores(include_myli=True):
+            hits = [s for s in ins.stores(include_myli=True) if store.casefold() in s.casefold()]
+            store = hits[0] if hits else store
+        names = {v.casefold(): k for k, v in review.SHORT.items()} | {k.casefold(): k for k in review.SHORT}
+        dept = names.get((dept or "").casefold(), dept)
+        if section:
+            section = canon.section(section) or section
+        r = api.api_review(store=store or None, dept=dept or None, section=section or None, role=role or None)
+        if r.get("empty"):
+            return {"note": "No data imported yet."}
+        C = r["criteria"]
+        show = lambda cells, keys: {C[c["key"]]["label"]: f"{review.fmt(c['key'], c['value'])} ({c['status']})" for c in cells if c["key"] in keys and c["value"] is not None}  # noqa: E731
+        return {"view": r["label"], "as_of": r["as_of"], "scorecard": show(r["tiles"], [t["key"] for t in r["tiles"]]), "notes": r["notes"],
+                "next_level": {g["name"]: show(g["cells"], r["grid_keys"]) for g in r["grid"]},
+                "people": [{"name": p["name"], "store": p["store"], "role": p["role"], "area": p["area"], **show(p["cells"], r["people_keys"])} for p in r["people"][:40]],
+                "benchmarks": {C[k]["label"]: f"green from {C[k]['green']}, amber from {C[k]['amber']} ({'higher' if C[k]['better'] == 'up' else 'lower'} is better)"
+                               for k in C if C[k]["green"] is not None}}
 
     def t_organisation(self, **kw) -> dict:
         r = self.svc.api.api_organisation()

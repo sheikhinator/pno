@@ -15,11 +15,10 @@ ROLE_WORDS = [("department head", "DH"), ("dept head", "DH"), ("section manager"
               ("store manager", "GM"), ("general manager", "GM"), ("gm", "GM"), ("cco", "CCO"), ("cashier", "STAFF"),
               ("managers", "MANAGERS"), ("manager", "MANAGERS"), ("staff", "STAFF"), ("h&b", "HBM")]
 LEAVE_TYPES = ["sick", "annual", "casual", "maternity", "paternity", "hajj", "umrah", "compensatory", "unpaid", "emergency", "marriage"]
-HELP = ("I can answer from the imported data, for example:\n"
-        "- **Who are the top 10 section managers in Lahore?**\n- **Show the bottom 5 store managers**\n"
-        "- **How is Lyallpur Galleria doing?**\n- **Who was absent the most this month?**\n"
-        "- **Show missing punches at Fortress**\n- **Score of 20064066** or a person's name\n"
-        "- **Show the trend for the last months**\n"
+HELP = ("I answer from the same numbers as the Review screen, for example:\n"
+        "- **How is CG doing at country level?**\n- **What should we focus on in Fresh Food at Fortress?**\n"
+        "- **Show the department heads for LHH**\n- **How is Bakery doing across the country?**\n"
+        "- **Tell me about Arslan Arshad** (a person's full data sheet)\n- **Compare Fortress and Emporium**\n"
         "- **Khadija Ghafoor was on sick leave 12 to 14 September** (I'll prepare it for you to confirm)\n"
         "- **Add 21 March 2027 as Eid holiday**")
 
@@ -276,6 +275,114 @@ def _corr_reply(r: dict, who: str) -> str:
             "on every screen and survive later imports.")
 
 
+_DEPT_WORDS = [(r"\b(cg|consumer goods|fmcg)\b", "Consumer Goods"), (r"\b(fresh food|fresh|ff)\b", "Fresh Food"),
+               (r"\b(lhh|light house ?hold)\b", "Light Household"), (r"\b(hhh|heavy house ?hold)\b", "Heavy Household"),
+               (r"\b(textile|txt)\b", "Textile"), (r"\bnon[ -]?food\b", "Non Food"), (r"\b(h&b|health (and|&) beauty|myli)\b", "Health & Beauty")]
+_RV_ROLES = [(r"store managers?|\bsms?\b|\bgms?\b", "store"), (r"department heads?|dept heads?|\bdhs?\b", "dept"),
+             (r"section managers?", "section"), (r"team leaders?|\btls?\b|supervisors?", "tl")]
+_RV_RX = re.compile(r"\b(focus|strong|weak|benchmark|kpis?|scorecard|review|country level|across the country|criteria)\b")
+_RANK_RX = re.compile(r"\b(top|bottom|best|worst|highest|lowest)\s*\d*\b|\brank")
+_DOT = {"good": "🟢", "warn": "🟡", "bad": "🔴", "neutral": "⚪", "none": "⚪"}
+
+
+def _review_answer(tb: Toolbox, q: str) -> str | None:
+    from .. import review
+    from ..po import canon
+    ql = q.lower()
+    api = tb.svc.api
+    ins = api._po()
+    if ins.empty:
+        return None
+    dept = next((d for rx, d in _DEPT_WORDS if re.search(rx, ql)), None)
+    section = next((s for s in canon.SECTION_ORDER if s.lower() in ql and s not in ("Light Household", "Heavy Household", "Textile", "Myli")), None)
+    if section and not dept:
+        dept = canon.department(section) or None
+    role = next((k for rx, k in _RV_ROLES if re.search(rx, ql)), None)
+    stores = ins.stores(include_myli=True)
+    named = []
+    for st in stores:
+        if st.endswith("Myli") and not ("myli" in ql or "h&b" in ql):
+            continue
+        words = [w for w in re.split(r"[\s()·]+", st.lower()) if len(w) > 3 and w not in ("mall", "city", "myli", "markaz")]
+        if any(re.search(rf"\b{re.escape(w)}\b", ql) for w in words):
+            named.append(st)
+    if len(named) >= 2 and re.search(r"\b(compare|comparison|vs|versus|against|and)\b", ql):
+        views = [api.api_review(store=st, dept=dept, section=section, role=None) for st in named[:4]]
+        C = views[0]["criteria"]
+        keys = [t["key"] for t in views[0]["tiles"]]
+        out = [f"**{' vs '.join(named[:4])}**{' · ' + review.SHORT.get(dept, dept) if dept else ''}{' · ' + section if section else ''}", "",
+               "| Criterion | " + " | ".join(named[:4]) + " |", "|---|" + "---|" * len(named[:4])]
+        for k in keys:
+            cells = []
+            for v in views:
+                t = next((x for x in v["tiles"] if x["key"] == k), None)
+                cells.append(f"{review.fmt(k, t['value'])} {_DOT[t['status']]}" if t else "—")
+            out.append(f"| {C[k]['label']} | " + " | ".join(cells) + " |")
+        for st, v in zip(named[:4], views):
+            out += ["", f"**{st}**: focus on " + "; ".join(v["notes"]["focus"])]
+        return "\n".join(out)
+    store = None
+    for st in stores:
+        words = [w for w in re.split(r"[\s()·]+", st.lower()) if len(w) > 3 and w not in ("mall", "city", "myli", "markaz")]
+        if any(re.search(rf"\b{re.escape(w)}\b", ql) for w in words):
+            store = st if (("myli" in ql or "h&b" in ql) == st.endswith("Myli")) else (store or st)
+            if (("myli" in ql or "h&b" in ql) == st.endswith("Myli")):
+                break
+    # a named leader: their data sheet (asked for as a sheet / profile; "how is X doing" keeps the score breakdown answer)
+    sheet_ask = re.search(r"\b(tell me about|about|data sheet|sheet|profile|criteria|benchmark)\b", ql)
+    name_hits = [l for l in ins.leaders() if len(l.name) > 4 and l.name.lower() in ql] if sheet_ask else []
+    if not name_hits and sheet_ask:
+        m = re.search(r"(?:about|who is|tell me about|profile of|sheet (?:for|of)|how is) ([a-z][a-z .'-]{2,40}?)(?:\?|$| doing| performing)", ql)
+        if m:
+            nm = m.group(1).strip()
+            name_hits = [l for l in ins.leaders() if nm in l.name.lower()] if len(nm) > 3 else []
+    if name_hits and len({l.key for l in name_hits}) == 1:
+        p = review.person(api, key=name_hits[0].key)
+        r, C = p["row"], p["criteria"]
+        out = [f"**{r['name']}**: {r['role']} · {r['area']} · {r['store']}", "",
+               " · ".join(f"{k}: {v}" for k, v in p["facts"].items() if v not in (None, "—")), "",
+               "| Criterion | Result | Benchmark | Peers (median) | |", "|---|---|---|---|---|"]
+        for c in r["cells"]:
+            if c["value"] is None:
+                continue
+            out.append(f"| {C[c['key']]['label']} | {review.fmt(c['key'], c['value'])} | {review.fmt(c['key'], C[c['key']]['green']) if C[c['key']]['green'] is not None else '—'} | "
+                       f"{review.fmt(c['key'], p['peer_median'].get(c['key']))} | {_DOT[c['status']]} |")
+        good = [C[c["key"]]["label"] for c in r["cells"] if c["status"] == "good" and c["key"] != "score"]
+        bad = [C[c["key"]]["label"] for c in r["cells"] if c["status"] == "bad" and c["key"] != "score"]
+        out += ["", f"**Strong on:** {', '.join(good) or '—'}", f"**Needs work on:** {', '.join(bad) or '—'}"]
+        if p["ratings"]:
+            out.append("**Ratings:** " + " → ".join(f"{x['rating']:g} ({x['cycle']})" for x in p["ratings"]) + (f", {p['trend']}" if p["trend"] else ""))
+        if p["remarks"]:
+            out.append(f"**Remarks:** {p['remarks']}")
+        return "\n".join(out)
+    if len({l.key for l in name_hits}) > 1:
+        return "Several people match: " + "; ".join(f"**{l.name}** ({l.designation}, {l.store})" for l in name_hits[:8]) + ". Which one?"
+    if _RANK_RX.search(ql) and not _RV_RX.search(ql):
+        return None                                   # an explicit ranking question keeps its ranked answer
+    if not (dept or section or _RV_RX.search(ql) or (role and (store or dept))):
+        return None
+    r = api.api_review(store=store, dept=dept, section=section, role=role)
+    if r.get("empty"):
+        return None
+    C = r["criteria"]
+    out = [f"**{r['label']}** · data as of {r['as_of']}", "", "| Criterion | Result | |", "|---|---|---|"]
+    out += [f"| {C[t['key']]['label']} | {review.fmt(t['key'], t['value'])} | {_DOT[t['status']]} |" for t in r["tiles"]]
+    out += ["", "**What's strong**"] + [f"- {x}" for x in r["notes"]["strong"]]
+    out += ["", "**What's weak**"] + [f"- {x}" for x in r["notes"]["weak"]]
+    out += ["", "**Focus this week**"] + [f"{i}. {x}" for i, x in enumerate(r["notes"]["focus"], 1)]
+    if role or re.search(r"\b(who|people|leaders?|heads?|managers?|team)\b", ql):
+        ppl = r["people"]
+        if ppl:
+            out += ["", f"**People in this view** ({len(ppl)}, in store order, not ranked)", "", "| Person | Store | Score | Below benchmark on |", "|---|---|---|---|"]
+            for p in ppl[:25]:
+                sc = next(c for c in p["cells"] if c["key"] == "score")
+                reds = [C[c["key"]]["short"] for c in p["cells"] if c["status"] == "bad" and c["key"] != "score"]
+                out.append(f"| {p['name']} ({p['role']}, {p['area']}) | {p['store']} | {review.fmt('score', sc['value'])} {_DOT[sc['status']]} | {', '.join(reds) or '—'} |")
+            if len(ppl) > 25:
+                out.append(f"\n…and {len(ppl) - 25} more on the Review screen.")
+    return "\n".join(out)
+
+
 def answer(tb: Toolbox, question: str) -> str:
     q = question.strip()
     ql = q.lower()
@@ -288,6 +395,12 @@ def answer(tb: Toolbox, question: str) -> str:
         a = _internal_answer(tb, q)
         if a:
             return a
+    try:
+        rv = _review_answer(tb, q)
+    except Exception:  # noqa: BLE001 - fall back to the other answers
+        rv = None
+    if rv:
+        return rv
     if _POLICY_RX.search(ql):
         return _policy_answer(tb, q)
     if _GOAL_RX.search(ql):

@@ -30,6 +30,7 @@ def app(tmp_path_factory):
     from pno.devserver import make_server
     db = Database(home / "pno.sqlite3")
     load_demo(db)
+    db.set_setting("full_mode", True)        # these tests walk every module of the full toolkit
     srv = make_server(db, 0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_address[1]}/web/index.html", srv, home

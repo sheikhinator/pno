@@ -104,15 +104,26 @@ const ICON = {
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
 };
 const ic = (n, s = 19) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[n] || ""}</svg>`;
-const NAV = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
+const NAV_FULL = [["home", "Overview", "home"], ["review", "Business review", "review"], ["stores", "Stores", "stores"],
   ["people", "People", "people"], ["brain", "People Brain", "brain"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["insights", "People insights", "insights"], ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
   ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["forecast", "Workforce plan", "forecast"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["relations", "Employee relations", "relations"], ["calendar", "HR calendar", "calendar"], ["brief", "Weekly brief", "brief"], ["engagement", "Engagement", "engagement"], ["recognition", "Recognition", "recognition"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
-const NAV_GROUP = { insights: "Insights", hiring: "Talent", ask: "Tools" };
+const NAV_SIMPLE = [["rv", "Review", "review"], ["ask", "Ask P&O AI", "ask"]];
+let NAV = NAV_SIMPLE;
+let ALLOWED = new Set(["rv", "ask", "settings"]);
+// the full toolkit (every 2.x/3.x module) stays in the app, switched off; Settings → Appearance turns it on
+function applyMode() {
+  const full = !!(S.init && S.init.full_mode);
+  NAV = full ? [["rv", "Review", "review"]].concat(NAV_FULL) : NAV_SIMPLE;
+  NAV_GROUP = full ? NAV_GROUP_FULL : {};
+  ALLOWED = full ? null : new Set(["rv", "ask", "settings"]);
+}
+let NAV_GROUP = {};
+const NAV_GROUP_FULL = { insights: "Insights", hiring: "Talent", ask: "Tools" };
 const FILTER_PAGES = new Set(["home", "people", "performance", "stores", "store", "attendance", "org"]);
 const PAGE_TITLE = { home: "Overview", review: "Business review", stores: "Stores", store: "Store", people: "People", performance: "Performance",
   talent: "Leaders & talent", attendance: "Attendance", org: "Org chart", retention: "Turnover", nps: "Customer NPS", shifts: "Shift roster",
-  data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", forecast: "Workforce plan", brain: "People Brain", relations: "Employee relations", insights: "People insights", calendar: "HR calendar", brief: "Weekly brief", goals: "Goals", notes: "1:1s & visits", engagement: "Engagement", recognition: "Recognition", policies: "Policy assistant", settings: "Settings" };
+  rv: "Review", data: "Other data", ask: "Ask P&O AI", import: "Import data", health: "Data health", hiring: "Hiring", learning: "Learning Studio", manpower: "Manpower", actions: "Action tracker", organisation: "Organisation", forecast: "Workforce plan", brain: "People Brain", relations: "Employee relations", insights: "People insights", calendar: "HR calendar", brief: "Weekly brief", goals: "Goals", notes: "1:1s & visits", engagement: "Engagement", recognition: "Recognition", policies: "Policy assistant", settings: "Settings" };
 const ROLES = [["", "Everyone"], ["MANAGERS", "All managers"], ["GM", "Store managers"], ["DH", "Department heads"], ["SM", "Section managers"],
   ["CCO", "CCO"], ["HBM", "H&B leads"], ["STAFF", "Staff"]];
 const BANDS = [["excellent", "Outstanding"], ["good", "Strong"], ["ok", "Meets"], ["warn", "Needs improvement"], ["bad", "Concern"]];
@@ -171,6 +182,14 @@ function shell() {
 function updateSide() { const sd = $(".side"); if (sd) sd.innerHTML = sideHtml(); }
 
 function topbar() {
+  if (S.init && S.init.full_mode && !["rv", "ask", "settings"].includes(S.page)) return topbarFull();
+  const back = S.page === "settings" ? `<button class="btn back" data-go="rv">${ic("back", 16)}Review</button>` : "";
+  $("#top").innerHTML = `<div class="top-row">${back}<div class="crumbs"><span class="ptitle">${esc(PAGE_TITLE[S.page] || "")}</span></div><div class="spacer"></div>
+    <button class="btn hide-present" data-act="rv-update">${ic("import", 16)}Update data</button>
+    ${S.page === "rv" ? `<button class="btn gold hide-present" data-act="present">${ic("play", 14)}Present</button>` : ""}
+    <button class="btn ghost hide-present" data-act="rv-settings" title="Settings">⚙</button></div>`;
+}
+function topbarFull() {
   const o = S.opts || {};
   const sel = (key, label, list, all) => `<div class="fsel ${S.scope[key] ? "set" : ""}"><label>${label}</label><select data-scope="${key}">
       <option value="">${all}</option>${(list || []).map(x => `<option value="${esc(x.value)}" ${String(S.scope[key] || "") === String(x.value) ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></div>`;
@@ -324,6 +343,7 @@ const COMMANDS = () => [
 
 /* ---------------------------------------------------------------- routing */
 function go(page, arg = null, opts = {}) {
+  if (ALLOWED && !ALLOWED.has(page)) page = "rv";
   if (!opts.back && S.page && (S.page !== page || S.arg !== arg)) { S.hist = (S.hist || []).concat([[S.page, S.arg]]).slice(-30); }
   S.page = page; S.arg = arg;
   topbar();
@@ -670,11 +690,11 @@ AFTER.org = () => { $$(".page select[data-scope]").forEach(s => s.onchange = () 
 
 /* ask: a Claude-style analyst chat */
 const SUGGEST = [
-  ["📊", "Brief me for the country review", "Headline numbers, best and worst stores, priorities"],
-  ["🏬", "Which stores need attention and why?", "Ranked alerts from every report"],
-  ["⭐", "Who are the top 10 section leaders?", "Leader index with strengths and gaps"],
-  ["🚪", "Where is turnover highest and why?", "Hotspots, reasons, voluntary vs terminations"],
-  ["💬", "How is customer NPS changing?", "Best and worst categories, movers"],
+  ["📊", "How is CG doing at country level?", "Scorecard, what's strong, what's weak, focus"],
+  ["🏬", "What should we focus on in Fresh Food at Fortress?", "One store, one department"],
+  ["👥", "Show the department heads for LHH", "Every criterion and score, not ranked"],
+  ["🥖", "How is Bakery doing across the country?", "One section in every store"],
+  ["🧑‍💼", "Tell me about Arslan Arshad", "One person's full data sheet"],
   ["🧭", "Compare Fortress and Emporium", "Side by side on every measure"]];
 const chatStore = { list() { return store.get("chats", []); }, save(list) { store.set("chats", list.slice(0, 25)); } };
 function saveChat() {
@@ -1115,10 +1135,13 @@ window.PNO_drop = async paths => {
 
 /* settings */
 PAGES.settings = async () => {
-  const tabs = [["scoring", "Scoring"], ["ai", "AI assistant"], ["stores", "Stores"], ["sections", "Sections"], ["holidays", "Holidays"], ["leave", "Leave"], ["data", "Data & backup"], ["backups", "Backups & columns"], ["look", "Appearance"]];
+  const tabs = S.init.full_mode
+    ? [["bench", "Benchmarks"], ["scoring", "Scoring"], ["ai", "AI assistant"], ["stores", "Stores"], ["sections", "Sections"], ["holidays", "Holidays"], ["leave", "Leave"], ["data", "Data & backup"], ["backups", "Backups & columns"], ["look", "Appearance"]]
+    : [["bench", "Benchmarks"], ["ai", "AI"], ["stores", "Stores"], ["backups", "Backups & columns"], ["data", "Data"], ["look", "Appearance"]];
+  if (!tabs.some(x => x[0] === S.setTab)) S.setTab = S.init.full_mode ? "scoring" : "bench";
   const t = S.setTab;
   const body = await SETTINGS[t]();
-  return `<div class="ph"><div><h1>Settings</h1><p>How scores are calculated, the AI assistant, store and section matching, holidays and leave, and your data.</p></div></div>
+  return `<div class="ph"><div><h1>Settings</h1><p>Benchmarks for the colours, which AI answers, store matching, backups and your data.</p></div></div>
     <div class="seg">${tabs.map(([k, l]) => `<button data-act="set-tab" data-tab="${k}" aria-pressed="${t === k}">${l}</button>`).join("")}</div>${body}`;
 };
 const SETTINGS = {};
@@ -1224,6 +1247,7 @@ SETTINGS.data = async () => {
 SETTINGS.look = async () => {
   const s = await API.call("settings");
   return `<div class="panel"><div class="setting"><div><b>Theme</b><small>Follow Windows, or always light / dark</small></div><div class="seg">${[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button data-act="theme" data-theme="${k}" aria-pressed="${s.theme === k}">${l}</button>`).join("")}</div></div>
+    <div class="setting"><div><b>Full P&amp;O toolkit</b><small>Show every module (hiring, learning, relations, People Brain…) as well as the Review</small></div><label class="switch"><input type="checkbox" id="full-mode" ${S.init.full_mode ? "checked" : ""}><span></span></label></div>
     <div class="setting"><div><b>Hide names</b><small>Show employee codes instead of names everywhere and in exports (for screen-sharing)</small></div><label class="switch"><input type="checkbox" id="hide-names" ${s.hide_names ? "checked" : ""}><span></span></label></div><div class="setting"><div><b>App lock</b><small>${S.init.lock && S.init.lock.enabled ? `On: asks for your PIN when P&O opens and after ${S.init.lock.minutes} minutes idle` : "Ask for a PIN when P&O opens and after it is left idle"}</small></div><button class="btn" data-act="lock-set">${S.init.lock && S.init.lock.enabled ? "Change PIN…" : "Set a PIN…"}</button></div>
     </div>`;
 };
@@ -1232,6 +1256,7 @@ AFTER.settings = () => {
   const sum = ro => { const t = $$(`[data-w="${ro}"]`).reduce((a, i) => a + (+i.value || 0), 0); const b = $(`[data-total="${ro}"]`); if (b) b.textContent = t; };
   $$("[data-w]").forEach(i => { i.oninput = () => sum(i.dataset.w); sum(i.dataset.w); });
   const an = $("#anon"); if (an) an.onchange = () => call("agent_settings", { anonymise: an.checked }).then(() => toast("Saved"));
+  const fm = $("#full-mode"); if (fm) fm.onchange = async () => { await call("full_mode", { on: fm.checked }); S.init.full_mode = fm.checked; applyMode(); shell(); updateSide(); toast(fm.checked ? "All modules shown" : "Review and Ask only"); };
   const bk = $("#bk-auto"); if (bk) bk.onchange = () => call("backup_auto", { on: bk.checked }).then(() => toast(bk.checked ? "Daily backups on" : "Daily backups off"));
   $$("[data-syn]").forEach(i => i.onchange = () => call("synonyms_save", { field: i.dataset.syn, words: i.value.split(",") }).then(() => toast("Smart Import will recognise these names")));
   const hn = $("#hide-names"); if (hn) hn.onchange = () => call("settings_save", { hide_names: hn.checked }).then(() => { S.init.hide_names = hn.checked; toast(hn.checked ? "Names hidden" : "Names shown"); });
@@ -1403,7 +1428,7 @@ const ACT = {
   "scope-up": async b => { const order = ["city", "format", "store_id", "dept", "section"]; for (const k of order.slice(order.indexOf(b.dataset.key) + 1)) delete S.scope[k]; store.set("scope", S.scope); await refreshOptions(); render(); },
   export: b => openExport({ pack: b.dataset.pack, emp: b.dataset.emp, store: b.dataset.store ? +b.dataset.store : null }),
   "modal-close": closeModal,
-  present: () => { document.body.classList.toggle("present"); if (document.body.classList.contains("present")) { if (S.page !== "home") go("home"); toast("Presenting · use ↑ ↓ or the buttons · Esc to exit"); } },
+  present: () => { document.body.classList.toggle("present"); if (document.body.classList.contains("present")) { if (S.page !== "rv") go("rv"); toast("Presenting · use ↑ ↓ or the buttons · Esc to exit"); } },
   "present-next": () => presentStep(1), "present-prev": () => presentStep(-1),
   alert: b => { const k = b.dataset.key; if (k === "variance") return go("stores"); S.people = { ...S.people, flag: k, band: "", role: "" }; go("people"); },
   "people-sort": b => { S.people = { ...S.people, sort: "score", desc: b.dataset.desc === "1", band: "", flag: "" }; go("people"); },
@@ -1855,7 +1880,8 @@ document.addEventListener("click", e => {
   const p = e.target.closest("[data-person]");
   if (p && !e.target.closest("input")) { e.preventDefault(); openPerson(p.dataset.person); }
 });
-const GO_KEYS = { c: "calendar", w: "brief", h: "home", r: "review", s: "stores", p: "people", b: "brain", t: "talent", a: "attendance", i: "insights", e: "relations", n: "hiring", l: "learning", d: "import", k: "ask", o: "organisation", g: "goals", x: "settings" };
+const GO_KEYS_FULL = { c: "calendar", w: "brief", h: "home", r: "review", s: "stores", p: "people", b: "brain", t: "talent", a: "attendance", i: "insights", e: "relations", n: "hiring", l: "learning", d: "import", k: "ask", o: "organisation", g: "goals", x: "settings" };
+const GO_KEYS = { r: "rv", a: "ask" };
 const KEY_OF = Object.fromEntries(Object.entries(GO_KEYS).map(([k, v]) => [v, k]));
 let gArmed = 0;
 function shortcutHelp() {
@@ -2498,6 +2524,135 @@ const V3_ACTS = {
   "bk-restore": async b => { if (!confirm(`Replace all P&O data with ${b.dataset.n}? The current data is kept as a safety copy.`)) return; await call("restore_backup", { name: b.dataset.n }); toast("Backup restored"); await afterDataChange(true); },
 };
 
+/* ============================================================== 4.0 Review: the one screen */
+S.rv = S.rv || { store: "", dept: "", section: "", role: "", sort: null, desc: false };
+const RVF = (k, v) => {
+  if (v == null) return `<span class="na">—</span>`;
+  const f = (DATA.rv && DATA.rv.criteria[k] || {}).fmt;
+  return f === "pct0" ? `${v.toFixed(0)}%` : f === "pct1" ? `${v.toFixed(1)}%` : f === "pct1s" ? `${v > 0 ? "+" : ""}${v.toFixed(1)}%`
+    : f === "pp2s" ? `${v > 0 ? "+" : ""}${v.toFixed(2)}` : f === "dec1" ? v.toFixed(1) : String(Math.round(v));
+};
+const rvBench = k => { const c = DATA.rv.criteria[k]; if (c.green == null) return "No benchmark: shown for information";
+  const u = { pct0: "%", pct1: "%", pct1s: "%", pp2s: " pts" }[c.fmt] || "";
+  return c.better === "up" ? `Green ${c.green}${u} or more · amber ${c.amber}${u} or more` : `Green ${c.green}${u} or less · amber ${c.amber}${u} or less`; };
+PAGES.rv = async () => {
+  const F = S.rv;
+  const d = DATA.rv = await API.call("review", { store: F.store, dept: F.dept, section: F.section, role: F.role });
+  if (d.empty) return `<div class="panel"><div class="hero"><div class="logo maf big"><img src="maf-logo.png" alt=""></div><h2>Department Review</h2>
+    <p>Add this week's reports to see the review: sales, productivity, shrinkage and stock days, out of stock, attendance, leavers and NPS.</p>
+    <div class="row" style="justify-content:center"><button class="btn primary" data-act="rv-update">Update data</button><button class="btn" data-act="demo-on">Try with demo data</button></div></div></div>`;
+  const o = d.options, C = d.criteria;
+  const chip = (act, val, label, on) => `<button class="rchip ${on ? "on" : ""}" data-act="${act}" data-v="${esc(val)}">${esc(label)}</button>`;
+  const crumbs = [["Country", { store: "", dept: "", section: "" }]];
+  if (F.store) crumbs.push([F.store, { dept: "", section: "" }]);
+  if (F.dept) crumbs.push([(o.depts.find(x => x[0] === F.dept) || [0, F.dept])[1], { section: "" }]);
+  if (F.section) crumbs.push([F.section, {}]);
+  const tile = t => `<div class="rtile ${t.status}" title="${esc(rvBench(t.key))}"><span class="rt-l">${esc(t.label)}</span><span class="rt-v">${RVF(t.key, t.value)}</span><span class="rt-b">${esc(rvBench(t.key).split(" · ")[0])}</span></div>`;
+  const cell = c => `<td class="n rc ${c.status}">${RVF(c.key, c.value)}</td>`;
+  const head = keys => keys.map(k => `<th class="n" title="${esc(C[k].label + " · " + rvBench(k))}">${esc(C[k].short)}</th>`).join("");
+  // people: sortable, never ranked
+  let ppl = d.people.slice();
+  if (F.sort) { const i = d.people.length ? d.people[0].cells.findIndex(c => c.key === F.sort) : -1;
+    if (i >= 0) ppl.sort((a, b) => { const x = a.cells[i].value, y = b.cells[i].value; if (x == null) return 1; if (y == null) return -1; return F.desc ? y - x : x - y; }); }
+  const pk = d.people_keys;
+  return `<div class="rhead">
+      <div><div class="rcrumbs">${crumbs.map((c, i) => i === crumbs.length - 1 ? `<b>${esc(c[0])}</b>` : `<button data-act="rv-crumb" data-i="${i}">${esc(c[0])}</button><span>›</span>`).join("")}</div>
+        <h1>${esc(d.label)}</h1><p class="muted">Data as of ${fmtDate(d.as_of)}${d.period ? " · " + esc(d.period) : ""}</p></div></div>
+    <div class="rfilters">
+      <div class="rf"><label>Store</label><select id="rv-store" class="input"><option value="">All stores</option>${o.stores.map(s => `<option ${s === F.store ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
+      <div class="rf"><label>Department</label><div class="rchips">${chip("rv-dept", "", "All", !F.dept)}${o.depts.map(([k, l]) => chip("rv-dept", k, l, F.dept === k)).join("")}</div></div>
+      ${o.sections.length ? `<div class="rf"><label>Section</label><div class="rchips">${chip("rv-sec", "", "All", !F.section)}${o.sections.map(s => chip("rv-sec", s, s, F.section === s)).join("")}</div></div>` : ""}
+      <div class="rf"><label>People</label><div class="rchips">${chip("rv-role", "", "All leaders", !F.role)}${o.roles.map(([k, l]) => chip("rv-role", k, l, F.role === k)).join("")}</div></div>
+    </div>
+    <div class="rtiles">${d.tiles.map(tile).join("")}</div>
+    <div class="rnotes">
+      <div class="rnote good"><h3>What's strong</h3><ul>${d.notes.strong.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
+      <div class="rnote bad"><h3>What's weak</h3><ul>${d.notes.weak.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
+      <div class="rnote focus"><h3>Focus this week</h3><ol>${d.notes.focus.map(x => `<li>${esc(x)}</li>`).join("")}</ol></div>
+    </div>
+    ${d.grid.length ? `<div class="panel flush rpanel"><div class="phd"><h2>By ${esc(d.grid_kind.replace(/s$/, ""))}</h2><small>click a row to look inside</small></div>
+      <div class="tbl-wrap"><table class="t rtable"><thead><tr><th>${esc(d.grid_kind.replace(/^./, c => c.toUpperCase()).replace(/s$/, ""))}</th>${head(d.grid_keys)}</tr></thead><tbody>
+      ${d.grid.map((g, i) => `<tr class="click" data-act="rv-drill" data-i="${i}"><td><b>${esc(g.name)}</b></td>${g.cells.filter(c => d.grid_keys.includes(c.key)).map(cell).join("")}</tr>`).join("")}</tbody></table></div></div>` : ""}
+    <div class="panel flush rpanel"><div class="phd"><h2>People benchmark</h2><small>${ppl.length} leader${ppl.length === 1 ? "" : "s"} · every criterion shown · click a column to sort · click a name for the full sheet</small></div>
+      ${ppl.length ? `<div class="tbl-wrap"><table class="t rtable"><thead><tr><th>Person</th>${pk.map(k => `<th class="n sortable ${F.sort === k ? "sorted" : ""} ${k === "score" ? "rscore-h" : ""}" data-act="rv-sort" data-k="${k}" title="${esc(C[k].label + " · " + rvBench(k))}">${esc(C[k].short)}${F.sort === k ? (F.desc ? " ↓" : " ↑") : ""}</th>`).join("")}</tr></thead><tbody>
+      ${ppl.map(p => `<tr class="click" data-act="rv-person" data-emp="${esc(p.emp)}" data-key="${esc(p.key)}"><td class="rwho"><b>${esc(p.name)}</b>${p.acting ? ` <span class="chip">acting</span>` : ""}<span class="sub">${esc(p.role)} · ${esc(p.area)}${F.store ? "" : " · " + esc(p.store)}</span></td>
+        ${p.cells.filter(c => pk.includes(c.key)).map(c => c.key === "score" ? `<td class="n rc rscore ${c.status}">${RVF(c.key, c.value)}</td>` : cell(c)).join("")}</tr>`).join("")}</tbody></table></div>
+      <div class="rlegend"><span class="good">On or above benchmark</span><span class="warn">Close</span><span class="bad">Below benchmark</span><span class="na">— not measured for this role</span></div>`
+      : `<div class="empty">No leaders in this view.</div>`}</div>`;
+};
+AFTER.rv = () => { const s = $("#rv-store"); if (s) s.onchange = () => { Object.assign(S.rv, { store: s.value, section: "" }); render(); }; };
+async function rvPerson(emp, key) {
+  const p = await call("review_person", { emp, key }), C = p.criteria, r = p.row;
+  const rows = r.cells.filter(c => c.value != null || p.peer_median[c.key] != null).map(c => {
+    const bench = C[c.key].green == null ? "—" : RVF(c.key, C[c.key].green);
+    return `<tr><td>${esc(C[c.key].label)}</td><td class="n rc ${c.status}">${RVF(c.key, c.value)}</td><td class="n">${bench}</td><td class="n">${RVF(c.key, p.peer_median[c.key])}</td></tr>`; }).join("");
+  const m = modal(`<div class="row" style="justify-content:space-between;align-items:flex-start"><div><h3 style="margin:0">${esc(r.name)}</h3><small class="muted">${esc(r.role)} · ${esc(r.area)} · ${esc(r.store)}</small></div>
+      <div class="pscore ${(r.cells.find(c => c.key === "score") || {}).status}"><b>${RVF("score", (r.cells.find(c => c.key === "score") || {}).value)}</b><small>score / 10</small></div></div>
+    <div class="pfacts">${Object.entries(p.facts).map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(String(v ?? "—"))}</b></div>`).join("")}</div>
+    <div class="grid g2" style="gap:14px;margin-top:12px"><div><h4 class="ih">Criteria</h4><table class="t rtable"><thead><tr><th>Criterion</th><th class="n">Result</th><th class="n">Benchmark</th><th class="n">Peers (median)</th></tr></thead><tbody>${rows}</tbody></table>
+      <small class="muted">Peers: the ${p.peers} leaders at the same level across the country.</small></div>
+      <div><h4 class="ih">What the score is made of</h4><small class="muted">Points out of 10 for each part, weighted into the score. Exactly on budget or target earns 5; 10 is the best result seen as achievable.</small><div id="pp-comp"></div>
+      <h4 class="ih">Ratings over time${p.trend ? ` · <span class="${p.trend === "improving" ? "t-good" : p.trend === "slipping" ? "t-bad" : ""}">${esc(p.trend)}</span>` : ""}</h4>
+      ${p.ratings.length ? `<div id="pp-rat"></div>` : `<small class="muted">No ratings recorded.</small>`}
+      ${p.remarks ? `<h4 class="ih">Remarks</h4><div class="il">${esc(p.remarks)}</div>` : ""}</div></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px;gap:6px">${r.emp ? `<button class="btn" data-act="rv-pdf" data-emp="${esc(r.emp)}">Data sheet PDF</button>` : ""}<button class="btn primary" data-act="modal-close">Close</button></div>`);
+  m.classList.add("wide", "xwide");
+  if (p.components.length) Charts.hbar($("#pp-comp", m), { labels: p.components.map(c => c.label), values: p.components.map(c => c.value), max: 10, fmt: "score", color: "#94481A" });
+  else $("#pp-comp", m).innerHTML = `<small class="muted">Not enough results yet to score.</small>`;
+  if (p.ratings.length) Charts.columns($("#pp-rat", m), { labels: p.ratings.map(x => x.cycle || ""), series: [{ name: "Rating", values: p.ratings.map(x => x.rating), colors: p.ratings.map(x => x.rating >= 4 ? "#16A34A" : x.rating >= 3 ? "#F59E0B" : "#DC2626") }], height: 150, fmt: "score" });
+}
+async function rvUpdate() {
+  let sess;
+  if (window.qt) { sess = await call("pick_files", { month: null }); if (sess.cancelled) return; }
+  else { const fi = document.createElement("input"); fi.type = "file"; fi.multiple = true;
+    const files = await new Promise(res => { fi.onchange = () => res(fi.files); fi.click(); }); if (!files || !files.length) return;
+    const out = []; for (const f of files) { const b = new Uint8Array(await f.arrayBuffer()); let bin = ""; for (let i = 0; i < b.length; i += 32768) bin += String.fromCharCode.apply(null, b.subarray(i, i + 32768)); out.push({ name: f.name, b64: btoa(bin) }); }
+    sess = await call("import_upload", { files: out, month: null }); }
+  rvConfirm(sess);
+}
+window.PNO_drop = async paths => { if (S.page === "ask") { S.attach.push(...paths); drawChat(); return; } toast(`Reading ${paths.length} file${paths.length > 1 ? "s" : ""}…`); rvConfirm(await call("import_analyze", { paths, month: null })); };
+function rvConfirm(sess) {
+  const sheets = []; (sess.files || []).forEach(f => (f.sheets || f.results || []).forEach(s => sheets.push({ file: f.file || f.name, ...s })));
+  // the month the reports themselves carry wins over today's date
+  const own = r => (r.period && r.period.sure && r.period.to) || (r.as_of || "").slice(0, 7) || null;    // a month the sheet itself shows
+  const seen = {}; (sess.files || []).forEach(f => (f.results || []).forEach(r => { const m0 = own(r); if (m0) seen[m0] = (seen[m0] || 0) + 1; }));
+  const best = Object.entries(seen).sort((a, b) => b[1] - a[1])[0];
+  const month = (best && best[0]) || sess.suggested_month || sess.month || new Date().toISOString().slice(0, 7);
+  const m = modal(`<h3>Update data</h3><p class="muted" style="margin:0 0 10px">P&amp;O read these files. Check the month, then save.</p>
+    <div class="ulist">${sheets.map(s => `<div class="uitem"><b>${esc(s.label || s.kind_label || s.kind || "Sheet")}${own(s) ? ` <span class="chip">${esc(own(s))}</span>` : ""}</b><small>${esc(s.file || "")} · ${esc(s.sheet || "")}${s.summary ? " · " + esc(s.summary) : ""}</small>
+      ${(s.warnings || []).slice(0, 2).map(w => `<small class="t-warn">⚠ ${esc(w)}</small>`).join("")}</div>`).join("") || `<div class="empty">Nothing usable in these files.</div>`}</div>
+    ${(sess.errors || []).map(e => `<div class="il bad">${esc(e.file || "")}: ${esc(e.error || e)}</div>`).join("")}
+    <div class="row" style="justify-content:space-between;margin-top:12px"><label class="dx-l" style="margin:0">Month for files with no date<input class="input" type="month" id="u-m" value="${esc(month)}"></label>
+      <div class="row" style="gap:6px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="u-go" ${sheets.length ? "" : "disabled"}>Save</button></div></div>`);
+  m.classList.add("wide");
+  $("#u-go", m).onclick = async () => { const b = $("#u-go", m); b.disabled = true; b.textContent = "Saving…";
+    try { const mo = $("#u-m", m).value, opts = {};
+      (sess.files || []).forEach(f => (f.results || []).forEach(r => { if (!r.month || (r.needs || []).includes("month")) ((opts[f.file] = opts[f.file] || {})[r.sheet] = { month: own(r) || mo }); }));
+      await API.call("import_commit", { token: sess.token, options: opts });
+      closeModal(); toast("Data updated"); await afterDataChange(true); go("rv"); } catch (e) { b.disabled = false; b.textContent = "Save"; fail(e); } };
+}
+const RV_ACTS = {
+  "rv-dept": b => { Object.assign(S.rv, { dept: b.dataset.v, section: "", sort: null }); render(); },
+  "rv-sec": b => { S.rv.section = b.dataset.v; render(); },
+  "rv-role": b => { S.rv.role = b.dataset.v; render(); },
+  "rv-crumb": b => { const i = +b.dataset.i; if (i === 0) Object.assign(S.rv, { store: "", dept: "", section: "" }); else if (i === 1 && S.rv.store) Object.assign(S.rv, { dept: "", section: "" }); else S.rv.section = ""; render(); },
+  "rv-drill": b => { Object.assign(S.rv, DATA.rv.grid[+b.dataset.i].go); render(); },
+  "rv-sort": b => { const k = b.dataset.k; if (S.rv.sort === k) { if (S.rv.desc) S.rv.sort = null; else S.rv.desc = true; } else { S.rv.sort = k; S.rv.desc = false; } render(); },
+  "rv-person": b => rvPerson(b.dataset.emp, b.dataset.key),
+  "rv-pdf": async b => { const r = await call("profile_export", { emp: b.dataset.emp, fmt: "pdf" }); if (!r.cancelled) toast("Data sheet saved"); },
+  "rv-update": () => rvUpdate(),
+  "rv-settings": () => go("settings"),
+};
+SETTINGS.bench = async () => {
+  const t = await API.call("review_targets", {});
+  return `<div class="panel"><div class="phd"><h2>Benchmarks</h2><small>where each colour starts on the Review screen</small></div>
+    <table class="t"><thead><tr><th>Criterion</th><th>Better when</th><th class="n">Green from</th><th class="n">Amber from</th></tr></thead><tbody>
+    ${t.rows.map(r => `<tr><td>${esc(r.label)}</td><td>${r.better === "up" ? "higher" : "lower"}</td><td class="n"><input class="input sm" style="width:90px" type="number" step="any" data-tg="${r.key}" data-b="green" value="${r.green}"></td>
+      <td class="n"><input class="input sm" style="width:90px" type="number" step="any" data-tg="${r.key}" data-b="amber" value="${r.amber}"></td></tr>`).join("")}</tbody></table>
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-act="tg-reset">Reset to defaults</button></div></div>`;
+};
+Object.assign(RV_ACTS, { "tg-reset": async () => { await call("review_targets", { reset: true }); toast("Benchmarks reset"); render(); } });
+
 async function hireVacancy(head) {
   const H = S.hire;
   const v = DATA.hvac = await API.call("hire_vacancy", { vacancy_id: H.vid, blind: H.blind });
@@ -3076,6 +3231,7 @@ Object.assign(ACT, INT_ACTS);
 Object.assign(ACT, BRAIN_ACTS);
 Object.assign(ACT, ER_ACTS);
 Object.assign(ACT, V3_ACTS);
+Object.assign(ACT, RV_ACTS);
 ACT["tpl-forget"] = async b => { await call("import_templates", { forget: b.dataset.k }); toast("Forgotten"); render(); };
 
 /* ============================================================== 2.2 Policy assistant */
@@ -3408,10 +3564,11 @@ function applyTheme(t) { if (t === "light" || t === "dark") document.documentEle
 async function boot(keepPage) {
   if (!keepPage || !S.init) S.init = await API.call("init");
   applyTheme(S.init.theme);
+  applyMode();
   S.months = S.init.months;
   S.month = S.init.month;
-  if (!keepPage) S.page = store.get("page", "home");
-  if (!S.init.has_data && !keepPage) S.page = "home";
+  if (!keepPage) S.page = store.get("page", S.init.full_mode ? "home" : "rv");
+  if (ALLOWED && !ALLOWED.has(S.page)) S.page = "rv";
   shell();
   await refreshOptions();
   render();

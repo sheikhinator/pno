@@ -1,4 +1,16 @@
-# P&O 3.0 — feature checklist
+# P&O 4.0 — feature checklist
+
+## 4.0: what the director sees
+- ✅ Two tabs only: **Review** and **Ask P&O AI** (Update data, Present and ⚙ in the top bar)
+- ✅ Review: Country › Store › Department › Section, plus a role filter (store managers, department heads, section managers, team leaders)
+- ✅ Scorecard tiles coloured against benchmarks: sales vs budget, growth, productivity, shrinkage, stock days, out of stock, waste, attendance, leavers, disciplinary cases, NPS
+- ✅ What's strong / what's weak / focus this week, written from the numbers
+- ✅ Next level down as a coloured grid (stores, departments or sections); click to drill in
+- ✅ People benchmark table: every criterion visible, score as the last column, store order (no ranks, no tiers), sortable by any column
+- ✅ Person data sheet: results vs benchmark vs peers, what the score is made of, ratings over time, PDF
+- ✅ Benchmarks editable in ⚙ Settings; the assistant answers from the same numbers (offline too)
+- ✅ The full 3.x toolkit is still inside, off by default (⚙ Settings → Appearance → Full P&O toolkit)
+
 
 Everything below ships in 3.0 and is covered by the automated tests (287 tests, end-to-end browser runs included).
 

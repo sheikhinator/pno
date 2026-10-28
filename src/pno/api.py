@@ -353,7 +353,7 @@ class Api:
         mm = engine.model(self.db, default) if default else None
         counts = {k: self.db.val(f"SELECT COUNT(*) FROM imports WHERE kind=? AND active=1", (k,), 0)
                   for k in ("roster", "attendance", "productivity", "sales", "leave")}
-        return {"version": __version__, "months": months, "month": default, "demo": self.demo, "tour_done": bool(self.db.get_setting("tour_done", False)),
+        return {"version": __version__, "months": months, "month": default, "demo": self.demo, "tour_done": bool(self.db.get_setting("tour_done", False)), "full_mode": bool(self.db.get_setting("full_mode", False)),
                 "options": analytics.options(mm, {}) if mm else {"cities": [], "formats": [], "stores": [], "depts": [], "sections": []},
                 "counts": counts, "has_data": any(counts.values()), "hide_names": self._hide(),
                 "theme": self.db.get_setting("theme", "auto"), "ai": self.agent.public_status(), "lock": self.api_lock_status(),
@@ -639,6 +639,10 @@ class Api:
                 "hide_names": self._hide(), "theme": self.db.get_setting("theme", "auto"),
                 "weights_history": self.db.get_setting("weights_history", []), "data_dir": str(data_dir()),
                 "db_path": str(self.db.path), "version": __version__}
+
+    def api_full_mode(self, on: bool = False) -> dict:
+        self.db.set_setting("full_mode", bool(on))
+        return {"full_mode": bool(on)}
 
     def api_settings_save(self, weights: dict | None = None, rules: dict | None = None, hide_names=None, theme=None) -> dict:
         if weights is not None:
@@ -1195,6 +1199,34 @@ class Api:
         if getattr(self, "_pi_cache", (None,))[0] != key:
             self._pi_cache = (key, people_insights.report(self))
         return self._pi_cache[1]
+
+    # ---------------------------------------------------------------- 4.0 review
+    def api_review(self, store: str | None = None, dept: str | None = None, section: str | None = None, role: str | None = None) -> dict:
+        from . import review
+        key = ("rv", self.db.version, store, dept, section, role)
+        c = self.__dict__.setdefault("_rv_cache", {})
+        if key not in c:
+            if len(c) > 40:
+                c.clear()
+            c[key] = review.Review(self).build(store or None, dept or None, section or None, role or None)
+        return c[key]
+
+    def api_review_person(self, emp: str = "", key: str = "") -> dict:
+        from . import review
+        return review.person(self, emp, key)
+
+    def api_review_targets(self, targets: dict | None = None, reset: bool = False) -> dict:
+        from . import review
+        if reset:
+            self.db.set_setting("review_targets", {})
+        elif targets:
+            cur = self.db.get_setting("review_targets", {}) or {}
+            for k, v in targets.items():
+                if k in review.CRITERIA and isinstance(v, dict):
+                    cur[k] = {kk: (float(vv) if vv not in (None, "") else None) for kk, vv in v.items() if kk in ("green", "amber")}
+            self.db.set_setting("review_targets", cur)
+        t = review.targets(self.db)
+        return {"rows": [{"key": k, "label": v["label"], "better": v["better"], **t[k]} for k, v in review.CRITERIA.items() if v["green"] is not None]}
 
     # ---------------------------------------------------------------- 3.0 office
     def api_backups(self) -> dict:
