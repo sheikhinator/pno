@@ -86,7 +86,7 @@ def test_two_tab_app(api):
             errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
             pg.goto(f"http://127.0.0.1:{srv.server_address[1]}/web/index.html"); pg.wait_for_function("window.PNO_ready === true", timeout=60000)
             pg.wait_for_selector(".rtiles", timeout=20000)
-            assert [x.inner_text().strip() for x in pg.locator("#nav button").all()] == ["Review", "Ask P&O AI", "Data"]
+            assert [x.inner_text().strip() for x in pg.locator("#nav button").all()] == ["Review", "Ask P&O AI", "Learning", "Data"]
             pg.select_option("#rv-dept", "Consumer Goods"); pg.wait_for_selector("text=Country · CG", timeout=10000)
             pg.select_option("#rv-role", "dept"); time.sleep(0.6)
             pg.locator("tr[data-act=rv-person]").first.click(); pg.wait_for_selector(".pfacts", timeout=10000)
@@ -101,6 +101,18 @@ def test_two_tab_app(api):
             pg.locator("tr[data-act=rv-drill]").first.click(); time.sleep(0.8)
             assert "sections" in pg.locator(".rpanel").first.inner_text().lower() or pg.locator("[data-act=rv-crumb]").count() >= 1
             pg.locator("[data-act=rv-sort][data-k=score]").click(); time.sleep(0.4)
+            heads = [x.inner_text().strip() for x in pg.locator(".rtable").last.locator("thead tr").first.locator("th").all()]
+            assert heads[0].lower() == "person" and heads[1].lower().startswith("score")                 # score sits next to the name
+            n0 = pg.locator("tr[data-act=rv-person]").count()
+            pg.locator("[data-pf=score]").select_option("good"); time.sleep(0.6)
+            assert pg.locator("tr[data-act=rv-person]").count() <= n0
+            pg.locator("[data-act=rv-pfclear]").click(); time.sleep(0.5)
+            assert pg.locator("tr[data-act=rv-person]").count() == n0
+            pg.locator("[data-act=rv-course]").first.click()
+            pg.wait_for_function("window.PNO_state.page === 'learning'", timeout=20000); time.sleep(1)
+            assert pg.locator(".page").inner_text().count("Development course") >= 1
+            pg.locator("#nav [data-go=rv]").click(); pg.wait_for_selector(".rtiles", timeout=10000)
+            pg.locator("#top [data-act=rv-export]").click(); pg.wait_for_selector(".xfmt", timeout=5000); pg.keyboard.press("Escape"); time.sleep(0.3)
             pg.evaluate("go('hiring')"); time.sleep(0.5)
             assert pg.evaluate("window.PNO_state.page") == "rv"                      # hidden modules can't be reached
             pg.locator("#top [data-act=present]").click(); time.sleep(0.4); pg.keyboard.press("Escape")
@@ -150,3 +162,20 @@ def test_person_record(api):
     s = api.dispatch("review_person", {"emp": p["emp"], "key": p["key"]})
     assert s["record"] and s["record"]["facts"] and "timeline" in s["record"]
     assert s["components"] and all("share" in c for c in s["components"])
+
+
+@pytest.mark.parametrize("fmt", ["pdf", "pptx", "docx", "xlsx"])
+def test_review_export(api, tmp_path, fmt):
+    out = tmp_path / f"review.{fmt}"
+    r = api.dispatch("review_export", {"fmt": fmt, "dept": "Consumer Goods", "save_as": str(out), "open_after": False})
+    assert r.get("ok") and out.stat().st_size > 5000, r
+    if fmt == "pptx":
+        from pptx import Presentation
+        prs = Presentation(str(out))
+        assert len(prs.slides) >= 6 and any(sh.has_chart for sl in prs.slides for sh in sl.shapes)
+
+
+def test_course_for_person(api):
+    p = api.dispatch("review", {})["people"][0]
+    c = api.dispatch("learn_for_person", {"key": p["key"], "use_ai": False})
+    assert c["content"]["for"]["name"] and c["content"]["modules"] and c["title"].startswith("Development course")

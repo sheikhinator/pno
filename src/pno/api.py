@@ -182,8 +182,8 @@ class Api:
     def api_learn_rewrite(self, course_id: int, module: int, lesson: int, how: str) -> dict:
         return self.learning.rewrite(int(course_id), int(module), int(lesson), how)
 
-    def api_learn_for_person(self, key: str, hours: float = 3, lecture_min: int = 20) -> dict:
-        return self.learning.for_person(key, hours, lecture_min)
+    def api_learn_for_person(self, key: str, hours: float = 3, lecture_min: int = 20, use_ai: bool = True) -> dict:
+        return self.learning.for_person(key, hours, lecture_min, use_ai)
 
     def api_learn_people(self) -> dict:
         return {"people": self.learning.people()}
@@ -1214,6 +1214,21 @@ class Api:
         out["has_data"] = not ins.empty
         out["period"] = self._po_period(ins)          # the period bar: latest, one month or year to date
         return out
+
+    def api_review_export(self, fmt: str = "pdf", store: str | None = None, dept: str | None = None, section: str | None = None,
+                          role: str | None = None, ai: bool = True, save_as: str | None = None, open_after: bool = True) -> dict:
+        """The Review as a PowerPoint deck, PDF report, Word document or Excel workbook."""
+        from . import review_export
+        fmt = fmt if fmt in review_export.RENDER else "pdf"
+        d = review_export.build(self, store or None, dept or None, section or None, role or None, ai=bool(ai))
+        nice = re.sub(r"[^\w\- ]+", "", f"P&O Review {d['view'].replace(' · ', ' ')} {date.today():%Y-%m-%d}").strip()
+        path = save_as or self.host.save_path(f"{nice}.{fmt}", fmt)
+        if not path:
+            return {"cancelled": True}
+        review_export.RENDER[fmt](d, path)
+        if open_after:
+            self.host.open_path(path)
+        return {"ok": True, "path": path, "ai": bool(d["ai"]), "ai_engine": d["ai_engine"]}
 
     def api_review_person(self, emp: str = "", key: str = "") -> dict:
         from . import review

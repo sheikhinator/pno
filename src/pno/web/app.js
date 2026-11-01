@@ -108,17 +108,17 @@ const NAV_FULL = [["home", "Overview", "home"], ["review", "Business review", "r
   ["people", "People", "people"], ["brain", "People Brain", "brain"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["insights", "People insights", "insights"], ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
   ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["forecast", "Workforce plan", "forecast"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["relations", "Employee relations", "relations"], ["calendar", "HR calendar", "calendar"], ["brief", "Weekly brief", "brief"], ["engagement", "Engagement", "engagement"], ["recognition", "Recognition", "recognition"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
-const NAV_SIMPLE = [["rv", "Review", "review"], ["ask", "Ask P&O AI", "ask"], ["import", "Data", "import"]];
+const NAV_SIMPLE = [["rv", "Review", "review"], ["ask", "Ask P&O AI", "ask"], ["learning", "Learning", "learning"], ["import", "Data", "import"]];
 const DATA_PAGES = ["import", "health", "brain"];
 const dataTabs = page => `<div class="seg datatabs">${[["import", "Import & history"], ["health", "Data health"], ["brain", "People records & corrections"]].map(([k, l]) => `<button data-go="${k}" aria-pressed="${page === k}">${l}</button>`).join("")}</div>`;
 let NAV = NAV_SIMPLE;
-let ALLOWED = new Set(["rv", "ask", "settings", "import", "health", "brain"]);
+let ALLOWED = new Set(["rv", "ask", "learning", "settings", "import", "health", "brain"]);
 // the full toolkit (every 2.x/3.x module) stays in the app, switched off; Settings → Appearance turns it on
 function applyMode() {
   const full = !!(S.init && S.init.full_mode);
   NAV = full ? [["rv", "Review", "review"]].concat(NAV_FULL) : NAV_SIMPLE;
   NAV_GROUP = full ? NAV_GROUP_FULL : {};
-  ALLOWED = full ? null : new Set(["rv", "ask", "settings", ...DATA_PAGES]);
+  ALLOWED = full ? null : new Set(["rv", "ask", "learning", "settings", ...DATA_PAGES]);
 }
 let NAV_GROUP = {};
 const NAV_GROUP_FULL = { insights: "Insights", hiring: "Talent", ask: "Tools" };
@@ -184,11 +184,11 @@ function shell() {
 function updateSide() { const sd = $(".side"); if (sd) sd.innerHTML = sideHtml(); }
 
 function topbar() {
-  if (S.init && S.init.full_mode && !["rv", "ask", "settings"].includes(S.page)) return topbarFull();
+  if (S.init && S.init.full_mode && !["rv", "ask", "settings", "learning"].includes(S.page)) return topbarFull();
   const back = S.page === "settings" ? `<button class="btn back" data-go="rv">${ic("back", 16)}Review</button>` : "";
   $("#top").innerHTML = `<div class="top-row">${back}<div class="crumbs"><span class="ptitle">${esc(PAGE_TITLE[S.page] || "")}</span></div><div class="spacer"></div>
     <button class="btn hide-present" data-act="rv-update">${ic("import", 16)}Update data</button>
-    ${S.page === "rv" ? `<button class="btn gold hide-present" data-act="present">${ic("play", 14)}Present</button>` : ""}
+    ${S.page === "rv" ? `<button class="btn hide-present" data-act="rv-export">${ic("export", 16)}Export</button><button class="btn gold hide-present" data-act="present">${ic("play", 14)}Present</button>` : ""}
     <button class="btn ghost hide-present" data-act="rv-settings" title="Settings">⚙</button></div>`;
 }
 function topbarFull() {
@@ -2554,11 +2554,17 @@ PAGES.rv = async () => {
   const tile = t => `<div class="rtile ${t.status}" title="${esc(rvBench(t.key))}"><span class="rt-l">${esc(t.label)}</span><span class="rt-v">${RVF(t.key, t.value)}</span><span class="rt-b">${esc(rvBench(t.key, true).split(" · ")[0])}</span></div>`;
   const cell = c => `<td class="n rc ${c.status}">${RVF(c.key, c.value)}</td>`;
   const head = keys => keys.map(k => `<th class="n" title="${esc(C[k].label + " · " + rvBench(k))}">${esc(C[k].short)}</th>`).join("");
-  // people: sortable, never ranked
-  let ppl = d.people.slice();
-  if (F.sort) { const i = d.people.length ? d.people[0].cells.findIndex(c => c.key === F.sort) : -1;
-    if (i >= 0) ppl.sort((a, b) => { const x = a.cells[i].value, y = b.cells[i].value; if (x == null) return 1; if (y == null) return -1; return F.desc ? y - x : x - y; }); }
-  const pk = d.people_keys;
+  // people: sortable and filterable, never ranked; the score sits next to the name
+  const pk = ["score", ...d.people_keys.filter(k => k !== "score")].filter(k => d.people_keys.includes(k));
+  const PF = F.pf || (F.pf = { q: "", c: {} });
+  const cellOf = (p, k) => p.cells.find(c => c.key === k) || {};
+  let ppl = d.people.filter(p => {
+    if (PF.q && !(p.name + " " + p.role + " " + p.area + " " + p.store).toLowerCase().includes(PF.q.toLowerCase())) return false;
+    return Object.entries(PF.c).every(([k, v]) => !v || (v === "none" ? cellOf(p, k).value == null : cellOf(p, k).status === v));
+  });
+  if (F.sort) ppl.sort((a, b) => { const x = cellOf(a, F.sort).value, y = cellOf(b, F.sort).value; if (x == null) return 1; if (y == null) return -1; return F.desc ? y - x : x - y; });
+  const nf = Object.values(PF.c).filter(Boolean).length + (PF.q ? 1 : 0);
+  const fsel = k => `<select class="pfsel ${PF.c[k] ? "on" : ""}" data-pf="${k}" title="Show only…"><option value="">All</option><option value="good" ${PF.c[k] === "good" ? "selected" : ""}>🟢 Green</option><option value="warn" ${PF.c[k] === "warn" ? "selected" : ""}>🟡 Amber</option><option value="bad" ${PF.c[k] === "bad" ? "selected" : ""}>🔴 Red</option><option value="none" ${PF.c[k] === "none" ? "selected" : ""}>— None</option></select>`;
   return `<div class="rhead">
       <div><div class="rcrumbs">${crumbs.map((c, i) => i === crumbs.length - 1 ? `<b>${esc(c[0])}</b>` : `<button data-act="rv-crumb" data-i="${i}">${esc(c[0])}</button><span>›</span>`).join("")}</div>
         <h1>${esc(d.label)}</h1><p class="muted">Data as of ${fmtDate(d.as_of)}${d.period_label ? " · " + esc(d.period_label) : ""}</p></div></div>
@@ -2579,15 +2585,21 @@ PAGES.rv = async () => {
     ${d.grid.length ? `<div class="panel flush rpanel"><div class="phd"><h2>By ${esc(d.grid_kind.replace(/s$/, ""))}</h2><small>click a row to look inside</small></div>
       <div class="tbl-wrap"><table class="t rtable"><thead><tr><th>${esc(d.grid_kind.replace(/^./, c => c.toUpperCase()).replace(/s$/, ""))}</th>${head(d.grid_keys)}</tr></thead><tbody>
       ${d.grid.map((g, i) => `<tr class="click" data-act="rv-drill" data-i="${i}"><td><b>${esc(g.name)}</b></td>${g.cells.filter(c => d.grid_keys.includes(c.key)).map(cell).join("")}</tr>`).join("")}</tbody></table></div></div>` : ""}
-    <div class="panel flush rpanel"><div class="phd"><h2>People benchmark</h2><small>${ppl.length} leader${ppl.length === 1 ? "" : "s"} · every criterion shown · click a column to sort · click a name for the full sheet</small></div>
-      ${ppl.length ? `<div class="tbl-wrap"><table class="t rtable"><thead><tr><th>Person</th>${pk.map(k => `<th class="n sortable ${F.sort === k ? "sorted" : ""} ${k === "score" ? "rscore-h" : ""}" data-act="rv-sort" data-k="${k}" title="${esc(C[k].label + " · " + rvBench(k))}">${esc(C[k].short)}${F.sort === k ? (F.desc ? " ↓" : " ↑") : ""}</th>`).join("")}</tr></thead><tbody>
-      ${ppl.map(p => `<tr class="click" data-act="rv-person" data-emp="${esc(p.emp)}" data-key="${esc(p.key)}"><td class="rwho"><b>${esc(p.name)}</b>${p.acting ? ` <span class="chip">acting</span>` : ""}<span class="sub">${esc(p.role)} · ${esc(p.area)}${F.store ? "" : " · " + esc(p.store)}</span></td>
-        ${p.cells.filter(c => pk.includes(c.key)).map(c => c.key === "score" ? `<td class="n rc rscore ${c.status}">${RVF(c.key, c.value)}</td>` : cell(c)).join("")}</tr>`).join("")}</tbody></table></div>
+    <div class="panel flush rpanel"><div class="phd"><h2>People benchmark</h2><small>${ppl.length} of ${d.people.length} leader${d.people.length === 1 ? "" : "s"} · click a column to sort · filter under each column · 🎓 builds a course for that person</small>
+      ${nf ? `<button class="btn sm ghost" data-act="rv-pfclear">Clear ${nf} filter${nf > 1 ? "s" : ""}</button>` : ""}</div>
+      ${d.people.length ? `<div class="tbl-wrap"><table class="t rtable"><thead><tr><th>Person</th>${pk.map(k => `<th class="n sortable ${F.sort === k ? "sorted" : ""} ${k === "score" ? "rscore-h" : ""}" data-act="rv-sort" data-k="${k}" title="${esc(C[k].label + " · " + rvBench(k))}">${esc(C[k].short)}${F.sort === k ? (F.desc ? " ↓" : " ↑") : ""}</th>`).join("")}</tr>
+        <tr class="pfrow"><th><input class="pfq" id="rv-pq" placeholder="Search name, role, store…" value="${esc(PF.q)}"></th>${pk.map(k => `<th class="n">${fsel(k)}</th>`).join("")}</tr></thead><tbody>
+      ${ppl.map(p => `<tr class="click" data-act="rv-person" data-emp="${esc(p.emp)}" data-key="${esc(p.key)}"><td class="rwho"><div class="rwho-in"><div><b>${esc(p.name)}</b>${p.acting ? ` <span class="chip">acting</span>` : ""}<span class="sub">${esc(p.role)} · ${esc(p.area)}${F.store ? "" : " · " + esc(p.store)}</span></div>
+          <button class="lcourse" data-act="rv-course" data-key="${esc(p.key)}" data-name="${esc(p.name)}" title="Build a development course for ${esc(p.name)} from their results">🎓</button></div></td>
+        ${pk.map(k => { const c = cellOf(p, k); return k === "score" ? `<td class="n rc rscore ${c.status}">${RVF(k, c.value)}</td>` : `<td class="n rc ${c.status}">${RVF(k, c.value)}</td>`; }).join("")}</tr>`).join("") || `<tr><td colspan="${pk.length + 1}"><div class="empty">No one matches these filters.</div></td></tr>`}</tbody></table></div>
       <div class="rlegend"><span class="good">On or above benchmark</span><span class="warn">Close</span><span class="bad">Below benchmark</span><span class="na">— not measured for this role</span></div>`
       : `<div class="empty">No leaders in this view.</div>`}</div>`;
 };
 AFTER.rv = () => {
   const on = (id, f) => { const e = $(id); if (e) e.onchange = () => { f(e); render(); }; };
+  $$("[data-pf]").forEach(e => { e.onclick = ev => ev.stopPropagation(); e.onchange = () => { S.rv.pf.c[e.dataset.pf] = e.value; render(); }; });
+  const pq = $("#rv-pq"); if (pq) { pq.onclick = ev => ev.stopPropagation(); pq.oninput = () => { clearTimeout(S.rv.qt); S.rv.qt = setTimeout(() => { S.rv.pf.q = pq.value; S.rv.refocus = true; render(); }, 250); };
+    if (S.rv.refocus) { S.rv.refocus = false; pq.focus(); pq.setSelectionRange(pq.value.length, pq.value.length); } }
   on("#rv-store", e => { S.rv.store = e.value; });
   on("#rv-dept", e => Object.assign(S.rv, { dept: e.value, section: "", sort: null }));
   on("#rv-sec", e => { const o = e.selectedOptions[0]; S.rv.section = e.value; if (e.value && o && o.dataset.d && S.rv.dept !== "Non Food") S.rv.dept = o.dataset.d; });
@@ -2622,7 +2634,7 @@ async function rvPerson(emp, key, tab = "results") {
     <div class="pfacts">${Object.entries(p.facts).map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(String(v ?? "—"))}</b></div>`).join("")}</div>
     <div class="seg ptabs">${tabs.map(([k, l]) => `<button data-act="rv-ptab" data-t="${k}" aria-pressed="${tab === k}">${l}</button>`).join("")}</div>
     <div class="pbody">${body[tab]}</div>
-    <div class="row" style="justify-content:flex-end;margin-top:12px;gap:6px">${r.emp ? `<button class="btn" data-act="rv-pdf" data-emp="${esc(r.emp)}">Data sheet PDF</button>` : ""}<button class="btn primary" data-act="modal-close">Close</button></div>`);
+    <div class="row" style="justify-content:flex-end;margin-top:12px;gap:6px"><button class="btn" data-act="rv-course" data-key="${esc(key)}" data-name="${esc(r.name)}">🎓 Build a course for ${esc(r.name.split(" ")[0])}</button>${r.emp ? `<button class="btn" data-act="rv-pdf" data-emp="${esc(r.emp)}">Data sheet PDF</button>` : ""}<button class="btn primary" data-act="modal-close">Close</button></div>`);
   m.classList.add("wide", "xwide"); m.dataset.emp = emp; m.dataset.key = key;
   const cp = $("#pp-comp", m);
   if (cp) { if (p.components.length) Charts.hbar(cp, { labels: p.components.map(c => `${c.label} (${c.share}%)`), values: p.components.map(c => c.value), max: 10, fmt: "score",
@@ -2642,6 +2654,30 @@ async function rvUpdate() {
 }
 window.PNO_drop = async paths => { if (S.page === "ask") { S.attach.push(...paths); drawChat(); return; } toast(`Reading ${paths.length} file${paths.length > 1 ? "s" : ""}…`); rvConfirm(await call("import_analyze", { paths, month: null })); };
 let PENDING_SESS = null, RV_AFTER_FIX = null;
+async function rvCourse(key, name) {
+  closeModal();
+  const m = modal(`<h3>Building a course for ${esc(name)}</h3><p class="muted" style="margin:0 0 12px">From their results against each criterion, their role and level: lessons on their weakest areas first, practice, quizzes and a final assessment. An AI-written module on their exact gaps is added when an AI is set up in Settings.</p>
+    <div class="row" style="gap:10px;align-items:center"><span class="spin"></span><span id="lc-s">Reading ${esc(name.split(" ")[0])}'s results…</span></div>`);
+  setTimeout(() => { const e = $("#lc-s", m); if (e) e.textContent = "Writing the lessons…"; }, 1200);
+  try {
+    const c = await API.call("learn_for_person", { key, hours: 3 });
+    closeModal(); S.learn.cid = c.id; S.learn.mod = 0; S.learn.les = 0; S.learn.view = "lesson";
+    go("learning"); toast(`Course ready for ${name}: export it as PDF, Word or PowerPoint from the course`);
+  } catch (e) { closeModal(); fail(e); }
+}
+function rvExport() {
+  const F = S.rv, label = DATA.rv ? DATA.rv.label : "";
+  const m = modal(`<h3>Export the review</h3><p class="muted" style="margin:0 0 12px">${esc(label)} · exactly what's on screen: scorecard, strong / weak / focus, insights, charts of the key criteria, the ${esc((DATA.rv && DATA.rv.grid_kind) || "")} heat-map and the people benchmark.</p>
+    <div class="xfmt">${[["pptx", "📽️", "PowerPoint", "Slides to present, charts you can edit"], ["pdf", "📄", "PDF", "A polished report to send or print"], ["docx", "📝", "Word", "A document you can edit and add to"], ["xlsx", "📊", "Excel", "The tables with their colours"]]
+      .map(([f, i, l, sub], j) => `<label class="xf"><input type="radio" name="xf" value="${f}" ${j === 0 ? "checked" : ""}><span>${i}</span><b>${l}</b><small>${sub}</small></label>`).join("")}</div>
+    <div class="setting"><div><b>Add AI insights</b><small>Five specific insights written by the AI chosen for insights in Settings → AI (only summary figures are sent). Without an AI, talking points worked out from the numbers are added.</small></div><label class="switch"><input type="checkbox" id="xf-ai" checked><span></span></label></div>
+    <div class="row" style="justify-content:flex-end;gap:6px;margin-top:12px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary" id="xf-go">Export</button></div>`);
+  m.classList.add("wide");
+  $("#xf-go", m).onclick = async () => { const b = $("#xf-go", m), fmt = $("input[name=xf]:checked", m).value; b.disabled = true; b.innerHTML = `<span class="spin" style="width:14px;height:14px"></span> Preparing…`;
+    try { const r = await API.call("review_export", { fmt, store: F.store, dept: F.dept, section: F.section, role: F.role, ai: $("#xf-ai", m).checked });
+      closeModal(); if (!r.cancelled) toast(`Saved${r.ai ? " with AI insights from " + r.ai_engine : ""}`); }
+    catch (e) { b.disabled = false; b.textContent = "Export"; fail(e); } };
+}
 function rvConfirm(sess) {
   PENDING_SESS = sess;
   const sheets = []; (sess.files || []).forEach(f => (f.sheets || f.results || []).forEach(s => sheets.push({ file: f.file || f.name, ...s })));
@@ -2677,6 +2713,9 @@ const RV_ACTS = {
   "rv-pdf": async b => { const r = await call("profile_export", { emp: b.dataset.emp, fmt: "pdf" }); if (!r.cancelled) toast("Data sheet saved"); },
   "rv-update": () => rvUpdate(),
   "rv-clear": () => { Object.assign(S.rv, { store: "", dept: "", section: "", role: "", sort: null }); render(); },
+  "rv-pfclear": () => { S.rv.pf = { q: "", c: {} }; render(); },
+  "rv-course": b => rvCourse(b.dataset.key, b.dataset.name),
+  "rv-export": () => rvExport(),
   "rv-detail": () => { S.importSess = PENDING_SESS; closeModal(); go("import"); },
   "rv-settings": () => go("settings"),
 };

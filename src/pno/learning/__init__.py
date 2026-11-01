@@ -304,25 +304,42 @@ class Learning:
         return self.course(nid)
 
     # ------------------------------------------------------------------ people
-    def for_person(self, key: str, hours: float = 3, lecture_min: int = 20) -> dict:
-        """A development pack for one leader built from their weakest measures in the P&O review."""
-        ins = self.api._po()
-        leader = next((l for l in ins.leaders() if l.key == key or l.employee_id == key), None)
-        if not leader:
-            raise ValueError("Leader not found in the P&O review.")
+    # Review criteria → library topics
+    CRIT_TOPIC = {"sales": "sales", "growth": "sales", "productivity": "productivity", "shrink": "shrink", "stock_days": "stock", "oos": "stock",
+                  "waste": "shrink", "attendance": "leading", "leavers": "leading", "da": "leading", "nps": "customer", "rating": "performance"}
+
+    def for_person(self, key: str, hours: float = 3, lecture_min: int = 20, use_ai: bool = True) -> dict:
+        """A complete development course for one leader, built from their Review results (red first, then amber),
+        their role and level; an AI-written module on their exact gaps is added when an AI is set up."""
+        from .. import review
         from ..po import canon
         from ..po.format import leader_name
-        weak = sorted(((k, v) for k, v in leader.components.items() if v is not None and v < 70), key=lambda kv: kv[1])
-        topics = list(dict.fromkeys(library.KPI_TOPIC[k] for k, _ in weak if k in library.KPI_TOPIC))
+        ins = self.api._po()
+        leader = next((l for l in ins.leaders() if l.key == key or str(l.employee_id) == str(key)), None)
+        if not leader:
+            raise ValueError("Leader not found in the P&O review.")
+        sheet = review.person(self.api, key=leader.key)
+        C, row = sheet["criteria"], sheet["row"]
+        gaps = [c for c in row["cells"] if c["key"] != "score" and c["status"] in ("bad", "warn")]
+        gaps.sort(key=lambda c: (c["status"] != "bad", next((p["points"] for p in row.get("parts", []) if p["key"] == c["key"]), 10)))
+        topics = list(dict.fromkeys(self.CRIT_TOPIC[c["key"]] for c in gaps if c["key"] in self.CRIT_TOPIC))
         level = min(6, max(1, canon.role_rank(leader.designation) or 2))
         level = 4 if level == 5 else level
+        role_topics = library.ROLE_TOPICS.get(level, library.ROLE_TOPICS[2])
         if not topics:
-            topics = library.ROLE_TOPICS.get(level, library.ROLE_TOPICS[2])[:2]
+            topics = role_topics[:2]
+        elif len(topics) < 3:
+            topics += [t for t in role_topics if t not in topics][:3 - len(topics)]
         name = leader_name(leader)
-        c = self.build(title=f"Development pack · {name}", level=level, topics=topics, hours=hours, lecture_min=lecture_min,
-                       audience=leader.designation or LEVELS.get(level, ""))
-        c["content"]["for"] = {"name": name, "store": leader.store, "leads": leader.section_text,
-                               "why": [f"{k.replace('_', ' ')}: {v / 10:.1f}/10" for k, v in weak[:4]]}
+        why = [f"{C[c['key']]['label']}: {review.fmt(c['key'], c['value'])} (green from {review.fmt(c['key'], C[c['key']]['green'])}, "
+               f"peers {review.fmt(c['key'], sheet['peer_median'].get(c['key']))})" for c in gaps[:6]]
+        strong = [C[c["key"]]["label"] for c in row["cells"] if c["key"] != "score" and c["status"] == "good"]
+        focus = (f"{leader.designation} of {leader.section_text} at {leader.store}. Gaps to close: " + "; ".join(why) +
+                 (f". Strengths to build on: {', '.join(strong)}." if strong else ".")) if why else ""
+        c = self.build(title=f"Development course · {name}", level=level, topics=topics, hours=hours, lecture_min=lecture_min,
+                       audience=leader.designation or LEVELS.get(level, ""), focus=focus, use_ai=bool(use_ai and why))
+        c["content"]["for"] = {"name": name, "store": leader.store, "leads": leader.section_text, "role": leader.designation,
+                               "score": next((x["value"] for x in row["cells"] if x["key"] == "score"), None), "why": why, "strengths": strong}
         self._save(c["id"], c["content"])
         self.assign(c["id"], [{"person": leader.employee_id or leader.key, "name": name, "store": leader.store}])
         return self.course(c["id"])
