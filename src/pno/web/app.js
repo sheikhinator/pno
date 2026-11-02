@@ -2733,7 +2733,8 @@ SETTINGS.bench = async () => {
       <td>${r.better === "up" ? "Higher" : "Lower"}</td>
       <td class="n"><input class="input sm num" type="number" step="any" data-cf="green" value="${r.green ?? ""}"><small>${u(r)}</small></td>
       <td class="n"><input class="input sm num" type="number" step="any" data-cf="amber" value="${r.amber ?? ""}"><small>${u(r)}</small></td></tr>`).join("")}</tbody></table></div>
-    <div class="row" style="justify-content:space-between;margin-top:12px"><small class="muted">Total weight ${t.total}. Score colours: green from ${t.score.green}, amber from ${t.score.amber}.</small>
+    <div class="scorecol"><b>Score colours</b><span>Green from</span><input class="input sm num" type="number" min="0" max="10" step="0.1" id="sc-g" value="${t.score.green}"><span>Amber from</span><input class="input sm num" type="number" min="0" max="10" step="0.1" id="sc-a" value="${t.score.amber}"><small class="muted">out of 10 · below amber is red</small></div>
+    <div class="row" style="justify-content:space-between;margin-top:12px"><small class="muted">Total weight ${t.total}: each weight's share of the score is shown beside it.</small>
       <div class="row" style="gap:6px"><button class="btn" data-act="tg-reset">Reset to defaults</button><button class="btn primary" data-act="crit-save">Save criteria</button></div></div></div>`;
 };
 Object.assign(RV_ACTS, {
@@ -2741,7 +2742,7 @@ Object.assign(RV_ACTS, {
   "crit-save": async () => {
     const rows = $$("tr[data-ck]").map(tr => ({ key: tr.dataset.ck, show: $("[data-cf=show]", tr).checked, weight: +$("[data-cf=weight]", tr).value || 0,
       green: $("[data-cf=green]", tr).value, amber: $("[data-cf=amber]", tr).value }));
-    await call("review_criteria", { rows }); toast("Criteria saved: the Review and every score use them now"); render(); },
+    await call("review_criteria", { rows, score: { green: $("#sc-g").value, amber: $("#sc-a").value } }); toast("Criteria saved: the Review and every score use them now"); render(); },
 });
 
 async function hireVacancy(head) {

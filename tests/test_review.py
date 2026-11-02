@@ -179,3 +179,19 @@ def test_course_for_person(api):
     p = api.dispatch("review", {})["people"][0]
     c = api.dispatch("learn_for_person", {"key": p["key"], "use_ai": False})
     assert c["content"]["for"]["name"] and c["content"]["modules"] and c["title"].startswith("Development course")
+
+
+def test_score_colours_editable(api):
+    from pno.review import targets
+    api.dispatch("review_criteria", {"score": {"green": 8, "amber": 6}})
+    assert targets(api.db)["score"] == {"green": 8.0, "amber": 6.0}
+    with pytest.raises(Exception):
+        api.api_review_criteria(score={"green": 5, "amber": 7})
+    api.dispatch("review_criteria", {"reset": True})
+    assert targets(api.db)["score"]["green"] == 7
+
+
+def test_growth_ignores_closed_lines(api):
+    v = api.dispatch("review", {"dept": "Consumer Goods"})
+    t = {x["key"]: x["value"] for x in v["tiles"]}
+    assert t.get("growth") is not None

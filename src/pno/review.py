@@ -173,9 +173,20 @@ class Review:
                     if s.get(f) is not None:
                         lst.append((s[f], a))
             p = ins.productivity(st, key or "Overall")
-            if p and p.get("vs_target_pct") is not None:
+            if p and p.get("vs_target_pct") is not None and not (p.get("fallback") and key and p.get("level") not in (key, canon.department(key))):
                 prod.append(p["vs_target_pct"])
-            if key is None:
+            elif key and secs and len(secs) > 1:
+                # no line for the department: the average of its sections' results against target
+                sp_ = [ins.productivity(st, sc) for sc in secs if sc != key]
+                vs = [x["vs_target_pct"] for x in sp_ if x and not x.get("fallback") and x.get("vs_target_pct") is not None]
+                if vs:
+                    prod.append(sum(vs) / len(vs))
+            if st.endswith("Myli"):
+                base = st.replace(" · Myli", "")
+                rows = [r for r in ins.rows("po_shrink") if r["store"] == base and r["section"] == "Myli"]
+                shr += [r["shrink_variance_pct"] for r in rows if r.get("shrink_variance_pct") is not None]
+                days += [r["stock_days_actual"] / r["stock_days_budget"] for r in rows if r.get("stock_days_budget") and r.get("stock_days_actual") is not None]
+            elif key is None:
                 rows = [r for r in ins.rows("po_shrink") if r["store"] == st and r["section"] not in ("Consumer Goods", "Fresh Food", "Non Food")]
                 shr += [r["shrink_variance_pct"] for r in rows if r.get("shrink_variance_pct") is not None]
                 days += [r["stock_days_actual"] / r["stock_days_budget"] for r in rows if r.get("stock_days_budget") and r.get("stock_days_actual") is not None]
@@ -259,8 +270,8 @@ class Review:
         sp = k.get("sales") or []
         act = sum(s["actual"] or 0 for _, s in sp)
         bud = sum(s["budget"] for _, s in sp if s.get("budget"))
-        lyv = [s.get("last_year") for _, s in sp]
-        ly = sum(lyv) if sp and all(x for x in lyv) else None
+        lyv = [s.get("last_year") for _, s in sp if s.get("actual") or s.get("last_year")]
+        ly = sum(lyv) if lyv and all(x for x in lyv) else None
         w = lambda f: (sum((s.get(f) or 0) * (s["actual"] or 0) for _, s in sp if s.get(f) is not None) /  # noqa: E731
                        max(1e-9, sum(s["actual"] or 0 for _, s in sp if s.get(f) is not None))) if any(s.get(f) is not None for _, s in sp) else None
         prod = [p["vs_target_pct"] for _, p in (k.get("productivity") or []) if p.get("vs_target_pct") is not None]

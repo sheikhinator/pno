@@ -1234,7 +1234,7 @@ class Api:
         from . import review
         return review.person(self, emp, key)
 
-    def api_review_criteria(self, rows: list | None = None, reset: bool = False) -> dict:
+    def api_review_criteria(self, rows: list | None = None, reset: bool = False, score: dict | None = None) -> dict:
         """Settings → Criteria: for each criterion whether it shows on the Review, its weight in the score, and its green / amber lines."""
         from . import review
         if reset:
@@ -1259,6 +1259,13 @@ class Api:
                         raise ValueError(f"{review.CRITERIA[k]['label']}: amber must be {'below' if up else 'above'} green.")
                     tg[k] = {"green": g, "amber": a}
             self.db.set_setting("review_criteria", crit)
+            self.db.set_setting("review_targets", tg)
+        if score and not reset:
+            g, a = float(score.get("green")), float(score.get("amber"))
+            if not 0 <= a <= g <= 10:
+                raise ValueError("Score colours: amber must be below green, both between 0 and 10.")
+            tg = self.db.get_setting("review_targets", {}) or {}
+            tg["score"] = {"green": g, "amber": a}
             self.db.set_setting("review_targets", tg)
         self.db.version += 1                           # every screen recalculates with the new criteria
         cfg = review.config(self.db)

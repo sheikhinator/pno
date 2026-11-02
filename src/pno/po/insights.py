@@ -426,8 +426,9 @@ class Insights:
         actual = sum(r["actual"] or 0 for r in rows)
         budget_rows = [r for r in rows if r.get("budget") is not None]
         budget = sum(r["budget"] for r in budget_rows) if budget_rows else None
-        ly_rows = [r for r in rows if r.get("last_year") is not None]
-        last_year = sum(r["last_year"] for r in ly_rows) if len(ly_rows) == len(rows) else None
+        live = [r for r in rows if (r["actual"] or 0) != 0 or r.get("last_year")]          # closed lines (no sales either year) don't count
+        ly_rows = [r for r in live if r.get("last_year") is not None]
+        last_year = sum(r["last_year"] for r in ly_rows) if live and len(ly_rows) == len(live) else None
 
         def weighted(field_name: str) -> float | None:
             pairs = [(r.get(field_name), r["actual"] or 0) for r in rows if r.get(field_name) is not None]
