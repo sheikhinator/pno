@@ -28,7 +28,7 @@ _STORES: list[tuple[str, str, str, tuple[str, ...]]] = [
     ("ISL D12 (DIZ Markaz)", "Islamabad", "Supermarket", (r"\bd12\b", r"diz\s*markaz", r"\bp06\b", r"\bp61\b")),
     ("LAH Askari 10", "Lahore", "Supermarket", (r"askari",)),
     ("LAH DHA Rahbar", "Lahore", "Supermarket", (r"rahbar", r"\bdha\s*-?\s*(phase)?\s*-?\s*(11|xi)\b")),
-    ("LAH DHA Phase 7", "Lahore", "Supermarket", (r"dha\s*(phase)?\s*7\b",)),
+    ("LAH DHA Phase 7", "Lahore", "Supermarket", (r"dha\s*(phase)?\s*7\b", r"dha\s*phase\s*\(?(myli)?\)?\s*$")),
     ("LAH Paragon City", "Lahore", "Supermarket", (r"paragon", r"high\s*street")),
     ("LAH Avenue Mall", "Lahore", "Supermarket", (r"avenue",)),
 ]

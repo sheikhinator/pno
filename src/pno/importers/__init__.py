@@ -13,10 +13,10 @@ from ..stores import StoreResolver
 from ..util import month_bounds
 from ..po import store as po_store
 from .. import period
-from . import attendance, generic, leave, po_tabs, productivity, roster, sales
+from . import attendance, generic, leave, po_tabs, productivity, roster, sales, sales_table
 from .base import KIND_LABEL, ParseResult
 
-PARSERS = [("sales", sales), ("productivity", productivity), ("attendance", attendance), ("roster", roster), ("leave", leave),
+PARSERS = [("sales", sales), ("sales_table", sales_table), ("productivity", productivity), ("attendance", attendance), ("roster", roster), ("leave", leave),
            *po_tabs.PARSERS]
 KIND_LABEL.update(po_tabs.LABELS)
 KIND_LABEL["dataset"] = "Other data (charts & insights)"
@@ -151,6 +151,8 @@ def reparse(analysis: dict, res: ParseResult, kind: str, mapping: dict | None = 
         if mod is None and kind not in smart.SMART_KINDS:
             raise ValueError(f"Unknown report type: {kind}")
         new = None
+        if kind == "sales" and not mapping and mod.score(sheet)[0] <= 0 and sales_table.score(sheet)[0] > 0:
+            mod = sales_table                                # the flat section × store sales table
         if not mapping and mod is not None and mod.score(sheet)[0] > 0:
             new = mod.parse(sheet, analysis["file"]) if kind == "productivity" else mod.parse(sheet)
         else:

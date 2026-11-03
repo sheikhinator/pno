@@ -2695,14 +2695,15 @@ function rvExport() {
 }
 function rvConfirm(sess) {
   PENDING_SESS = sess;
-  const sheets = []; (sess.files || []).forEach(f => (f.sheets || f.results || []).forEach(s => sheets.push({ file: f.file || f.name, ...s })));
+  const sheets = []; (sess.files || []).forEach(f => (f.sheets || f.results || []).forEach(s => sheets.push({ file: f.file || f.name, kinds: f.kinds || [], ...s })));
   // the month the reports themselves carry wins over today's date
   const own = r => (r.period && r.period.sure && r.period.to) || (r.as_of || "").slice(0, 7) || null;    // a month the sheet itself shows
   const seen = {}; (sess.files || []).forEach(f => (f.results || []).forEach(r => { const m0 = own(r); if (m0) seen[m0] = (seen[m0] || 0) + 1; }));
   const best = Object.entries(seen).sort((a, b) => b[1] - a[1])[0];
   const month = (best && best[0]) || sess.suggested_month || sess.month || new Date().toISOString().slice(0, 7);
   const m = modal(`<h3>Update data</h3><p class="muted" style="margin:0 0 10px">P&amp;O read these files. Check the month, then save.</p>
-    <div class="ulist">${sheets.map(s => `<div class="uitem"><b>${esc(s.label || s.kind_label || s.kind || "Sheet")}${own(s) ? ` <span class="chip">${esc(own(s))}</span>` : ""}</b><small>${esc(s.file || "")} · ${esc(s.sheet || "")}${s.summary ? " · " + esc(s.summary) : ""}</small>
+    <div class="ulist">${sheets.map(s => `<div class="uitem ${(s.confidence ?? 1) < 0.7 ? "unsure" : ""}"><div class="urow"><b>${esc(s.label || s.kind_label || s.kind || "Sheet")}${own(s) ? ` <span class="chip">${esc(own(s))}</span>` : ""}${(s.confidence ?? 1) < 0.7 ? ` <span class="chip warn">not sure: check</span>` : ""}</b>
+      <label class="uread">Read as <select class="input sm" data-uk="${esc(s.file)}|${esc(s.sheet)}">${s.kinds.map(k => `<option value="${esc(k.value)}" ${k.value === (s.kind_hint || s.kind) ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select></label></div><small>${esc(s.file || "")} · ${esc(s.sheet || "")}${s.summary ? " · " + esc(s.summary) : ""}</small>
       ${(s.warnings || []).filter(w => !(own(s) && /no date inside it|choose the month/i.test(w))).slice(0, 2).map(w => `<small class="t-warn">⚠ ${esc(w)}</small>`).join("")}</div>`).join("") || `<div class="empty">Nothing usable in these files.</div>`}</div>
     ${(sess.errors || []).map(e => `<div class="il bad">${esc(e.file || "")}: ${esc(e.error || e)}</div>`).join("")}
     <div class="row" style="justify-content:space-between;margin-top:12px"><label class="dx-l" style="margin:0">${sess.slot === "ytd" ? "Year to date up to" : "Month for files with no date"}<input class="input" type="month" id="u-m" value="${esc(month)}"></label>
@@ -2711,6 +2712,8 @@ function rvConfirm(sess) {
   $("#u-go", m).onclick = async () => { const b = $("#u-go", m); b.disabled = true; b.textContent = "Saving…";
     try { const mo = $("#u-m", m).value, opts = {};
       (sess.files || []).forEach(f => (f.results || []).forEach(r => { if (!r.month || (r.needs || []).includes("month")) ((opts[f.file] = opts[f.file] || {})[r.sheet] = { month: own(r) || mo }); }));
+      $$("[data-uk]", m).forEach(sel => { const [file, sheet] = sel.dataset.uk.split("|"); const r = (sess.files.find(f => f.file === file) || { results: [] }).results.find(x => x.sheet === sheet);
+        if (r && sel.value !== (r.kind_hint || r.kind)) ((opts[file] = opts[file] || {})[sheet] = { ...((opts[file] || {})[sheet] || {}), kind: sel.value }); });
       await API.call("import_commit", { token: sess.token, options: opts });
       closeModal(); toast("Data updated"); await afterDataChange(true); go("rv"); } catch (e) { b.disabled = false; b.textContent = "Save"; fail(e); } };
 }

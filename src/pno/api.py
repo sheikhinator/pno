@@ -67,6 +67,16 @@ def template_key(name: str) -> str:
     return " ".join(w for w in n.split() if len(w) > 1 and w not in ("and", "the", "of", "for", "to", "copy", "final", "new"))[:80]
 
 
+GENERIC_KEYS = {"", "sheet", "data", "report", "export", "book", "table", "pivot", "summary", "raw", "output", "query", "result", "results",
+                "detail", "details", "total", "sales", "file", "list", "page", "tab", "workbook", "main", "master"}
+
+
+def specific_key(name: str) -> str:
+    """A remembered-layout key only when the name says something about the report ('Sheet1', 'YTD', 'Data' don't)."""
+    k = template_key(name)
+    return "" if k in GENERIC_KEYS or len(k) < 4 else k
+
+
 IMPORT_GUIDE = {
     "roster": "Employee master / Basic Sheet from the HR system: one row per person with employee number, name, store, section, designation.",
     "po_role": "Leaders with the date they started their current role (any layout with a 'since' date).",
@@ -539,12 +549,17 @@ class Api:
         tpls = self.db.get_setting("import_templates", {}) or {}
         for f in files:
             for r in f["results"]:
-                t = tpls.get(template_key(r["sheet"])) or tpls.get(template_key(f["file"]))
+                ks, kf = specific_key(r["sheet"]), specific_key(f["file"])
+                t = (tpls.get(ks) if ks else None) or (tpls.get(kf) if kf else None)
                 if not t:
                     continue
                 r["remembered"] = t
                 if t.get("kind") and t["kind"] != r["kind"]:
-                    r["kind_hint"] = t["kind"]
+                    # a remembered type never overrides a reader that is sure what the sheet is
+                    if (r.get("confidence") or 0) >= 0.9 and not r.get("smart"):
+                        r["remembered"] = {k: v for k, v in t.items() if k != "kind"}
+                    else:
+                        r["kind_hint"] = t["kind"]
                 if t.get("columns") and r.get("smart"):
                     by_title = {c["header"]: c["index"] for c in r.get("columns", []) if c.get("header")}
                     fixed = {f: by_title[h] for f, h in t["columns"].items() if h in by_title}
@@ -685,13 +700,13 @@ class Api:
                 if r.get("status") != "ok":
                     continue
                 row = self.db.q1("SELECT kind, period_type FROM imports WHERE id=?", (r["import_id"],))
-                if row and template_key(r["sheet"]):
+                if row and specific_key(r["sheet"]):
                     t = {"kind": row["kind"], "period_type": row["period_type"], "sheet": r["sheet"], "at": now()[:10]}
                     a = next((x for x in analyses if x["file"] == f.get("file")), None)
                     res = next((x for x in (a or {}).get("results", []) if x.sheet == r["sheet"]), None)
                     if res is not None and res.extra.get("smart") and res.extra.get("mapping"):
                         t["columns"] = {m["field"]: m["header"] for m in res.extra["mapping"] if m.get("header")}
-                    tpls[template_key(r["sheet"])] = t
+                    tpls[specific_key(r["sheet"])] = t
         if len(tpls) > 300:
             tpls = dict(sorted(tpls.items(), key=lambda kv: kv[1].get("at", ""))[-300:])
         self.db.set_setting("import_templates", tpls)
