@@ -79,7 +79,7 @@ def test_click_everything(app):
         go("home")
         page.locator("#ch-league .hit").first.click()
         settle()
-        assert page.locator(".crumbs").inner_text().count("›") >= 1
+        page.wait_for_function("[...document.querySelectorAll('.crumbs')].some(c => c.innerText.includes('›'))", timeout=10000)
         page.locator("[data-act=scope-clear]").click()
         settle()
         page.locator("#ch-dist .hit").nth(3).click()

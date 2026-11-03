@@ -20,7 +20,7 @@ from .db import Database
 from .paths import exports_dir, resource
 
 FILTERS = {
-    "reports": "Reports (*.xlsx *.xlsm *.xls *.csv *.txt *.tsv);;All files (*)",
+    "reports": "Reports (*.xlsx *.xlsm *.xls *.csv *.txt *.tsv *.htm *.html *.pdf);;All files (*)",
     "cvs": "CVs (*.pdf *.docx *.doc *.txt *.rtf);;All files (*)",
     "surveys": "Survey results (*.xlsx *.xlsm *.csv *.txt);;All files (*)",
     "policies": "Policies (*.pdf *.docx *.doc *.txt *.rtf *.md);;All files (*)",

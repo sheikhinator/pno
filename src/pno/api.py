@@ -619,6 +619,220 @@ class Api:
             raise ValueError("Sheet not found in this import.")
         return a, i
 
+    # ---------------------------------------------------------------- 4.3 guided intake (one report at a time)
+    @staticmethod
+    def _slot_fields(kind: str) -> list[dict]:
+        """The fields that matter for this report, for the 'which column is which' matcher."""
+        from . import smart
+        k = smart.KINDS.get("sales_simple" if kind == "sales" else kind) or {}
+        names = []
+        for f in list(k.get("need", [])) + list(k.get("want", [])):
+            for x in (f if isinstance(f, (tuple, list)) else (f,)):
+                if x in smart.FIELDS and x not in names:
+                    names.append(x)
+        return [{"value": x, "label": smart.FIELDS[x]["label"]} for x in names] or smart.field_choices()
+
+    def _sheet_columns(self, a: dict, sheet: str) -> list[dict]:
+        from .smart import profile
+        sh = (a.get("sheets") or {}).get(sheet)
+        tabs = profile.find_tables(sh.rows) if sh is not None else []
+        return [{"index": c.index, "header": c.header, "examples": c.examples[:3]} for c in tabs[0].columns if c.header or c.n] if tabs else []
+
+    def _slot_result(self, token: str, kind: str, month: str | None) -> dict:
+        from . import intake
+        sess = self.sessions[token]
+        hit = intake.pick(sess["analyses"], kind)
+        label = {"sales": "store sales"}.get(kind, importers.KIND_LABEL.get(kind, kind))
+        if not hit:
+            seen = [f"'{r.sheet}' looks like {importers.KIND_LABEL.get(r.kind, r.kind)}" for a in sess["analyses"] for r in a["results"]]
+            cols = []
+            first = next(((a, r) for a in sess["analyses"] for r in a["results"]), None)
+            if first:
+                sess["pick"] = (first[0]["file"], first[1].sheet)
+                cols = self._sheet_columns(first[0], first[1].sheet)
+                sig = intake.layout_sig(kind, cols)
+                mem = (self.db.get_setting("layout_maps", {}) or {}).get(sig) if sig else None
+                if mem and not sess.get("fixed"):
+                    by = {str(c.get("header")): c["index"] for c in cols if c.get("header")}
+                    fixed = {fld: by[h] for fld, h in mem.items() if h in by}
+                    if fixed:
+                        sess["fixed"] = True
+                        a0 = first[0]
+                        k = a0["results"].index(first[1])
+                        try:
+                            a0["results"][k] = importers.reparse(a0, first[1], kind, fixed)
+                            a0["results"][k].warn("Columns matched the way you matched them last time for this layout.")
+                            return self._slot_result(token, kind, month)
+                        except ValueError:
+                            pass
+            return {"token": token, "kind": kind, "status": "bad", "headline": f"This isn't {label} as it stands.",
+                    "checks": ([{"level": "bad", "text": x} for x in seen] or [{"level": "bad", "text": "No table could be read."}]) +
+                              ([{"level": "info", "text": "If it is, match the columns below (or ask the AI) and press Read again."}] if cols else []),
+                    "columns": cols, "mapping": [], "fields": self._slot_fields(kind)}
+        a, i, reread = hit
+        sess["pick"] = (a["file"], a["results"][i].sheet)
+        # only this sheet is saved
+        for other in sess["analyses"]:
+            other["results"] = [r for k, r in enumerate(other["results"]) if other is a and k == i]
+        f = self._lined_up([importers.describe(a, self.db)], [a], month, bool(sess.get("ytd")))[0]
+        r = f["results"][0]
+        sig = intake.layout_sig(kind, r.get("columns") or [])
+        mem = (self.db.get_setting("layout_maps", {}) or {}).get(sig) if sig else None
+        if mem and not sess.get("fixed") and (reread or r.get("smart")):
+            by = {str(c.get("header")): c["index"] for c in r.get("columns") or [] if c.get("header")}
+            fixed = {fld: by[h] for fld, h in mem.items() if h in by}
+            if fixed:
+                a["results"][0] = importers.reparse(a, a["results"][0], kind, fixed)
+                sess["fixed"] = True
+                f = self._lined_up([importers.describe(a, self.db)], [a], month, bool(sess.get("ytd")))[0]
+                r = f["results"][0]
+                a["results"][0].warn("Columns matched the way you matched them last time for this layout.")
+        res = a["results"][0]
+        for note in sess.get("merged", []):
+            res.warn(note)
+        fills = intake.fill(self, kind, res.rows, r["period"])
+        v = intake.verify(kind, res, r["period"], fills, reread, label)
+        return {"token": token, "kind": kind, "file": a["file"], "sheet": res.sheet, "period": r["period"], **v,
+                "columns": [c for c in (r.get("columns") or []) if "index" in c] or self._sheet_columns(a, res.sheet), "mapping": r.get("mapping") or [], "fields": self._slot_fields(kind),
+                "preview": r.get("preview") or [], "confidence": r.get("confidence"), "summary": r.get("summary")}
+
+    def api_slot_read(self, kind: str, month: str | None = None, paths: list | None = None, files: list | None = None,
+                      text: str | None = None) -> dict:
+        """Read the file(s) or pasted cells given for one report on the checklist and verify them as that report."""
+        import base64
+        analyses, errors = [], []
+        if paths is None and files is None and not text:
+            paths = self.host.pick_files("reports")
+            if not paths:
+                return {"cancelled": True}
+        for p in paths or []:
+            try:
+                analyses.append(importers.analyze_path(p))
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{Path(p).name}: {e}")
+        for f in files or []:
+            try:
+                analyses.append(importers.analyze_bytes(base64.b64decode(f["b64"]), f["name"]))
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{f.get('name')}: {e}")
+        if text:
+            analyses.append(importers.analyze_text(text, "Pasted cells"))
+        if not analyses:
+            raise ValueError("; ".join(errors) or "Nothing to read.")
+        s = self._new_session(analyses, [], month)
+        return self._slot_result(s["token"], kind, month if not (month or "").startswith("ytd:") else month[4:])
+
+    def api_slot_fix(self, token: str, kind: str, mapping: dict, month: str | None = None) -> dict:
+        """The director matched the columns: read the sheet again that way and verify again."""
+        sess = self.sessions.get(token)
+        if not sess or not sess.get("pick"):
+            raise ValueError("This preview has expired. Please add the file again.")
+        file, sheet = sess["pick"]
+        a, i = self._session_sheet(token, file, sheet)
+        fixed = {f: int(j) for f, j in mapping.items() if str(j).lstrip("-").isdigit() and int(j) >= 0}
+        cols = {c["index"]: c.get("header") for c in self._sheet_columns(a, sheet)}
+        a["results"][i] = importers.reparse(a, a["results"][i], kind, fixed or None)
+        a.setdefault("mapping_used", {})[sheet] = mapping
+        sess["fixed"] = True
+        from . import intake
+        sig = intake.layout_sig(kind, [{"header": h} for h in cols.values()])
+        if sig and fixed:                               # remembered for this layout: next time it is matched the same way
+            maps = self.db.get_setting("layout_maps", {}) or {}
+            maps[sig] = {f: cols[j] for f, j in fixed.items() if cols.get(j)}
+            if len(maps) > 200:
+                maps = dict(list(maps.items())[-200:])
+            self.db.set_setting("layout_maps", maps)
+        return self._slot_result(token, kind, month if not (month or "").startswith("ytd:") else month[4:])
+
+    def api_slot_ai(self, token: str, kind: str, month: str | None = None) -> dict:
+        """A second opinion on the column matches from the AI chosen for imports (offline AI works too)."""
+        sess = self.sessions.get(token)
+        if not sess or not sess.get("pick"):
+            raise ValueError("This preview has expired. Please add the file again.")
+        file, sheet = sess["pick"]
+        try:
+            out = self.api_import_ai(token, file, sheet)
+            note = f"{out.get('engine') or 'AI'}: {out.get('why') or 'columns matched'}"
+        except ValueError as e:
+            # no AI set up (or its answer was unreadable): P&O's own engine reads the columns again from scratch
+            from . import smart
+            a, i = self._session_sheet(token, file, sheet)
+            sh = (a.get("sheets") or {}).get(sheet)
+            ms = smart.mapper.analyse(sh, file, kind="sales_simple" if kind == "sales" else kind) if sh is not None else []
+            note = f"{e} P&O's own engine couldn't be sure either: match the columns below."
+            if ms and ms[0].mapping:
+                try:
+                    a["results"][i] = importers.reparse(a, a["results"][i], kind, dict(ms[0].mapping))
+                    note = f"{str(e).split('.')[0]}. P&O's own engine matched the columns instead."
+                except ValueError:
+                    pass
+        r = self._slot_result(token, kind, month if not (month or "").startswith("ytd:") else month[4:])
+        r["ai_note"] = note
+        return r
+
+    def api_slot_extra(self, token: str, kind: str, month: str | None = None, paths: list | None = None, files: list | None = None,
+                       text: str | None = None) -> dict:
+        """Ask once: a second file (or pasted cells) for just the part that is missing, e.g. the budget."""
+        import base64
+        from . import intake
+        sess = self.sessions.get(token)
+        if not sess or not sess.get("pick"):
+            raise ValueError("This preview has expired. Please add the file again.")
+        if paths is None and files is None and not text:
+            paths = self.host.pick_files("reports")
+            if not paths:
+                return {"cancelled": True}
+        extra = [importers.analyze_path(p) for p in paths or []] + [importers.analyze_bytes(base64.b64decode(f["b64"]), f["name"]) for f in files or []]
+        if text:
+            extra.append(importers.analyze_text(text, "Pasted cells"))
+        hit = intake.pick(extra, kind)
+        if not hit:
+            raise ValueError("The second file couldn't be read as the same report.")
+        file, sheet = sess["pick"]
+        a, i = self._session_sheet(token, file, sheet)
+        note = intake.merge(kind, a["results"][i].rows, hit[0]["results"][hit[1]].rows)
+        sess.setdefault("merged", []).append(note)
+        return self._slot_result(token, kind, month if not (month or "").startswith("ytd:") else month[4:])
+
+    def api_slot_save(self, token: str, kind: str, month: str | None = None, replace: list | None = None) -> dict:
+        """Save the checked report. `replace`: the imports it takes the place of (they can be restored from history)."""
+        sess = self.sessions.get(token)
+        if not sess:
+            raise ValueError("This preview has expired. Please add the file again.")
+        mo = month[4:] if (month or "").startswith("ytd:") else month
+        opts = {}
+        for a in sess["analyses"]:
+            for r in a["results"]:
+                opts.setdefault(a["file"], {})[r.sheet] = {"kind": kind, "replace": bool(replace), **({"month": mo} if mo else {})}
+        out = self.api_import_commit(token, opts)
+        saved = [r for f in out.get("done", []) for r in f.get("results", []) if r.get("status") == "ok"]
+        if saved and replace:
+            for iid in replace:
+                try:
+                    importers.undo(self.db, int(iid))
+                except Exception:  # noqa: BLE001 - already removed
+                    pass
+        return out
+
+    def api_slot_info(self, kind: str, month: str) -> dict:
+        """What is loaded for one report of one period (the checklist row the director clicked)."""
+        from . import datahealth
+        from .period import label as period_label
+        mo = month[4:] if month.startswith("ytd:") else month
+        item = next((c for c in datahealth.checklist(self.db, mo) if c["kind"] == kind), None)
+        rows = []
+        for r in self.db.q("SELECT * FROM imports WHERE active=1 AND kind=? ORDER BY id DESC", (kind,)):
+            r = dict(r)
+            f, t = r.get("period_from") or r.get("month"), r.get("period_to") or r.get("month")
+            if r.get("period_type") not in (None, "", "general") and not (f and t and (f <= mo <= t if kind in ("po_turnover", "po_shift") else t == mo)):
+                continue
+            rows.append({"id": r["id"], "file": r["file_name"], "sheet": r.get("sheet_name"), "at": (r["created_at"] or "")[:16].replace("T", " "),
+                         "rows": r.get("rows"), "summary": (r.get("summary") or "").rsplit(" [", 1)[0],
+                         "period": period_label(r.get("period_type"), r.get("period_from"), r.get("period_to")) if r.get("period_type") else "",
+                         "warnings": json.loads(r.get("warnings") or "[]")})
+        return {"kind": kind, "label": importers.KIND_LABEL.get(kind, kind), "status": (item or {}).get("status"), "imports": rows,
+                "guide": IMPORT_GUIDE.get(kind, "")}
+
     def api_import_remap(self, token: str, file: str, sheet: str, kind: str, mapping: dict | None = None) -> dict:
         """Read a sheet again as the type the user chose, with the column matches the user set."""
         a, i = self._session_sheet(token, file, sheet)

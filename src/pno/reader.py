@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import csv
+import re
 import hashlib
 import io
 from dataclasses import dataclass, field
@@ -55,6 +56,8 @@ def open_bytes(data: bytes, name: str) -> Workbook:
         sheets = _calamine_bytes(data, warnings)
     elif kind == "html":
         sheets = _html_sheets(data)
+    elif kind == "pdf":
+        sheets = _pdf_sheets(data, Path(name).stem or "PDF", warnings)
     else:
         sheets = _text_sheets(data, Path(name).stem or "Data")
     sheets = [s for s in sheets if any(any(c not in (None, "") for c in r) for r in s.rows)]
@@ -69,6 +72,8 @@ def from_text(text: str, name: str = "Pasted data") -> Workbook:
 
 
 def sniff(head: bytes) -> str:
+    if head.lstrip()[:5] == b"%PDF-":
+        return "pdf"
     if head.startswith(b"PK"):
         return "zip"
     if head.startswith(b"\xd0\xcf\x11\xe0"):
@@ -193,7 +198,59 @@ def _text_sheets(data: bytes, name: str, kind: str = "csv") -> list[Sheet]:
     text = decode(data)
     delim = guess_delimiter("\n".join(text.splitlines()[:200]))
     grid = [[c if c != "" else None for c in r] for r in csv.reader(io.StringIO(text), delimiter=delim)]
+    widths = sorted(len(r) for r in grid if r)
+    first = next((r for r in grid if r and any(c for c in r)), [])
+    first_line = next((ln for ln in text.splitlines() if ln.strip()), "")
+    if (widths and widths[len(widths) // 2] <= 1) or (len(first) <= 1 and len(_GAP.split(first_line.strip())) >= 3):
+        grid = _space_grid(text)               # copied from a PDF, an e-mail or a report screen: columns lined up with spaces
     return [Sheet(name=name, rows=grid, kind=kind)] if grid else []
+
+
+_GAP = re.compile(r"\s{2,}|\t")
+
+
+def _space_grid(text: str) -> list[list]:
+    """Lines whose columns are lined up with runs of spaces → cells. A repeated title line (page headers) is kept once."""
+    out, seen = [], set()
+    for ln in text.splitlines():
+        if not ln.strip():
+            out.append([])
+            continue
+        cells = [c.strip() or None for c in _GAP.split(ln.strip())]
+        key = tuple(cells)
+        if len(cells) >= 3 and key in seen and not any(re.search(r"\d", c or "") for c in cells):
+            continue
+        if len(cells) >= 3:
+            seen.add(key)
+        out.append(cells)
+    return out
+
+
+def _pdf_sheets(data: bytes, name: str, warnings: list[str]) -> list[Sheet]:
+    """Tables printed in a PDF: the text of every page, laid out, split into columns where the spaces line up."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        warnings.append("PDF files can't be read on this computer.")
+        return []
+    try:
+        pdf = PdfReader(io.BytesIO(data))
+        pages = []
+        for pg in pdf.pages:
+            try:
+                pages.append(pg.extract_text(extraction_mode="layout") or "")
+            except TypeError:
+                pages.append(pg.extract_text() or "")
+    except Exception as e:  # noqa: BLE001
+        warnings.append(f"The PDF could not be opened: {e}")
+        return []
+    text = "\n".join(pages)
+    if not text.strip():
+        warnings.append("This PDF has no text in it (a scan). Export it from the system as Excel, or paste the cells.")
+        return []
+    grid = _space_grid(text)
+    warnings.append("Read from a PDF: check the numbers in the preview before saving.")
+    return [Sheet(name=name, rows=grid, kind="pdf")] if grid else []
 
 
 def guess_delimiter(sample: str) -> str:

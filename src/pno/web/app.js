@@ -1049,7 +1049,7 @@ PAGES.import = async () => {
   const tiles = cal.months.map(m => { const pct = m.total ? m.ok / m.total : 0; const cls = m.future ? "fut" : pct >= 0.99 ? "full" : pct >= 0.5 ? "part" : pct > 0 ? "low" : "none";
     return `<button class="mtile ${cls} ${m.ytd ? "ytd" : ""} ${m.month === S.impMonth ? "on" : ""}" data-act="imp-month" data-m="${m.month}" ${m.future ? "disabled" : ""}>${m.ytd ? `<em>Year to date</em>` : ""}<b>${m.short}</b><span class="mring" style="--p:${Math.round(pct * 100)}"></span><small>${m.future ? "—" : `${m.ok}/${m.total}`}</small>${m.locked ? `<i title="Locked">🔒</i>` : ""}</button>`; }).join("");
   const slots = mon.items.map(it => { const st = found.has(it.kind) ? ["Ready to save", "info"] : IMP_STATUS[it.status] || ["", ""];
-    return `<div class="slot ${found.has(it.kind) ? "found" : it.status}"><div class="slot-ic">${KIND_ICON[it.kind] || "📄"}</div><div class="slot-b"><b>${esc(it.name)}</b><small>${esc(it.status === "missing" && !found.has(it.kind) ? (cal.guide[it.kind] || "") : (it.label || it.detail || ""))}</small></div><span class="chip ${st[1]}">${st[0]}</span></div>`; }).join("");
+    return `<div class="slot click ${found.has(it.kind) ? "found" : it.status}" data-act="slot" data-kind="${it.kind}" data-name="${esc(it.name)}" data-st="${it.status}" title="${["missing", "older"].includes(it.status) ? "Add this report" : "See, replace or remove"}"><div class="slot-ic">${KIND_ICON[it.kind] || "📄"}</div><div class="slot-b"><b>${esc(it.name)}</b><small>${esc(it.status === "missing" && !found.has(it.kind) ? (cal.guide[it.kind] || "") : (it.label || it.detail || ""))}</small></div><span class="chip ${st[1]}">${st[0]}</span></div>`; }).join("");
   const nres = sess ? sess.files.reduce((a, f) => a + f.results.length, 0) : 0;
   return `<div class="ph"><div><h1>Import data</h1><p>Pick the period (the year-to-date load first, then each month after it), then drop every file you have for it: any report, any layout, any file name. Smart Import works out what each sheet is from its columns, checks it for problems and shows you before anything is saved.</p></div></div>
     ${S.init.unsure_stores ? `<div class="banner">🏬 ${S.init.unsure_stores} store name${S.init.unsure_stores > 1 ? "s were" : " was"} matched with less certainty. <button class="btn sm" data-go="settings" data-tab="stores">Check store names</button></div>` : ""}
@@ -1061,7 +1061,7 @@ PAGES.import = async () => {
       <div class="drop big" id="drop"><div class="ic">${ic("import", 30)}</div><h3>3 · Drop all the files for ${esc(mon.label)}</h3>${mon.ytd ? `<p class="ytdnote">Load the year-to-date reports here (sales, productivity, shrinkage, NPS, DA: Jan–${esc(mon.short.split("–")[1])} in one go). Every month after it is loaded on its own.</p>` : ""}<p style="margin:0;color:var(--muted)">Excel, CSV, text or HTML exports · any number · any names · several sheets in one workbook are fine</p>
         <div class="row" style="justify-content:center"><button class="btn primary" data-act="pick">${ic("file", 16)}Choose files</button><button class="btn" data-act="paste">${ic("paste", 16)}Paste cells</button></div>
         <small style="color:var(--muted)">Files stay on this computer. Nothing is saved until you press Save.</small>
-        <input type="file" id="filein" multiple hidden accept=".xlsx,.xls,.xlsm,.xlsb,.ods,.csv,.txt,.tsv,.htm,.html"></div></div>
+        <input type="file" id="filein" multiple hidden accept=".xlsx,.xls,.xlsm,.xlsb,.ods,.csv,.txt,.tsv,.htm,.html,.pdf"></div></div>
     ${sess ? `<div class="panel"><div class="phd"><h2>4 · Check and save</h2><div class="tools"><button class="btn" data-act="import-cancel">Cancel</button><button class="btn primary" data-act="import-commit" ${nres ? "" : "disabled"}>Save ${nres} table${nres === 1 ? "" : "s"}</button></div></div>
       <div class="isheets">${sess.files.map(f => f.results.length ? f.results.map(r => impSheetCard(f, r, sess)).join("") : `<div class="iiss bad"><span>✕</span><div><b>${esc(f.file)}</b>: no table could be read.${f.skipped.length ? ` <small>${esc(f.skipped.join(", "))}</small>` : ""}</div></div>`).join("")}</div>
       ${(sess.errors || []).map(e => `<div class="errbox">${esc(e.file)}: ${esc(e.error)}</div>`).join("")}</div>` : ""}
@@ -3340,6 +3340,83 @@ Object.assign(ACT, IMP_ACTS);
 Object.assign(ACT, INT_ACTS);
 Object.assign(ACT, BRAIN_ACTS);
 Object.assign(ACT, ER_ACTS);
+
+/* ---------------------------------------------------------------- 4.3 click a report on the checklist: add, check, save */
+const SLOT_LV = { good: ["✓", "good"], warn: ["!", "warn"], bad: ["✕", "bad"], info: ["i", "info"] };
+async function slotFiles(input) {
+  const out = [];
+  for (const f of input.files) { const b = new Uint8Array(await f.arrayBuffer()); let bin = ""; for (let i = 0; i < b.length; i += 32768) bin += String.fromCharCode.apply(null, b.subarray(i, i + 32768)); out.push({ name: f.name, b64: btoa(bin) }); }
+  return out;
+}
+function slotGive(m, id, onGive) {
+  // "Choose file" / "Paste cells" for one report; the desktop app opens its own file dialog
+  const box = $(`#${id}`, m);
+  box.innerHTML = `<div class="row"><button class="btn primary" data-x="pick">${ic("file", 16)}Choose file</button><button class="btn" data-x="paste">${ic("paste", 16)}Paste cells</button></div>
+    <input type="file" hidden multiple accept=".xlsx,.xls,.xlsm,.xlsb,.ods,.csv,.txt,.tsv,.htm,.html,.pdf">
+    <div class="sl-paste" hidden><textarea class="input" rows="9" placeholder="Copy the cells in Excel, a PDF, an e-mail or the system screen (with the titles) and paste here. Messy is fine: totals, blank rows, text numbers and stores across the columns are sorted out."></textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="btn primary" data-x="read">Check it</button></div></div>`;
+  const fi = $("input[type=file]", box);
+  $("[data-x=pick]", box).onclick = async () => { if (window.qt) return onGive({}); fi.click(); };
+  fi.onchange = async () => { if (fi.files.length) onGive({ files: await slotFiles(fi) }); };
+  $("[data-x=paste]", box).onclick = () => { const p = $(".sl-paste", box); p.hidden = !p.hidden; if (!p.hidden) $("textarea", p).focus(); };
+  $("[data-x=read]", box).onclick = () => { const t = $("textarea", box).value; if (t.trim()) onGive({ text: t }); };
+}
+function slotVerdict(r, name) {
+  const lv = SLOT_LV[r.status] || SLOT_LV.info;
+  const cols = r.columns || [], map = Object.fromEntries((r.mapping || []).map(x => [x.field, x.column]));
+  const want = [...new Set([...(r.mapping || []).map(x => x.field)])];
+  const fields = [...(r.fields || []), ...(r.mapping || []).filter(x => !(r.fields || []).some(f => f.value === x.field)).map(x => ({ value: x.field, label: x.label }))];
+  const opt = j => `<option value="-1">— not in file —</option>` + cols.map(c => `<option value="${c.index}" ${c.index === j ? "selected" : ""}>${esc(c.header || `Column ${c.index + 1}`)}${c.examples && c.examples.length ? ` · e.g. ${esc(String(c.examples[0]).slice(0, 18))}` : ""}</option>`).join("");
+  return `<div class="sl-v ${lv[1]}"><span>${lv[0]}</span><div><b>${esc(r.headline || "")}</b>${r.file ? `<small>${esc(r.file)}${r.sheet && r.sheet !== r.file ? ` · ${esc(r.sheet)}` : ""}</small>` : ""}</div></div>
+    ${r.ai_note ? `<div class="banner">🤖 ${esc(r.ai_note)}</div>` : ""}
+    <ul class="sl-checks">${(r.checks || []).map(c => { const l = SLOT_LV[c.level] || SLOT_LV.info; return `<li class="${l[1]}"><span>${l[0]}</span>${esc(c.text)}</li>`; }).join("")}</ul>
+    ${cols.length ? `<details class="sl-map" ${r.status === "bad" ? "open" : ""}><summary>Which column is which? <small>change any match and press Read again — P&O remembers it for this layout</small></summary>
+      <div class="sl-grid">${fields.map(f => `<label><span>${esc(f.label)}</span><select class="input sm" data-f="${f.value}">${opt(map[f.value] ?? -1)}</select></label>`).join("")}</div>
+      <div class="row" style="margin-top:8px"><button class="btn sm" data-x="fix">Read again with these columns</button><button class="btn sm ghost" data-x="ai">🤖 Ask AI to match them</button></div></details>` : ""}
+    ${r.status !== "bad" && (r.checks || []).some(c => c.level === "warn" && /not in this file/.test(c.text)) ? `<div class="sl-extra"><b>Missing a part?</b> <small>Add just that part from another file or pasted cells (e.g. the budget). It is matched store by store and section by section.</small><div id="sl-x"></div></div>` : ""}`;
+}
+async function slotOpen(kind, name, month, replace) {
+  const label = /^ytd:/.test(month || "") ? "the year-to-date load" : month;
+  const m = modal(`<div class="sl"><h3>${KIND_ICON[kind] || "📄"} ${esc(name)} <small style="color:var(--muted);font-weight:500">· ${esc(label)}</small></h3>
+    <p class="sl-guide">${esc((DATA.cal && DATA.cal.guide && DATA.cal.guide[kind]) || "")}</p>
+    <div id="sl-give"></div><div id="sl-out"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Close</button><button class="btn primary" id="sl-save" hidden>Save</button></div></div>`);
+  m.classList.add("wide");
+  let token = null;
+  const show = r => {
+    if (!r || r.cancelled) return;
+    token = r.token;
+    $("#sl-out", m).innerHTML = slotVerdict(r, name);
+    const sv = $("#sl-save", m); sv.hidden = false; sv.disabled = r.status === "bad";
+    sv.textContent = r.status === "warn" ? "Save anyway" : r.status === "bad" ? "Can't save this" : "Save";
+    const fix = $("[data-x=fix]", m), ai = $("[data-x=ai]", m);
+    if (fix) fix.onclick = async () => { const mp = {}; $$(".sl-grid select", m).forEach(x => { if (+x.value >= 0) mp[x.dataset.f] = +x.value; }); show(await call("slot_fix", { token, kind, mapping: mp, month })); };
+    if (ai) ai.onclick = async () => { ai.disabled = true; ai.textContent = "Asking…"; show(await call("slot_ai", { token, kind, month })); };
+    if ($("#sl-x", m)) slotGive(m, "sl-x", async p => show(await call("slot_extra", { token, kind, month, ...p })));
+  };
+  slotGive(m, "sl-give", async p => { $("#sl-out", m).innerHTML = `<p class="sl-wait">Reading, cleaning and checking…</p>`; try { show(await call("slot_read", { kind, month, ...p })); } catch (e) { $("#sl-out", m).innerHTML = ""; } });
+  $("#sl-save", m).onclick = async () => { if (!token) return; const b = $("#sl-save", m); b.disabled = true; b.textContent = "Saving…";
+    await call("slot_save", { token, kind, month, replace: replace || null }); closeModal(); toast(replace ? `${name} replaced ✓` : `${name} saved ✓`); S.importSess = null; await afterDataChange(true); };
+}
+async function slotInfo(kind, name, month) {
+  const d = await call("slot_info", { kind, month });
+  const m = modal(`<div class="sl"><h3>${KIND_ICON[kind] || "📄"} ${esc(name)}</h3>
+    ${d.imports.length ? d.imports.map(x => `<div class="sl-imp"><div><b>${esc(x.file)}</b>${x.sheet && x.sheet !== x.file ? ` <small>· ${esc(x.sheet)}</small>` : ""}
+      <small>${esc(x.at)} · ${x.period ? `${esc(x.period)} · ` : ""}${(x.rows || 0).toLocaleString("en-US")} rows</small>${x.summary ? `<small>${esc(x.summary)}</small>` : ""}
+      ${x.warnings.length ? `<ul class="sl-checks">${x.warnings.slice(0, 4).map(w => `<li class="info"><span>i</span>${esc(w)}</li>`).join("")}</ul>` : ""}</div>
+      <button class="btn sm danger" data-x="rm" data-id="${x.id}">Remove</button></div>`).join("") : `<p class="sl-guide">${d.status === "derived" ? "This is worked out from other reports (nothing to remove here)." : "Nothing is saved for this period yet."}</p>`}
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Close</button><button class="btn primary" id="sl-rep">Replace with a new file…</button></div></div>`);
+  m.classList.add("wide");
+  $$("[data-x=rm]", m).forEach(b => b.onclick = async () => { await call("import_undo", { import_id: +b.dataset.id }); closeModal();
+    toast(`${name} removed`, { action: "Restore", onAction: () => call("import_redo", { import_id: +b.dataset.id }).then(() => afterDataChange(true)) }); await afterDataChange(true); });
+  $("#sl-rep", m).onclick = () => slotOpen(kind, name, month, d.imports.map(x => x.id));
+}
+const SLOT_ACTS = {
+  slot: b => { const month = S.impMonth; const k = b.dataset.kind, n = b.dataset.name;
+    return ["missing", "older"].includes(b.dataset.st) ? slotOpen(k, n, month) : slotInfo(k, n, month); },
+};
+Object.assign(ACT, SLOT_ACTS);
+
 Object.assign(ACT, V3_ACTS);
 Object.assign(ACT, RV_ACTS);
 ACT["tpl-forget"] = async b => { await call("import_templates", { forget: b.dataset.k }); toast("Forgotten"); render(); };

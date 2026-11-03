@@ -76,8 +76,58 @@ def analyze_workbook(wb: Workbook, force_kind: str | None = None) -> dict:
             results.append(res)
         else:
             skipped.append(sh.name)
+    sheets = {sh.name: sh for sh in wb.sheets}
+    if not force_kind:
+        _try_layouts(wb, results, skipped, sheets)
     return {"file": wb.name, "hash": wb.file_hash, "results": results, "skipped": skipped, "warnings": wb.warnings,
-            "sheets": {sh.name: sh for sh in wb.sheets}}
+            "sheets": sheets}
+
+
+def _read_as_is(sh, file_name: str) -> ParseResult | None:
+    """One sheet through every exact reader, then Smart Import (no plain dataset)."""
+    kind, conf = detect(sh)
+    if kind:
+        mod = dict(PARSERS)[kind]
+        try:
+            res = mod.parse(sh, file_name) if kind == "productivity" else mod.parse(sh)
+            res.confidence = conf
+            if res.rows:
+                return res
+        except Exception:  # noqa: BLE001
+            pass
+    from .. import smart
+    try:
+        res, _ = smart.read(sh, file_name)
+    except Exception:  # noqa: BLE001
+        return None
+    return res if res is not None and res.rows and res.kind != "dataset" else None
+
+
+def _try_layouts(wb: Workbook, results: list, skipped: list, sheets: dict) -> None:
+    """Sheets that could not be read as a known report: try them stores-across, split into tables, or turned."""
+    from . import reshape
+    weak = [r.sheet for r in results if r.kind == "dataset"] + list(skipped)
+    for name in weak:
+        sh = sheets.get(name)
+        if sh is None or len(sh.rows) > 20000:
+            continue
+        found = []
+        for v, note in reshape.variants(sh):
+            try:
+                res = _read_as_is(v, wb.name)
+            except Exception:  # noqa: BLE001
+                res = None
+            if res is not None and res.confidence >= 0.55:
+                res.warn(note)
+                sheets[v.name] = v
+                found.append(res)
+                if "table" not in v.name:
+                    break                              # one whole-sheet reading is enough
+        if found:
+            results[:] = [r for r in results if r.sheet != name]
+            if name in skipped:
+                skipped.remove(name)
+            results.extend(found)
 
 
 def analyze_path(path: str | Path) -> dict:
