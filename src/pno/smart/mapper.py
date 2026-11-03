@@ -261,10 +261,11 @@ def build_records(m: Match) -> list[dict]:
             n = to_num(g(r, "nps"))
             if skip(where) or n is None:
                 continue
-            city = canon.city(where) or canon.store_city(canon.store(where)) or str(where).split(" ")[0]
+            st = canon.store_in(where) if not canon.city(where) or canon.store_in(where) else ""
+            city = canon.store_city(st) if st else (canon.city(where) or str(where).split(" ")[0])
             yr = to_num(g(r, "year"))
             sec_raw = str(g(r, "section") or g(r, "department") or "").strip()
-            out.append({"city": city, "year": int(yr) if yr and 2000 <= yr <= 2100 else today().year, "section": canon.section(sec_raw) if sec_raw else "",
+            out.append({"store": st, "format": canon.nps_format(f"{where} {m.table.title}", st), "city": city, "year": int(yr) if yr and 2000 <= yr <= 2100 else today().year, "section": canon.section(sec_raw) if sec_raw else "",
                         "section_raw": sec_raw, "category": sec_raw, "nps": n})
         return out
     if m.kind == "productivity":

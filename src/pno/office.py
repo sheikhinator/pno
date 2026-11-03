@@ -275,7 +275,7 @@ GLOSSARY: dict[str, dict[str, str]] = {
                      "performance rating, team retention and customer NPS, each weighted (Leaders & talent → Weights).",
                      "source": "Sales, productivity, shrinkage, rating, turnover and NPS sheets", "good": "7+ strong · 5-7 solid · below 5 needs support"},
     "nps": {"what": "Net Promoter Score: % of customers who would recommend us (9-10) minus % who would not (0-6). Ranges -100 to +100.",
-            "source": "Customer NPS sheet, by city and category", "good": "50+ excellent · 30-50 good · below 0 a warning"},
+            "source": "Customer NPS sheet, by city and category. The hypermarket survey goes to that city's hypermarkets only; supermarkets and Myli need their own survey lines (or a line per store)", "good": "50+ excellent · 30-50 good · below 0 a warning"},
     "sales vs budget": {"what": "Actual net sales as a % of budget for the period selected (100% = on plan).", "source": "Store sales report (BO 200-10-05)",
                         "good": "100% or more of budget is on plan"},
     "productivity": {"what": "Sales per paid hour against the target set for the store or section.", "source": "Section productivity report",

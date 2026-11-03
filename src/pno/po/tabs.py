@@ -441,8 +441,11 @@ def parse_nps(rows: list[list[Any]], sheet: str) -> PackSheet:
         by_category = canon.section(category)
         if section in {"Deli", "", section_raw} and by_category in canon.DEPARTMENT_OF:
             section = by_category
+        st = canon.store_in(details)
         records.append({
-            "city": canon.city(details) or details.split(" ")[0],
+            "store": st,                                                    # '' = a city-wide score
+            "format": canon.nps_format(details, st),                        # which stores of the city it speaks for
+            "city": canon.store_city(st) if st else (canon.city(details) or details.split(" ")[0]),
             "year": int(year.group(1)) if year else None,
             "section": section, "section_raw": section_raw, "category": category,
             "nps": num(_cell(row, cols["nps"])),

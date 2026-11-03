@@ -489,8 +489,24 @@ class Insights:
         return {**{k: r.get(k) for k in ("shrink_budget_pct", "shrink_actual_pct", "shrink_variance_pct", "stock_days_budget", "stock_days_actual")},
                 "days_ratio": days_ratio, "level": r["section"], "fallback": fallback}
 
-    def nps(self, city: str, section: str | None = None) -> dict[str, Any] | None:
-        rows = [r for r in self.rows("po_nps") if r.get("city") == city and r.get("nps") is not None]
+    def nps(self, city: str, section: str | None = None, store: str | None = None) -> dict[str, Any] | None:
+        """A store's NPS: its own line when the file has one, otherwise its city's score for stores of its format
+        (the hypermarket survey reaches the city's hypermarkets only; supermarkets and Myli need their own survey).
+        Without a store: the city's hypermarket score."""
+        allr = [r for r in self.rows("po_nps") if r.get("nps") is not None]
+        fmt_of = lambda r: r.get("format") or "Hypermarket"  # noqa: E731 - files read before 4.2.3 were the hyper survey
+        rows, source = [], ""
+        if store:
+            base = store.replace(" · Myli", "")
+            fmt = canon.store_format(store) or "Hypermarket"
+            rows = [r for r in allr if r.get("store") == base and fmt_of(r) == fmt]
+            source = f"store:{store}"
+            if not rows:
+                rows = [r for r in allr if r.get("city") == city and not r.get("store") and fmt_of(r) == fmt]
+                source = f"city:{city}:{fmt}"
+        else:
+            rows = [r for r in allr if r.get("city") == city and not r.get("store") and fmt_of(r) == "Hypermarket"]
+            source = f"city:{city}:Hypermarket"
         if not rows:
             return None
         latest = max(r["year"] or 0 for r in rows)
@@ -503,7 +519,8 @@ class Insights:
             return None
         score = _mean([r["nps"] for r in current])
         prior = _mean([r["nps"] for r in previous])
-        return {"nps": score, "year": latest, "previous": prior, "change": (score - prior) if prior is not None and score is not None else None, "categories": len(current)}
+        return {"nps": score, "year": latest, "previous": prior, "change": (score - prior) if prior is not None and score is not None else None,
+                "categories": len(current), "source": source}
 
     def leavers(self, store: str | None = None, section: str | None = None, months: int = 12) -> list[dict[str, Any]]:
         start = self.as_of - timedelta(days=round(months * 30.44))
@@ -549,7 +566,7 @@ class Insights:
             over_days = [r for r in shrink_rows if r.get("stock_days_budget") and r.get("stock_days_actual") and r["stock_days_actual"] > r["stock_days_budget"] * 1.2]
             worst = min(shrink_rows, key=lambda r: r.get("shrink_variance_pct") if r.get("shrink_variance_pct") is not None else 0, default=None)
             city = canon.store_city(name)
-            nps = self.nps(city) if city else None
+            nps = self.nps(city, store=name) if city else None
             leavers = self.leavers(name)
             leaders = [l for l in self.leaders() if l.store == name]
             ratings = [l.latest_rating for l in leaders if l.latest_rating is not None]
@@ -757,8 +774,8 @@ class Insights:
         kpis["productivity"] = prod_parts
         kpis["shrink"] = shrink_parts
         city = canon.store_city(leader.store)
-        kpis["nps"] = [(sec, n) for sec in leader.sections if (n := self.nps(city, sec))] if city else []
-        if city and not kpis["nps"] and leader.sections and (whole := self.nps(city)):
+        kpis["nps"] = [(sec, n) for sec in leader.sections if (n := self.nps(city, sec, leader.store))] if city else []
+        if city and not kpis["nps"] and leader.sections and (whole := self.nps(city, store=leader.store)):
             kpis["nps"] = [("Whole store", whole)]           # store leaders, or sections NPS doesn't break out: the city score
         leavers = []
         for section in leader.sections or [""]:

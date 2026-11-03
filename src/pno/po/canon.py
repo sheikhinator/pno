@@ -39,12 +39,38 @@ _STORE_PATTERNS = [
 ]
 
 CITY_ALIASES = {
-    "lahore": "Lahore", "lah": "Lahore",
-    "karachi": "Karachi", "kch": "Karachi", "khi": "Karachi",
-    "islamabad": "Islamabad", "isl": "Islamabad",
-    "faisalabad": "Faisalabad", "fai": "Faisalabad",
-    "gujranwala": "Gujranwala", "guj": "Gujranwala",
+    "lahore": "Lahore", "lah": "Lahore", "lhr": "Lahore", "lhe": "Lahore",
+    "karachi": "Karachi", "kch": "Karachi", "khi": "Karachi", "krachi": "Karachi",
+    "islamabad": "Islamabad", "isl": "Islamabad", "isb": "Islamabad", "ibd": "Islamabad", "rawalpindi": "Islamabad", "rwp": "Islamabad",
+    "faisalabad": "Faisalabad", "fai": "Faisalabad", "fsd": "Faisalabad", "fsl": "Faisalabad", "lyallpur": "Faisalabad",
+    "gujranwala": "Gujranwala", "guj": "Gujranwala", "grw": "Gujranwala", "gjw": "Gujranwala",
 }
+
+
+def nps_format(value: Any, store_name: str = "") -> str:
+    """Which stores an NPS line speaks for. A store line is that store's format; otherwise the label says it
+    (super / SM, Myli / H&B) and anything unmarked is the hypermarket survey."""
+    if store_name:
+        return store_format(store_name)
+    raw = text(value).casefold()
+    if re.search(r"\b(myli|h\s*&\s*b|hb|health\s*(and|&)\s*beauty)\b", raw):
+        return "Health & Beauty"
+    if re.search(r"\b(super\s*-?\s*markets?|super|sm)\b", raw):
+        return "Supermarket"
+    return "Hypermarket"
+
+
+def store_in(value: Any) -> str:
+    """A known store named in free text such as 'LAH Fortress NPS 2025' (not just a city: 'Faisalabad NPS 2025' is a city)."""
+    raw = text(value)
+    rest = re.sub(r"\b(nps|net promoter score|score|ytd|mtd|20\d\d|q[1-4]|h[12]|hyper\s*markets?|hyper|super\s*markets?|super|hm|sm|myli|h\s*&\s*b|hb)\b", " ", raw, flags=re.I)
+    for key in CITY_ALIASES:
+        rest = re.sub(rf"\b{re.escape(key)}\b", " ", rest, flags=re.I)
+    rest = re.sub(r"[\s\-_:|/·,]+", " ", rest).strip()
+    if len(rest) < 3:
+        return ""
+    st = store(rest)
+    return st if store_city(st) else ""
 
 
 def text(value: Any) -> str:

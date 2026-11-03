@@ -156,6 +156,7 @@ class Review:
         has_b = has_ly = False
         w_oos, w_waste, wt = [], [], []
         prod, shr, days, nps = [], [], [], []
+        nps_src: dict[str, float] = {}
         leavers = da = 0
         for st in stores:
             s = ins.sales_total(st) if key is None else ins.sales_section(st, key)
@@ -203,11 +204,15 @@ class Review:
             da += ins.da_count(st) if secs is None else sum(ins.da_count(st, sc) for sc in secs)
             city = canon.store_city(st)
             if city:
-                n = ins.nps(city) if key is None else _mean([(ins.nps(city, sc) or {}).get("nps") for sc in secs])
-                if isinstance(n, dict):
-                    n = n.get("nps")
+                if key is None:
+                    r_ = ins.nps(city, store=st)
+                    n, src = (r_ or {}).get("nps"), (r_ or {}).get("source")
+                else:
+                    parts = [ins.nps(city, sc, st) for sc in secs]
+                    n = _mean([(x or {}).get("nps") for x in parts])
+                    src = "|".join(sorted({x["source"] for x in parts if x}))
                 if n is not None:
-                    nps.append(n)
+                    nps_src[src or st] = n
         wavg = lambda pairs: (sum(v * w for v, w in pairs) / sum(w for _, w in pairs)) if pairs and sum(w for _, w in pairs) else None  # noqa: E731
         has_turn, has_da = ins.has("po_turnover"), ins.has("po_da")
         return {
@@ -221,7 +226,7 @@ class Review:
             "attendance": self.attendance(stores, secs),
             "leavers": leavers if has_turn else None,
             "da": da if has_da else None,
-            "nps": round(_mean(nps)) if nps else None,
+            "nps": round(_mean(list(nps_src.values()))) if nps_src else None,
         }
 
     def cells(self, vals: dict, keys: list[str], person: bool = False) -> list[dict]:
