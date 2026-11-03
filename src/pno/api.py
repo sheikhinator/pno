@@ -411,21 +411,55 @@ class Api:
         paths = self.host.pick_files("reports")
         return self.api_import_analyze(paths=paths, month=month) if paths else {"cancelled": True}
 
+    SUMMARY_KINDS = ("sales", "productivity", "po_shrink", "po_nps", "po_da")
+
+    def ytd_baseline(self) -> str | None:
+        """The month the year-to-date load runs to (Jan–that month), after which data comes month by month."""
+        b = self.db.get_setting("ytd_baseline", None)
+        if b:
+            return b
+        r = self.db.q1(f"""SELECT MAX(period_to) FROM imports WHERE active=1 AND period_type='ytd' AND substr(period_from,6,2)='01'
+                           AND kind IN ({",".join("?" * len(self.SUMMARY_KINDS))})""", self.SUMMARY_KINDS)
+        return r[0] if r and r[0] else None
+
+    def api_ytd_baseline(self, month: str | None = None) -> dict:
+        if month and not re.fullmatch(r"\d{4}-\d\d", month):
+            raise ValueError("Pick a month.")
+        self.db.set_setting("ytd_baseline", month or None)
+        return {"baseline": self.ytd_baseline()}
+
     def api_import_calendar(self, year: int | None = None) -> dict:
-        """Every month of a year with how much of its data is in, for the import calendar."""
+        """The slots to load data into: one year-to-date slot (Jan → the baseline month) and then every month after it
+        separately. Years without a year-to-date load show their months one by one."""
         from . import datahealth
         from .period import month_label as ml
         y = int(year or date.today().year)
         cur = date.today().strftime("%Y-%m")
-        months = []
-        for m in range(1, 13):
-            key = f"{y}-{m:02d}"
+        locked = datahealth.locked_months(self.db)
+        base = self.ytd_baseline()
+        suggested = None
+        has_any = self.db.q1(f"SELECT 1 FROM imports WHERE active=1 AND kind IN ({','.join('?' * len(self.SUMMARY_KINDS))})", self.SUMMARY_KINDS)
+        if not base and not has_any and y == date.today().year:
+            t = date.today()
+            suggested = f"{t.year}-{t.month - 1:02d}" if t.month > 1 else None        # nothing loaded yet: YTD to last month
+        b = base if base and int(base[:4]) == y else suggested
+
+        def slot(key, kind):
             cl = datahealth.checklist(self.db, key)
             ok = sum(1 for c in cl if c["status"] in ("ok", "derived"))
-            months.append({"month": key, "label": ml(key), "short": date(y, m, 1).strftime("%b"), "ok": ok, "total": len(cl),
-                           "future": key > cur, "locked": key in datahealth.locked_months(self.db),
-                           "items": [{"kind": c["kind"], "name": c["name"], "status": c["status"], "label": c["label"], "detail": c["detail"]} for c in cl]})
-        return {"year": y, "months": months, "today": cur, "guide": IMPORT_GUIDE}
+            items = [{"kind": c["kind"], "name": c["name"], "status": c["status"], "label": c["label"], "detail": c["detail"]} for c in cl]
+            if kind == "ytd":
+                return {"month": f"ytd:{key}", "end": key, "ytd": True, "label": f"Jan–{date(y, int(key[5:]), 1):%b} {y} · year to date",
+                        "short": f"Jan–{date(y, int(key[5:]), 1):%b}", "ok": ok, "total": len(cl), "future": key > cur, "locked": key in locked,
+                        "items": items, "set": bool(base)}
+            m = int(key[5:])
+            return {"month": key, "label": ml(key), "short": date(y, m, 1).strftime("%b"), "ok": ok, "total": len(cl), "future": key > cur,
+                    "locked": key in locked, "items": items}
+        if b:
+            months = [slot(b, "ytd")] + [slot(f"{y}-{m:02d}", "mtd") for m in range(int(b[5:]) + 1, 13)]
+        else:
+            months = [slot(f"{y}-{m:02d}", "mtd") for m in range(1, 13)]
+        return {"year": y, "months": months, "today": cur, "guide": IMPORT_GUIDE, "baseline": base, "ytd_end_choices": [f"{y}-{m:02d}" for m in range(1, 13) if f"{y}-{m:02d}" <= cur]}
 
     def api_import_analyze(self, paths: list | None = None, text: str | None = None, name: str = "Pasted data", month: str | None = None) -> dict:
         analyses = []
@@ -440,16 +474,30 @@ class Api:
         return self._new_session(analyses, errors, month)
 
     def _new_session(self, analyses: list, errors: list, month: str | None) -> dict:
+        ytd = bool(month and str(month).startswith("ytd:"))
+        if ytd:
+            month = month[4:]
+        elif not month and not self.db.q1(
+                f"SELECT 1 FROM imports WHERE active=1 AND kind IN ({','.join('?' * len(self.SUMMARY_KINDS))})", self.SUMMARY_KINDS):
+            # the very first load (quick Update data): it is the year-to-date load, up to the month the reports show
+            ytd = True
+            from .importers import describe
+            shown = [r["period"].get("to") for a in analyses for r in describe(a, self.db)["results"]
+                     if r["period"].get("sure") and r["period"]["type"] in ("ytd", "mtd") and r["kind"] in self.SUMMARY_KINDS]
+            t = date.today()
+            month = self.ytd_baseline() or max([m for m in shown if m] or [f"{t.year}-{t.month - 1:02d}" if t.month > 1 else f"{t.year - 1}-12"])
         token = uuid.uuid4().hex[:12]
         self.sessions[token] = {"analyses": analyses, "created": now(), "month": month}
-        files = self._lined_up([importers.describe(a, self.db) for a in analyses], analyses, month)
+        files = self._lined_up([importers.describe(a, self.db) for a in analyses], analyses, month, ytd)
         from .smart import checks
         cross = checks.cross(self.db, [r for a in analyses for r in a["results"]])       # people checked across every file
         for f in files:
             for r in f["results"]:
                 have = {i["text"] for i in r.get("issues", [])}
                 r.setdefault("issues", []).extend(c for c in cross if c.get("sheet") == r["sheet"] and c["text"] not in have)
-        return {"token": token, "files": files, "errors": errors, "suggested_month": month or self._suggest_month(), "month": month}
+        self.sessions[token]["ytd"] = ytd
+        return {"token": token, "files": files, "errors": errors, "suggested_month": month or self._suggest_month(), "month": month,
+                "slot": "ytd" if ytd else "mtd"}
 
     def api_import_upload(self, files: list, month: str | None = None) -> dict:
         """Files sent from a browser (development / tests): [{name, b64}]."""
@@ -466,7 +514,7 @@ class Api:
         m = engine.months_available(self.db)
         return m[-1] if m else date.today().strftime("%Y-%m")
 
-    def _lined_up(self, files: list[dict], analyses: list[dict], month: str | None = None) -> list[dict]:
+    def _lined_up(self, files: list[dict], analyses: list[dict], month: str | None = None, ytd: bool = False) -> list[dict]:
         """Give sheets without a month of their own the month of the other sheets (or the month picked on the
         calendar), and remember it for saving."""
         from .period import line_up
@@ -508,6 +556,29 @@ class Api:
                     to = p.get("to") or (r.get("month") or self._suggest_month())
                     p.update(type=pt, why=f"Remembered from last time ({pt.upper() if pt != 'general' else 'general'}).",
                              **({"from": None, "to": None} if pt == "general" else {"to": to, "from": to if pt == "mtd" else (p.get("from") if p.get("from") and p["type"] == "ytd" else f"{to[:4]}-01")}))
+        base = self.ytd_baseline()
+        if month and not ytd and base and month > base:
+            # a month after the year-to-date load: its summary reports are that month on its own
+            for f in files:
+                for r in f["results"]:
+                    p = r["period"]
+                    if p["type"] == "general" or r.get("dated") or r["kind"] in ("po_turnover", "po_shift", "attendance", "leave"):
+                        continue
+                    if p["type"] == "ytd" and p.get("sure") and p.get("to") == month and "remembered" not in (p.get("why") or "").lower():
+                        continue                        # the file itself says year to date
+                    p.update(type="mtd", to=month, **{"from": month}, why=f"{date(int(month[:4]), int(month[5:]), 1):%B %Y} on its own (after the year-to-date load).")
+        if ytd and month:
+            # the year-to-date slot: every summary report in this load counts from January (dated files keep their own dates)
+            for f in files:
+                for r in f["results"]:
+                    p = r["period"]
+                    if p["type"] == "general" or r.get("dated") or r["kind"] in ("po_turnover", "po_shift", "attendance", "leave"):
+                        continue
+                    own = p.get("to") if p.get("sure") else None
+                    note = (f" The file itself shows up to {date(int(own[:4]), int(own[5:]), 1):%B}; it is filed with this load."
+                            if own and own != month else "")
+                    p.update(type="ytd", to=month, **{"from": f"{month[:4]}-01"}, sure=True,
+                             why=f"Loaded as year to date (Jan–{date(int(month[:4]), int(month[5:]), 1):%b} {month[:4]}).{note}")
         for f, a in zip(files, analyses):
             a["period_hint"] = {(r["sheet"], r["kind"]): r["period"] for r in f["results"]}
             a["kind_hint"] = {r["sheet"]: r["kind_hint"] for r in f["results"] if r.get("kind_hint")}
@@ -582,6 +653,17 @@ class Api:
                 out.append({"file": a["file"], "error": str(e)})
         self.sessions.pop(token, None)
         self._remember_templates(sess["analyses"], out)
+        if sess.get("ytd"):
+            # the one-off year-to-date load: next month's files of the same name are monthly, so don't remember 'YTD' for them
+            tpls = self.db.get_setting("import_templates", {}) or {}
+            for a in sess["analyses"]:
+                for r in a["results"]:
+                    for k in (template_key(r.sheet), template_key(a["file"])):
+                        if k in tpls:
+                            tpls[k].pop("period_type", None)
+            self.db.set_setting("import_templates", tpls)
+            if not self.db.get_setting("ytd_baseline", None) and sess.get("month"):
+                self.db.set_setting("ytd_baseline", sess["month"])
         new_sets = [r["import_id"] for f in out for r in f.get("results", []) if r.get("kind") == "dataset" and r.get("status") == "ok"]
         if new_sets:
             threading.Thread(target=self._ai_label_datasets, args=(new_sets,), daemon=True).start()
@@ -1677,7 +1759,16 @@ class Api:
         cov = sorted(ins.coverage, key=lambda c: (c.get("type") != "general", PACK_LABELS.get(c["kind"], c["kind"])))
         from .datahealth import _age
         created = {r["id"]: r["created_at"] for r in self.db.q("SELECT id, created_at FROM imports WHERE active=1")}
-        return {"view": ins.view, "label": ins.view_label, "notes": ins.notes, "leaver_window": ins.leaver_window,
+        slots, seen = [], set()
+        for r in self.db.q(f"""SELECT DISTINCT period_type, period_from, period_to FROM imports WHERE active=1 AND period_type IN ('ytd','mtd')
+                               AND kind IN ({",".join("?" * len(self.SUMMARY_KINDS))}) ORDER BY period_to, period_type DESC""", self.SUMMARY_KINDS):
+            t, f, to = r["period_type"], r["period_from"], r["period_to"]
+            if not to or (t, f, to) in seen:
+                continue
+            seen.add((t, f, to))
+            lab = f"{_ml(f)}–{_ml(to)} (YTD)" if t == "ytd" else _ml(to)
+            slots.append({"type": t, "from": f if t == "ytd" else to, "to": to, "label": lab})
+        return {"slots": slots, "view": ins.view, "label": ins.view_label, "notes": ins.notes, "leaver_window": ins.leaver_window,
                 "sales_label": ins.periods.get("po_sales") or "",
                 "months": [{"value": m, "label": _ml(m)} for m in ins.available["months"]], "types": ins.available["types"],
                 "ytd_from": ins.available.get("ytd_from", {}), "default_to": ins.available.get("default_to"),

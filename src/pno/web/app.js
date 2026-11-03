@@ -1037,26 +1037,28 @@ function impSheetCard(f, r, sess) {
   </div>`;
 }
 PAGES.import = async () => {
-  const yr = S.impYear || +(S.impMonth || S.month || new Date().toISOString()).slice(0, 4);
+  const yr = S.impYear || +(String(S.impMonth || S.month || new Date().toISOString()).replace("ytd:", "")).slice(0, 4);
   const [h, cal] = await Promise.all([API.call("imports"), API.call("import_calendar", { year: yr })]);
   DATA.cal = cal;
   const cur = cal.today;
-  S.impMonth = S.impMonth || (S.month && S.month.slice(0, 4) == yr ? S.month : cal.months.filter(m => !m.future).slice(-1)[0]?.month) || cur;
+  if (S.impMonth && !cal.months.some(m => m.month === S.impMonth)) S.impMonth = null;
+  S.impMonth = S.impMonth || (cal.months.filter(m => !m.future && m.ok < m.total)[0] || cal.months.filter(m => !m.future).slice(-1)[0] || {}).month || cur;
   const mon = cal.months.find(m => m.month === S.impMonth) || cal.months[0];
   const sess = S.importSess;
   const found = new Set(sess ? sess.files.flatMap(f => f.results.map(r => r.kind_hint || r.kind)) : []);
   const tiles = cal.months.map(m => { const pct = m.total ? m.ok / m.total : 0; const cls = m.future ? "fut" : pct >= 0.99 ? "full" : pct >= 0.5 ? "part" : pct > 0 ? "low" : "none";
-    return `<button class="mtile ${cls} ${m.month === S.impMonth ? "on" : ""}" data-act="imp-month" data-m="${m.month}" ${m.future ? "disabled" : ""}><b>${m.short}</b><span class="mring" style="--p:${Math.round(pct * 100)}"></span><small>${m.future ? "—" : `${m.ok}/${m.total}`}</small>${m.locked ? `<i title="Locked">🔒</i>` : ""}</button>`; }).join("");
+    return `<button class="mtile ${cls} ${m.ytd ? "ytd" : ""} ${m.month === S.impMonth ? "on" : ""}" data-act="imp-month" data-m="${m.month}" ${m.future ? "disabled" : ""}>${m.ytd ? `<em>Year to date</em>` : ""}<b>${m.short}</b><span class="mring" style="--p:${Math.round(pct * 100)}"></span><small>${m.future ? "—" : `${m.ok}/${m.total}`}</small>${m.locked ? `<i title="Locked">🔒</i>` : ""}</button>`; }).join("");
   const slots = mon.items.map(it => { const st = found.has(it.kind) ? ["Ready to save", "info"] : IMP_STATUS[it.status] || ["", ""];
     return `<div class="slot ${found.has(it.kind) ? "found" : it.status}"><div class="slot-ic">${KIND_ICON[it.kind] || "📄"}</div><div class="slot-b"><b>${esc(it.name)}</b><small>${esc(it.status === "missing" && !found.has(it.kind) ? (cal.guide[it.kind] || "") : (it.label || it.detail || ""))}</small></div><span class="chip ${st[1]}">${st[0]}</span></div>`; }).join("");
   const nres = sess ? sess.files.reduce((a, f) => a + f.results.length, 0) : 0;
-  return `<div class="ph"><div><h1>Import data</h1><p>Pick the month, then drop every file you have for it: any report, any layout, any file name. Smart Import works out what each sheet is from its columns, checks it for problems and shows you before anything is saved.</p></div></div>
+  return `<div class="ph"><div><h1>Import data</h1><p>Pick the period (the year-to-date load first, then each month after it), then drop every file you have for it: any report, any layout, any file name. Smart Import works out what each sheet is from its columns, checks it for problems and shows you before anything is saved.</p></div></div>
     ${S.init.unsure_stores ? `<div class="banner">🏬 ${S.init.unsure_stores} store name${S.init.unsure_stores > 1 ? "s were" : " was"} matched with less certainty. <button class="btn sm" data-go="settings" data-tab="stores">Check store names</button></div>` : ""}
-    <div class="panel icald"><div class="phd"><h2>1 · Which month are you loading?</h2><div class="row"><button class="btn sm ghost" data-act="imp-year" data-y="${yr - 1}">‹ ${yr - 1}</button><b>${yr}</b><button class="btn sm ghost" data-act="imp-year" data-y="${yr + 1}" ${yr + 1 > +cur.slice(0, 4) ? "disabled" : ""}>${yr + 1} ›</button></div></div>
+    <div class="panel icald"><div class="phd"><h2>1 · Which period are you loading?</h2>
+      ${cal.months[0] && cal.months[0].ytd ? `<label class="ytdend">Year to date runs to <select id="ytd-end" class="input sm">${cal.ytd_end_choices.map(m => `<option value="${m}" ${m === cal.months[0].end ? "selected" : ""}>${new Date(m + "-01").toLocaleString("en", { month: "long" })}</option>`).join("")}</select></label>` : ""}<div class="row"><button class="btn sm ghost" data-act="imp-year" data-y="${yr - 1}">‹ ${yr - 1}</button><b>${yr}</b><button class="btn sm ghost" data-act="imp-year" data-y="${yr + 1}" ${yr + 1 > +cur.slice(0, 4) ? "disabled" : ""}>${yr + 1} ›</button></div></div>
       <div class="mtiles">${tiles}</div></div>
     <div class="grid g2 imp-grid">
       <div class="panel"><div class="phd"><h2>2 · What ${esc(mon.label)} needs</h2><small>${mon.ok} of ${mon.total} in${found.size ? ` · ${found.size} in this upload` : ""}</small></div><div class="slots">${slots}</div></div>
-      <div class="drop big" id="drop"><div class="ic">${ic("import", 30)}</div><h3>3 · Drop all the files for ${esc(mon.label)}</h3><p style="margin:0;color:var(--muted)">Excel, CSV, text or HTML exports · any number · any names · several sheets in one workbook are fine</p>
+      <div class="drop big" id="drop"><div class="ic">${ic("import", 30)}</div><h3>3 · Drop all the files for ${esc(mon.label)}</h3>${mon.ytd ? `<p class="ytdnote">Load the year-to-date reports here (sales, productivity, shrinkage, NPS, DA: Jan–${esc(mon.short.split("–")[1])} in one go). Every month after it is loaded on its own.</p>` : ""}<p style="margin:0;color:var(--muted)">Excel, CSV, text or HTML exports · any number · any names · several sheets in one workbook are fine</p>
         <div class="row" style="justify-content:center"><button class="btn primary" data-act="pick">${ic("file", 16)}Choose files</button><button class="btn" data-act="paste">${ic("paste", 16)}Paste cells</button></div>
         <small style="color:var(--muted)">Files stay on this computer. Nothing is saved until you press Save.</small>
         <input type="file" id="filein" multiple hidden accept=".xlsx,.xls,.xlsm,.xlsb,.ods,.csv,.txt,.tsv,.htm,.html"></div></div>
@@ -1107,6 +1109,7 @@ document.addEventListener("change", async e => {
   catch (err) { render(); }
 });
 AFTER.import = () => {
+  const ye = $("#ytd-end"); if (ye) ye.onchange = async () => { await call("ytd_baseline", { month: ye.value }); S.impMonth = null; render(); };
   const drop = $("#drop"), fi = $("#filein"), page = $(".page");
   if (!drop) return;
   [drop, page].forEach(el => { if (!el) return;
@@ -1573,6 +1576,14 @@ const poEmpty = () => `<div class="panel"><div class="hero"><div class="logo" st
 const PTYPE = { general: ["General", ""], mtd: ["MTD", "info"], ytd: ["YTD", "gold"] };
 function periodBar(p) {
   if (!p || !p.months) return "";
+  if (S.page === "rv") {                    // the Review: exactly the periods that were loaded (year to date, then each month)
+    const v = p.view || { type: "latest" };
+    const on = sl => v.type === sl.type && v.to === sl.to && (sl.type !== "ytd" || v.from === sl.from);
+    return `<div class="pbar"><span class="pbar-t">${ic("shifts", 15)}Period</span><div class="seg sm">
+      <button data-act="pv-slot" data-t="latest" aria-pressed="${v.type === "latest"}">Latest</button>
+      ${(p.slots || []).map(sl => `<button data-act="pv-slot" data-t="${sl.type}" data-f="${sl.from}" data-to="${sl.to}" aria-pressed="${on(sl)}">${esc(sl.label)}</button>`).join("")}</div>
+      <span class="spacer"></span><small class="muted">${esc(p.label)}${p.notes && p.notes.length ? ` · <span class="t-warn" title="${esc(p.notes.join(" · "))}">${p.notes.length} report${p.notes.length > 1 ? "s" : ""} use the nearest period</span>` : ""}</small></div>`;
+  }
   const v = p.view || { type: "latest" };
   const opt = (sel) => p.months.map(m => `<option value="${m.value}" ${m.value === sel ? "selected" : ""}>${esc(m.label)}</option>`).join("");
   const last = p.default_to || (p.months.length ? p.months[p.months.length - 1].value : "");
@@ -1587,6 +1598,8 @@ function periodBar(p) {
         <table class="t"><thead><tr><th>Data</th><th>Covers</th><th class="n">Rows</th><th></th></tr></thead><tbody>${cov}</tbody></table></div></details></div>`;
 }
 ACT["pv-type"] = b => setView({ type: b.dataset.t });
+ACT["pv-slot"] = async b => { const v = b.dataset.t === "latest" ? { type: "latest" } : { type: b.dataset.t, from: b.dataset.f, to: b.dataset.to };
+  await call("po_view", v); SNAP.clear(); render(); };
 async function setView(patch) {
   const cur = (DATA.period && DATA.period.view) || { type: "latest" };
   const v = { ...cur, ...patch };
@@ -2652,7 +2665,9 @@ async function rvUpdate() {
     sess = await call("import_upload", { files: out, month: null }); }
   rvConfirm(sess);
 }
-window.PNO_drop = async paths => { if (S.page === "ask") { S.attach.push(...paths); drawChat(); return; } toast(`Reading ${paths.length} file${paths.length > 1 ? "s" : ""}…`); rvConfirm(await call("import_analyze", { paths, month: null })); };
+window.PNO_drop = async paths => { if (S.page === "ask") { S.attach.push(...paths); drawChat(); return; }
+  if (S.page === "import") { toast(`Reading ${paths.length} file${paths.length > 1 ? "s" : ""}…`); S.importSess = await call("import_analyze", { paths, month: S.impMonth || null }); render(); return; }   // the slot picked on the calendar
+  toast(`Reading ${paths.length} file${paths.length > 1 ? "s" : ""}…`); rvConfirm(await call("import_analyze", { paths, month: null })); };
 let PENDING_SESS = null, RV_AFTER_FIX = null;
 async function rvCourse(key, name) {
   closeModal();
@@ -2690,7 +2705,7 @@ function rvConfirm(sess) {
     <div class="ulist">${sheets.map(s => `<div class="uitem"><b>${esc(s.label || s.kind_label || s.kind || "Sheet")}${own(s) ? ` <span class="chip">${esc(own(s))}</span>` : ""}</b><small>${esc(s.file || "")} · ${esc(s.sheet || "")}${s.summary ? " · " + esc(s.summary) : ""}</small>
       ${(s.warnings || []).filter(w => !(own(s) && /no date inside it|choose the month/i.test(w))).slice(0, 2).map(w => `<small class="t-warn">⚠ ${esc(w)}</small>`).join("")}</div>`).join("") || `<div class="empty">Nothing usable in these files.</div>`}</div>
     ${(sess.errors || []).map(e => `<div class="il bad">${esc(e.file || "")}: ${esc(e.error || e)}</div>`).join("")}
-    <div class="row" style="justify-content:space-between;margin-top:12px"><label class="dx-l" style="margin:0">Month for files with no date<input class="input" type="month" id="u-m" value="${esc(month)}"></label>
+    <div class="row" style="justify-content:space-between;margin-top:12px"><label class="dx-l" style="margin:0">${sess.slot === "ytd" ? "Year to date up to" : "Month for files with no date"}<input class="input" type="month" id="u-m" value="${esc(month)}"></label>
       <div class="row" style="gap:6px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn" data-act="rv-detail" title="Change a file's month, period or type, fix columns, see every warning">Check in detail…</button><button class="btn primary" id="u-go" ${sheets.length ? "" : "disabled"}>Save</button></div></div>`);
   m.classList.add("wide");
   $("#u-go", m).onclick = async () => { const b = $("#u-go", m); b.disabled = true; b.textContent = "Saving…";

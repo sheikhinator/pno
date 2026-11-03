@@ -128,7 +128,8 @@ def test_everything_saves_for_the_calendar_month(api):
     st = [x for f in c["done"] for x in f.get("results", [])]
     assert all(x["status"] == "ok" for x in st), st
     cal = api.dispatch("import_calendar", {"year": 2026})
-    sep = next(m for m in cal["months"] if m["month"] == "2026-09")
+    sep = next(m for m in cal["months"] if m["month"] in ("2026-09", "ytd:2026-09"))
     got = {i["kind"] for i in sep["items"] if i["status"] == "ok"}
     assert {"roster", "po_role", "po_rating", "po_turnover", "po_da", "sales"} <= got
-    assert len(cal["months"]) == 12 and cal["guide"]["roster"]
+    # year-to-date reports loaded for September: one Jan–Sep slot, then the months after it
+    assert [m["short"] for m in cal["months"]][1:] == ["Oct", "Nov", "Dec"] and cal["months"][0]["ytd"] and cal["guide"]["roster"]

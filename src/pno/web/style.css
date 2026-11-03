@@ -1164,3 +1164,7 @@ h1,h2,h3,.rt-v,.pscore b,.kpi-v{font-family:var(--f-num);letter-spacing:-.02em}
 .xf:has(input:checked){border-color:var(--brand);background:var(--gold-soft)}
 .pfsel{min-width:0;max-width:96px;padding:2px 2px}.rtable td.rwho{min-width:190px;max-width:250px}
 .scorecol{display:flex;align-items:center;gap:10px;margin-top:14px;padding:10px 12px;background:var(--mac-fill);border-radius:10px}.scorecol .num{width:72px;text-align:right}
+.mtile.ytd{grid-column:span 3;background:linear-gradient(135deg,var(--gold-soft),var(--card))}
+.mtile.ytd em{font-style:normal;font-size:10.5px;font-weight:600;color:var(--brand);text-transform:uppercase;letter-spacing:.04em}
+.ytdend{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.ytdnote{margin:6px 0 0;font-size:12.5px;color:var(--brand)}
