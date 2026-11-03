@@ -1041,15 +1041,17 @@ PAGES.import = async () => {
   const [h, cal] = await Promise.all([API.call("imports"), API.call("import_calendar", { year: yr })]);
   DATA.cal = cal;
   const cur = cal.today;
-  if (S.impMonth && !cal.months.some(m => m.month === S.impMonth)) S.impMonth = null;
+  if (S.impMonth && !cal.months.some(m => m.month === S.impMonth && !m.future)) S.impMonth = null;
   S.impMonth = S.impMonth || (cal.months.filter(m => !m.future && m.ok < m.total)[0] || cal.months.filter(m => !m.future).slice(-1)[0] || {}).month || cur;
   const mon = cal.months.find(m => m.month === S.impMonth) || cal.months[0];
   const sess = S.importSess;
   const found = new Set(sess ? sess.files.flatMap(f => f.results.map(r => r.kind_hint || r.kind)) : []);
   const tiles = cal.months.map(m => { const pct = m.total ? m.ok / m.total : 0; const cls = m.future ? "fut" : pct >= 0.99 ? "full" : pct >= 0.5 ? "part" : pct > 0 ? "low" : "none";
-    return `<button class="mtile ${cls} ${m.ytd ? "ytd" : ""} ${m.month === S.impMonth ? "on" : ""}" data-act="imp-month" data-m="${m.month}" ${m.future ? "disabled" : ""}>${m.ytd ? `<em>Year to date</em>` : ""}<b>${m.short}</b><span class="mring" style="--p:${Math.round(pct * 100)}"></span><small>${m.future ? "—" : `${m.ok}/${m.total}`}</small>${m.locked ? `<i title="Locked">🔒</i>` : ""}</button>`; }).join("");
-  const slots = mon.items.map(it => { const st = found.has(it.kind) ? ["Ready to save", "info"] : IMP_STATUS[it.status] || ["", ""];
-    return `<div class="slot click ${found.has(it.kind) ? "found" : it.status}" data-act="slot" data-kind="${it.kind}" data-name="${esc(it.name)}" data-st="${it.status}" title="${["missing", "older"].includes(it.status) ? "Add this report" : "See, replace or remove"}"><div class="slot-ic">${KIND_ICON[it.kind] || "📄"}</div><div class="slot-b"><b>${esc(it.name)}</b><small>${esc(it.status === "missing" && !found.has(it.kind) ? (cal.guide[it.kind] || "") : (it.label || it.detail || ""))}</small></div><span class="chip ${st[1]}">${st[0]}</span></div>`; }).join("");
+    return `<button class="mtile ${cls} ${m.ytd ? "ytd" : ""} ${m.month === S.impMonth ? "on" : ""}" data-act="imp-month" data-m="${m.month}" ${m.future ? "disabled" : ""}>${m.ytd ? `<em>Year to date</em>` : ""}<b>${m.short}</b><span class="mring" style="--p:${Math.round(pct * 100)}"></span><small>${m.running ? "running" : m.future ? "—" : `${m.ok}/${m.total}`}</small>${m.locked ? `<i title="Locked">🔒</i>` : ""}</button>`; }).join("");
+  const slotRow = it => { const st = found.has(it.kind) ? ["Ready to save", "info"] : IMP_STATUS[it.status] || ["", ""];
+    return `<div class="slot click ${found.has(it.kind) ? "found" : it.status}" data-act="slot" data-kind="${it.kind}" data-name="${esc(it.name)}" data-st="${it.status}" title="${["missing", "older"].includes(it.status) ? "Add this report" : "See, replace or remove"}"><div class="slot-ic">${KIND_ICON[it.kind] || "📄"}</div><div class="slot-b"><b>${esc(it.name)}</b><small>${esc(it.status === "missing" && !found.has(it.kind) ? (cal.guide[it.kind] || "") : (it.label || it.detail || ""))}</small></div><span class="chip ${st[1]}">${st[0]}</span></div>`; };
+  const per = mon.items.filter(it => !it.every), every = mon.items.filter(it => it.every);
+  const slots = per.map(slotRow).join("") + (every.length ? `<div class="slot-sep">Every period · not counted per month</div>` + every.map(slotRow).join("") : "");
   const nres = sess ? sess.files.reduce((a, f) => a + f.results.length, 0) : 0;
   return `<div class="ph"><div><h1>Import data</h1><p>Pick the period (the year-to-date load first, then each month after it), then drop every file you have for it: any report, any layout, any file name. Smart Import works out what each sheet is from its columns, checks it for problems and shows you before anything is saved.</p></div></div>
     ${S.init.unsure_stores ? `<div class="banner">🏬 ${S.init.unsure_stores} store name${S.init.unsure_stores > 1 ? "s were" : " was"} matched with less certainty. <button class="btn sm" data-go="settings" data-tab="stores">Check store names</button></div>` : ""}
@@ -3372,7 +3374,10 @@ function slotVerdict(r, name) {
     <ul class="sl-checks">${(r.checks || []).map(c => { const l = SLOT_LV[c.level] || SLOT_LV.info; return `<li class="${l[1]}"><span>${l[0]}</span>${esc(c.text)}</li>`; }).join("")}</ul>
     ${cols.length ? `<details class="sl-map" ${r.status === "bad" ? "open" : ""}><summary>Which column is which? <small>change any match and press Read again — P&O remembers it for this layout</small></summary>
       <div class="sl-grid">${fields.map(f => `<label><span>${esc(f.label)}</span><select class="input sm" data-f="${f.value}">${opt(map[f.value] ?? -1)}</select></label>`).join("")}</div>
-      <div class="row" style="margin-top:8px"><button class="btn sm" data-x="fix">Read again with these columns</button><button class="btn sm ghost" data-x="ai">🤖 Ask AI to match them</button></div></details>` : ""}
+      <div class="row" style="margin-top:8px"><button class="btn sm" data-x="fix">Read again with these columns</button></div></details>` : ""}
+    <div class="sl-agent ${r.status === "good" ? "" : "hot"}"><div><b>🤖 Let AI fix it</b><small>The AI looks at how the file is laid out (titles over two rows, subtotal lines, grouped labels, numbers in front of names, stores across the columns…), P&O makes the fixes on a copy and shows you before and after. Nothing is used until you say so.</small></div>
+      <div class="row"><button class="btn sm primary" data-x="repair">Fix &amp; match with AI</button><button class="btn sm ghost" data-x="repair-own">Fix without AI</button></div></div>
+    <div id="sl-fix"></div>
     ${r.status !== "bad" && (r.checks || []).some(c => c.level === "warn" && /not in this file/.test(c.text)) ? `<div class="sl-extra"><b>Missing a part?</b> <small>Add just that part from another file or pasted cells (e.g. the budget). It is matched store by store and section by section.</small><div id="sl-x"></div></div>` : ""}`;
 }
 async function slotOpen(kind, name, month, replace) {
@@ -3392,6 +3397,28 @@ async function slotOpen(kind, name, month, replace) {
     const fix = $("[data-x=fix]", m), ai = $("[data-x=ai]", m);
     if (fix) fix.onclick = async () => { const mp = {}; $$(".sl-grid select", m).forEach(x => { if (+x.value >= 0) mp[x.dataset.f] = +x.value; }); show(await call("slot_fix", { token, kind, mapping: mp, month })); };
     if (ai) ai.onclick = async () => { ai.disabled = true; ai.textContent = "Asking…"; show(await call("slot_ai", { token, kind, month })); };
+    const fixBox = $("#sl-fix", m);
+    const runFix = async useAi => {
+      fixBox.innerHTML = `<p class="sl-wait">${useAi ? "The AI is studying the layout and planning the fixes…" : "P&O is planning the fixes…"}</p>`;
+      let x; try { x = await call("slot_repair", { token, kind, month, use_ai: useAi }); } catch (e) { fixBox.innerHTML = ""; return; }
+      const lv = SLOT_LV[x.check.status] || SLOT_LV.info;
+      const tbl = rows => `<div class="tbl-wrap sl-tbl"><table class="t">${rows.map((r, k) => `<tr>${r.map(c => k === 0 ? `<th>${esc(c)}</th>` : `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>`;
+      fixBox.innerHTML = `<div class="sl-review"><div class="phd" style="padding:0 0 6px"><h3 style="margin:0">Review the fixed copy</h3><small>${esc(x.engine)}${x.why ? ` · ${esc(x.why)}` : ""}</small></div>
+        ${x.privacy ? `<small class="sl-priv">🔒 ${esc(x.privacy)}</small>` : ""}
+        <ol class="sl-steps">${x.steps.length ? x.steps.map(st => `<li><b>${esc(st.what)}</b>${st.why && st.why !== st.what ? `<small>${esc(st.why)}</small>` : ""}</li>`).join("") : "<li>Nothing needed fixing.</li>"}</ol>
+        <div class="sl-ba"><div><small>Before · ${x.rows_before.toLocaleString("en-US")} rows</small>${tbl(x.before)}</div><div><small>After · ${x.rows_after.toLocaleString("en-US")} rows</small>${tbl(x.after)}</div></div>
+        <div class="sl-v ${lv[1]}"><span>${lv[0]}</span><div><b>${esc(x.check.headline)}</b><small>if you use the fixed copy</small></div></div>
+        <ul class="sl-checks">${(x.check.checks || []).map(c => { const l = SLOT_LV[c.level] || SLOT_LV.info; return `<li class="${l[1]}"><span>${l[0]}</span>${esc(c.text)}</li>`; }).join("")}</ul>
+        <div class="row" style="justify-content:flex-end"><button class="btn sm ghost" data-y="discard">Discard</button><button class="btn sm" data-y="dl">⬇ Download fixed copy</button><button class="btn sm primary" data-y="use" ${x.check.status === "bad" ? "disabled" : ""}>Use the fixed copy</button></div></div>`;
+      $("[data-y=discard]", fixBox).onclick = () => { fixBox.innerHTML = ""; };
+      $("[data-y=dl]", fixBox).onclick = async () => { const d = await call("slot_repair_download", { token });
+        if (d.b64) { const a = document.createElement("a"); a.href = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + d.b64; a.download = d.name; a.click(); } else toast(`Saved: ${d.path}`); };
+      $("[data-y=use]", fixBox).onclick = async () => { show(await call("slot_repair_use", { token, kind, month })); toast("Using the fixed copy ✓"); };
+      fixBox.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    const rp = $("[data-x=repair]", m), ro = $("[data-x=repair-own]", m);
+    if (rp) rp.onclick = () => runFix(true);
+    if (ro) ro.onclick = () => runFix(false);
     if ($("#sl-x", m)) slotGive(m, "sl-x", async p => show(await call("slot_extra", { token, kind, month, ...p })));
   };
   slotGive(m, "sl-give", async p => { $("#sl-out", m).innerHTML = `<p class="sl-wait">Reading, cleaning and checking…</p>`; try { show(await call("slot_read", { kind, month, ...p })); } catch (e) { $("#sl-out", m).innerHTML = ""; } });

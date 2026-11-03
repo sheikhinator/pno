@@ -240,6 +240,19 @@ def build_records(m: Match) -> list[dict]:
             counts[key] = counts.get(key, 0) + n
             raw[key] = (str(st_raw), sec_raw)
         return [{"store": k[0], "store_raw": raw[k][0], "section": k[1], "section_raw": raw[k][1], "count": int(v)} for k, v in counts.items()]
+    if m.kind == "sales_simple" and "section" in mp:
+        # section × store lines (subtotal rows without a store are skipped); department and store totals added up
+        from ..importers import sales_table
+        lines = []
+        for r in t.body:
+            st, sec = g(r, "store"), g(r, "section")
+            a = to_num(g(r, "sales_actual"))
+            if not st or not sec or a is None or re.match(r"^\s*(grand |sub\s*)?total", str(st), re.I):
+                continue
+            lines.append(sales_table.section_line(st, sec, g(r, "section_code") if "section_code" in mp else "", g(r, "department"), a,
+                                                  to_num(g(r, "sales_budget")), to_num(g(r, "sales_ly"))))
+        if lines:
+            return lines + sales_table.add_totals(lines)
     if m.kind == "sales_simple":
         out = []
         for r in t.body:

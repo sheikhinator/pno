@@ -90,7 +90,7 @@ def checklist(db, month: str) -> list[dict[str, Any]]:
     out = []
     for kind, name, how in EXPECTED:
         imps = by_kind.get(kind, [])
-        item = {"kind": kind, "name": name, "status": "missing", "label": "", "age": None, "detail": ""}
+        item = {"kind": kind, "name": name, "status": "missing", "label": "", "age": None, "detail": "", "every": how == "general"}
         if how == "general":
             if imps:
                 last = imps[-1]

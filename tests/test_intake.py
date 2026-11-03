@@ -114,3 +114,80 @@ def test_replace_takes_the_place_of_the_old_import(tmp_path, monkeypatch):
     api.dispatch("slot_save", {"token": r["token"], "kind": "sales", "month": "ytd:2026-09", "replace": old})
     now_ids = [x["id"] for x in api.dispatch("slot_info", {"kind": "sales", "month": "ytd:2026-09"})["imports"]]
     assert len(now_ids) == 1 and now_ids[0] not in old
+
+
+def _merged(tmp_path):
+    p = tmp_path / "Book2.xlsx"
+    subprocess.run([sys.executable, str(Path(__file__).with_name("make_sales_table.py")), str(p), "--merged"], check=True)
+    return p
+
+
+def test_titles_merged_over_two_rows_read_every_section(tmp_path):
+    (r,) = importers.analyze_path(_merged(tmp_path))["results"]
+    assert r.kind == "sales" and r.confidence >= 0.9
+    secs = {x["name"] for x in r.rows if x["level"] == "section"}
+    assert len(secs) >= 10 and any(x["level"] == "dept" for x in r.rows) and {x["period"] for x in r.rows} == {"YTD"}
+
+
+def test_only_store_totals_is_red_when_the_file_has_sections(tmp_path, monkeypatch):
+    from pno import intake
+    from pno.importers.base import ParseResult
+    res = ParseResult(kind="sales", sheet="S", rows=[{"level": "store", "code": "STORE", "name": "Total Store", "store_raw": "LAH Fortress", "actual": 5.0, "budget": 4.0}] * 4)
+    v = intake.verify("sales", res, {"type": "ytd", "from": "2026-01", "to": "2026-09"}, [], False, "store sales", True)
+    assert v["status"] == "bad" and any("Sections: none read" in c["text"] for c in v["checks"])
+
+
+def test_smart_sales_keeps_sections_when_matched(tmp_path):
+    from pno.reader import from_text
+    from pno import smart
+    t = "Shop\tCategory\tPlan\tActual sales\n651 LAH Fortress\tCGD - Beverages\t100\t110\n654 KCH Lucky One\tCGD - Beverages\t90\t80\n651 LAH Fortress\tFFD - Bakery\t50\t55\n"
+    res, _ = smart.read(from_text(t).sheets[0], "x", kind="sales_simple")
+    assert {x["name"] for x in res.rows if x["level"] == "section"} == {"Beverages", "Bakery"}
+    assert any(x["level"] == "store" and x["store_raw"] == "LAH Fortress" and x["actual"] == 165 for x in res.rows)
+
+
+def test_agent_fixes_a_copy_for_review_then_uses_it(tmp_path, monkeypatch):
+    from pno.reader import from_text
+    from pno.smart import repair
+    api = _api(tmp_path, monkeypatch)
+    # titles over two rows + grouped section written once + subtotal lines: a layout no reader takes as it is
+    t = ("Area\tWhere\tYTD\t\n\t\tBudget\tNet Sales\nCGD - Beverages\t651 LAH Fortress\t100,250,300\t110,400,120\n\t654 KCH Lucky One\t90,120,000\t80,555,210\n"
+         "\t\t190,370,300\t190,955,330\nFFD - Bakery\t651 LAH Fortress\t50,300,100\t55,620,900\n\t654 KCH Lucky One\t40,100,500\t45,333,800\n\t\t90,400,600\t100,954,700\n")
+    plan = repair.engine_plan(from_text(t).sheets[0], "sales")
+    assert [o["op"] for o in plan][:1] == ["header"] and any(o["op"] == "fill_down" for o in plan)
+    assert "651" not in repair.ai_prompt(from_text(t).sheets[0], "sales", "store sales", ["store"])      # no cell values to the AI
+    r = api.dispatch("slot_read", {"kind": "sales", "month": "ytd:2026-09", "text": t})
+    x = api.dispatch("slot_repair", {"token": r["token"], "kind": "sales", "month": "ytd:2026-09", "use_ai": False})
+    assert x["steps"] and x["check"]["status"] in ("good", "warn") and x["after"][0][0]
+    d = api.dispatch("slot_repair_download", {"token": r["token"]})
+    assert d.get("path") or d.get("b64")
+    u = api.dispatch("slot_repair_use", {"token": r["token"], "kind": "sales", "month": "ytd:2026-09"})
+    assert u["status"] in ("good", "warn") and any("Fixed:" in c["text"] for c in u["checks"])
+    s = api.dispatch("slot_save", {"token": r["token"], "kind": "sales", "month": "ytd:2026-09"})
+    assert s["done"][0]["results"][0]["status"] == "ok"
+
+
+def test_running_month_is_not_open_and_general_reports_not_counted(tmp_path, monkeypatch):
+    from datetime import date
+    api = _api(tmp_path, monkeypatch)
+    cal = api.dispatch("import_calendar", {"year": date.today().year})
+    cur = date.today().strftime("%Y-%m")
+    for m in cal["months"]:
+        if m["month"] == cur:
+            assert m["running"] and m["future"]
+        assert m["total"] == len([i for i in m["items"] if not i["every"]])
+
+
+def test_ai_plan_is_applied_on_a_copy(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    seen = {}
+
+    def fake(prompt, **kw):
+        seen["p"] = prompt
+        return ('{"ops": [{"op": "header", "rows": [0, 1], "why": "two title rows"}, {"op": "drop_blank", "columns": [4], "why": "subtotals"}],'
+                ' "mapping": {}, "why": "merged titles"}', "groq")
+    monkeypatch.setattr(api.agent, "complete", fake)
+    r = api.dispatch("slot_read", {"kind": "productivity", "month": "ytd:2026-09", "paths": [str(_merged(tmp_path))]})
+    x = api.dispatch("slot_repair", {"token": r["token"], "kind": "sales", "month": "ytd:2026-09", "use_ai": True})
+    assert x["engine"] == "groq" and len(x["steps"]) == 2 and "Fortress" not in seen["p"]
+    assert x["check"]["status"] in ("good", "warn")

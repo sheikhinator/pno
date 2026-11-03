@@ -52,17 +52,25 @@ def _header(sheet: Sheet) -> tuple[int, list[str], str] | None:
     rows = sheet.rows
     for i, row in enumerate(rows[:25]):
         h = [norm(c) for c in row]
-        if _find(h, COLS["store"]) is None or _find(h, COLS["section"]) is None:
-            continue
         above = [norm(c) for c in rows[i - 1]] if i else []
+        w = max(len(h), len(above))
+        h, above = h + [""] * (w - len(h)), (above + [""] * (w - len(above))) if above else []
+        # titles over two rows: a title merged down (filled above, blank here) or a group heading over several columns
         group, carry = [], ""
-        for j in range(len(h)):
-            carry = (above[j] if j < len(above) and above[j] else carry) if above else ""
-            group.append(carry)
-        heads = [f"{g} {x}".strip() if g and x else x for g, x in zip(group, h)]
-        if _find(heads, VALS["actual"]) is None:
+        for j in range(w):
+            if above and above[j]:
+                carry = above[j]
+            elif not h[j] or (j and not h[j - 1]):
+                carry = ""
+            group.append(carry if above else "")
+        merged = [" ".join(x for x in (g, t) if x) for g, t in zip(group, h)]
+        # vertical merges only (a title above a blank cell), for when a report title sits over the whole table
+        vert = [t or (above[j] if above else "") for j, t in enumerate(h)]
+        heads = next((c for c in (merged, vert, h) if _find(c, COLS["store"]) is not None and _find(c, COLS["section"]) is not None
+                      and _find(c, VALS["actual"]) is not None), None)
+        if heads is None:
             continue
-        text = " ".join(group + h)
+        text = " ".join(heads + above)
         period = "YTD" if re.search(r"\bYTD\b|YEAR TO DATE", text) else "MTD" if re.search(r"\bMTD\b|MONTH TO DATE", text) else ""
         return i, heads, period
     return None
@@ -170,3 +178,44 @@ def parse(sheet: Sheet) -> ParseResult:
     res.needs = ["month"]
     res.extra = {**res.extra, "columns_read": {f: heads[j] for f, j in {**c, **v}.items() if j is not None}}
     return res
+
+
+def section_line(store_raw, section_raw, code_raw, dept_raw, a, b, ly, period: str = "MTD") -> dict:
+    """One section × store line, cleaned the same way as the flat table ('651 LAH Fortress', 'CGD - Beverages')."""
+    store = re.sub(r"^\d{2,4}\s+", "", clean_text(store_raw)).strip()
+    sec = clean_text(section_raw)
+    m = re.match(r"^([SX])\s*(\d{3})", clean_text(code_raw).upper()) or re.match(r"^([SX])\s*(\d{3})", sec.upper())
+    code = f"{m.group(1)}{m.group(2)}" if m else ""
+    name = re.sub(r"^[A-Z&]{2,4}\s*-\s*", "", sec).strip()
+    dept = DEPT_CODE.get(norm(clean_text(dept_raw)), "") or {"CGD": "01", "FFD": "02", "LHH": "03", "HHH": "04", "TXT": "05", "H&B": "06"}.get(
+        (re.match(r"^([A-Z&]{2,4})\s*-", sec.upper()) or [None, ""])[1], "")
+    return {"level": "section" if (not code or code.startswith("S")) else "consignment_item", "code": code or f"N:{name}", "name": name, "dept": dept,
+            "store_raw": store, "period": period, "as_of": None, "d_from": None, "actual": a, "budget": b, "ly": ly,
+            "growth": round(100 * (a / ly - 1), 1) if a is not None and ly else None,
+            "var_pct": round(100 * (a / b - 1), 1) if a is not None and b else None}
+
+
+def add_totals(rows: list[dict]) -> list[dict]:
+    """Department and store totals added up from section lines."""
+    totals: dict[tuple, dict] = {}
+    for r in rows:
+        for level, dept in (("dept", r.get("dept")), ("store", "")):
+            if level == "dept" and not dept:
+                continue
+            t = totals.setdefault((r["store_raw"], level, dept or ""), {"a": 0.0, "b": 0.0, "ly": 0.0, "hb": False, "lok": True})
+            t["a"] += r.get("actual") or 0
+            if r.get("budget"):
+                t["b"] += r["budget"]
+                t["hb"] = True
+            if r.get("ly") is None:
+                t["lok"] = t["lok"] and not r.get("actual")
+            else:
+                t["ly"] += r["ly"]
+    out = []
+    for (store, level, dept), t in totals.items():
+        a, b, ly = t["a"], (t["b"] if t["hb"] else None), (t["ly"] if t["lok"] and t["ly"] else None)
+        out.append({"level": level, "code": f"D{dept}" if level == "dept" else "STORE", "name": DEPT_NAME.get(dept, "Total Store") if level == "dept" else "Total Store",
+                    "dept": dept, "store_raw": store, "period": rows[0].get("period", "MTD") if rows else "MTD", "as_of": None, "d_from": None,
+                    "actual": a, "budget": b, "ly": ly, "growth": round(100 * (a / ly - 1), 1) if ly else None,
+                    "var_pct": round(100 * (a / b - 1), 1) if b else None, "derived": True})
+    return out

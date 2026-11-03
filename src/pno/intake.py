@@ -172,10 +172,10 @@ def sanity(kind: str, rows: list[dict]) -> list[tuple[str, str]]:
     return out
 
 
-def verify(kind: str, res, period: dict, fills: list[str], reread: bool, asked_label: str) -> dict:
+def verify(kind: str, res, period: dict, fills: list[str], reread: bool, asked_label: str, section_col: bool = False) -> dict:
     """Green / amber / red, with every check in plain words."""
     spec = NEEDS.get(kind, {"must": [], "want": []})
-    rows = [r for r in res.rows if spec["only"](r)] or res.rows if spec.get("only") else res.rows
+    rows = res.rows
     checks: list[dict] = []
     add = lambda level, text: checks.append({"level": level, "text": text})  # noqa: E731
     if not rows:
@@ -206,9 +206,15 @@ def verify(kind: str, res, period: dict, fills: list[str], reread: bool, asked_l
             add("good" if not unknown else "warn", f"{len(stores)} store{'s' if len(stores) != 1 else ''} recognised" +
                 (f"; not recognised: {', '.join(unknown[:5])}{'…' if len(unknown) > 5 else ''} (Settings → Stores links them)" if unknown else "."))
     if spec.get("section"):
-        secs = Counter(canon.section(str(r.get(spec["section"]) or "")) for r in rows if r.get(spec["section"]))
+        sec_rows = [r for r in rows if r.get(spec["section"]) and (kind != "sales" or r.get("level") == "section")
+                    and not str(r.get(spec["section"])).lower().startswith("total")]
+        secs = Counter(canon.section(str(r.get(spec["section"]))) for r in sec_rows)
         if secs:
             add("good", f"{len(secs)} section{'s' if len(secs) != 1 else ''}.")
+        elif kind in ("sales", "productivity"):
+            add("bad" if section_col else "warn",
+                "Sections: none read — only store totals came out" + (", although the file has a section column. Let AI fix the file, or match the columns."
+                                                                       if section_col else ". Section and department screens will show '—'."))
     if spec.get("city"):
         cities = sorted({r.get("city") for r in rows if r.get("city")})
         fmts = Counter(r.get("format") or "Hypermarket" for r in rows)
@@ -223,10 +229,10 @@ def verify(kind: str, res, period: dict, fills: list[str], reread: bool, asked_l
         add("info", w)
     for f in fills:
         add("info", f)
-    status = "bad" if missing_must else ("warn" if any(c["level"] == "warn" for c in checks) else "good")
+    status = "bad" if missing_must or any(c["level"] == "bad" for c in checks) else ("warn" if any(c["level"] == "warn" for c in checks) else "good")
     head = {"good": f"This is {asked_label}, and everything needed is there.",
             "warn": f"This is {asked_label}. Some parts are missing or were changed: check the list, then save.",
-            "bad": f"This doesn't give {asked_label}: " + ", ".join(missing_must) + " missing."}[status]
+            "bad": f"This doesn't give {asked_label}: " + (", ".join(missing_must) + " missing." if missing_must else "see the red lines below.")}[status]
     return {"status": status, "checks": checks, "headline": head}
 
 

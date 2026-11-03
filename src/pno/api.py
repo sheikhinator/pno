@@ -464,20 +464,22 @@ class Api:
 
         def slot(key, kind):
             cl = datahealth.checklist(self.db, key)
-            ok = sum(1 for c in cl if c["status"] in ("ok", "derived"))
-            items = [{"kind": c["kind"], "name": c["name"], "status": c["status"], "label": c["label"], "detail": c["detail"]} for c in cl]
+            per = [c for c in cl if not c.get("every")]        # the employee master, roles and ratings serve every period: not counted per month
+            ok = sum(1 for c in per if c["status"] in ("ok", "derived"))
+            items = [{"kind": c["kind"], "name": c["name"], "status": c["status"], "label": c["label"], "detail": c["detail"], "every": c.get("every", False)} for c in cl]
+            running = key == cur                               # the month isn't over yet: nothing to load for it
             if kind == "ytd":
                 return {"month": f"ytd:{key}", "end": key, "ytd": True, "label": f"Jan–{date(y, int(key[5:]), 1):%b} {y} · year to date",
-                        "short": f"Jan–{date(y, int(key[5:]), 1):%b}", "ok": ok, "total": len(cl), "future": key > cur, "locked": key in locked,
-                        "items": items, "set": bool(base)}
+                        "short": f"Jan–{date(y, int(key[5:]), 1):%b}", "ok": ok, "total": len(per), "future": key > cur, "running": False,
+                        "locked": key in locked, "items": items, "set": bool(base)}
             m = int(key[5:])
-            return {"month": key, "label": ml(key), "short": date(y, m, 1).strftime("%b"), "ok": ok, "total": len(cl), "future": key > cur,
-                    "locked": key in locked, "items": items}
+            return {"month": key, "label": ml(key), "short": date(y, m, 1).strftime("%b"), "ok": ok, "total": len(per), "future": key >= cur,
+                    "running": running, "locked": key in locked, "items": items}
         if b:
             months = [slot(b, "ytd")] + [slot(f"{y}-{m:02d}", "mtd") for m in range(int(b[5:]) + 1, 13)]
         else:
             months = [slot(f"{y}-{m:02d}", "mtd") for m in range(1, 13)]
-        return {"year": y, "months": months, "today": cur, "guide": IMPORT_GUIDE, "baseline": base, "ytd_end_choices": [f"{y}-{m:02d}" for m in range(1, 13) if f"{y}-{m:02d}" <= cur]}
+        return {"year": y, "months": months, "today": cur, "guide": IMPORT_GUIDE, "baseline": base, "ytd_end_choices": [f"{y}-{m:02d}" for m in range(1, 13) if f"{y}-{m:02d}" < cur or f"{y}-{m:02d}" == b]}
 
     def api_import_analyze(self, paths: list | None = None, text: str | None = None, name: str = "Pasted data", month: str | None = None) -> dict:
         analyses = []
@@ -691,7 +693,9 @@ class Api:
         for note in sess.get("merged", []):
             res.warn(note)
         fills = intake.fill(self, kind, res.rows, r["period"])
-        v = intake.verify(kind, res, r["period"], fills, reread, label)
+        cols_now = [c for c in (r.get("columns") or []) if "index" in c] or self._sheet_columns(a, res.sheet)
+        sec_col = any(re.search(r"section|category|sub ?dep", str(c.get("header") or ""), re.I) for c in cols_now)
+        v = intake.verify(kind, res, r["period"], fills, reread, label, sec_col)
         return {"token": token, "kind": kind, "file": a["file"], "sheet": res.sheet, "period": r["period"], **v,
                 "columns": [c for c in (r.get("columns") or []) if "index" in c] or self._sheet_columns(a, res.sheet), "mapping": r.get("mapping") or [], "fields": self._slot_fields(kind),
                 "preview": r.get("preview") or [], "confidence": r.get("confidence"), "summary": r.get("summary")}
@@ -769,6 +773,105 @@ class Api:
         r = self._slot_result(token, kind, month if not (month or "").startswith("ytd:") else month[4:])
         r["ai_note"] = note
         return r
+
+    # ------------------------------------------------ 4.3.1 the AI fixes a copy of the data, the director reviews it
+    def api_slot_repair(self, token: str, kind: str, month: str | None = None, use_ai: bool = True) -> dict:
+        """Plan the clean-up (AI, else P&O's own engine), make it on a copy, read the copy as the report and show it for review.
+        Nothing replaces the original until the director presses 'Use the fixed copy'."""
+        from . import intake, smart
+        from .smart import repair
+        sess = self.sessions.get(token)
+        if not sess or not sess.get("pick"):
+            raise ValueError("This preview has expired. Please add the file again.")
+        file, sheet = sess["pick"]
+        a, i = self._session_sheet(token, file, sheet)
+        sheets = a.get("sheets") or {}
+        src = sheets.get(sess.get("orig_sheet") or sheet) or sheets.get(sheet)
+        if src is None:
+            raise ValueError("The sheet can't be found any more. Please add the file again.")
+        sess.setdefault("orig_sheet", src.name)
+        label = {"sales": "store sales"}.get(kind, importers.KIND_LABEL.get(kind, kind))
+        skind = "sales_simple" if kind == "sales" else kind
+        fields = [f["value"] for f in self._slot_fields(kind)]
+        engine, why, ops, mapping = "P&O engine", "", [], {}
+        if use_ai:
+            try:
+                out = self.agent.complete(repair.ai_prompt(src, kind, label, fields), max_tokens=900, task="import",
+                                          system="You plan spreadsheet clean-ups for an HR analytics app. Reply with JSON only.")
+                if out and out[0]:
+                    ops, mapping, why = repair.parse_plan(out[0], len(src.rows[0]) if src.rows else 0)
+                    engine = out[1] or "AI"
+            except Exception as e:  # noqa: BLE001 - the engine plans instead
+                why = f"The AI couldn't plan it ({str(e)[:80]}); P&O's own engine did."
+        own = repair.engine_plan(src, kind)
+        if not ops:
+            ops, engine = own, ("P&O engine" if engine == "P&O engine" or not use_ai else f"{engine} + P&O engine")
+            if use_ai and not why:
+                why = "No AI is set up (Settings → AI); P&O's own engine planned the clean-up." if engine == "P&O engine" else why
+        elif not any(o["op"] == "header" for o in ops) and any(o["op"] == "header" for o in own):
+            ops = [o for o in own if o["op"] == "header"] + ops       # the engine is sure the titles span two rows
+        fixed, log = repair.apply(src, ops)
+        a.setdefault("sheets", {})[fixed.name] = fixed
+        from .importers import _read_as_is
+        from .importers.base import ParseResult
+        res = _read_as_is(fixed, file)                       # an exact reader first (the cleaned copy often fits one)
+        if res is not None and (res.kind != kind or (res.extra.get("smart") and mapping)):
+            res = None
+        if res is None:
+            try:
+                res = importers.reparse(a, ParseResult(kind="dataset", sheet=fixed.name), kind,
+                                        {f: j for f, j in mapping.items() if f in smart.FIELDS} or None)
+            except ValueError:
+                res = None
+        sess["repair"] = {"sheet": fixed.name, "res": res, "log": log}
+        if res is None or not res.rows:
+            v = {"status": "bad", "headline": f"Even after the clean-up this can't be read as {label}.", "checks": []}
+        else:
+            per = importers.guess_period(a, res)
+            if sess.get("ytd") and month:
+                mo = month[4:] if month.startswith("ytd:") else month
+                per.update(type="ytd", to=mo, **{"from": f"{mo[:4]}-01"})
+            sec_col = any(re.search(r"section|category|sub ?dep", str(h or ""), re.I) for h in (fixed.rows[0] if fixed.rows else []))
+            v = intake.verify(kind, res, per, [], False, label, sec_col)
+        return {"token": token, "engine": engine, "why": why, "steps": log, "rows_before": len(src.rows), "rows_after": len(fixed.rows),
+                "before": repair.preview(src, 8), "after": repair.preview(fixed, 10), "check": v,
+                "privacy": "The AI saw only the column titles and the shape of the cells, never the figures or names." if use_ai and engine != "P&O engine" else ""}
+
+    def api_slot_repair_use(self, token: str, kind: str, month: str | None = None) -> dict:
+        sess = self.sessions.get(token)
+        if not sess or not sess.get("repair") or sess["repair"].get("res") is None:
+            raise ValueError("There is no fixed copy to use. Run the fix again.")
+        file, sheet = sess["pick"]
+        a, i = self._session_sheet(token, file, sheet)
+        rp = sess.pop("repair")
+        a["results"][i] = rp["res"]
+        for st in rp["log"]:
+            rp["res"].warn(f"Fixed: {st['what']}")
+        sess["pick"] = (file, rp["sheet"])
+        sess["fixed"] = True
+        return self._slot_result(token, kind, month if not (month or "").startswith("ytd:") else month[4:])
+
+    def api_slot_repair_download(self, token: str) -> dict:
+        """A copy of the fixed sheet as Excel, to keep or check."""
+        import base64
+        from .smart import repair
+        sess = self.sessions.get(token)
+        rp = (sess or {}).get("repair")
+        name = rp["sheet"] if rp else ((sess or {}).get("pick") or ("", ""))[1]
+        file = ((sess or {}).get("pick") or ("", ""))[0]
+        sh = None
+        for a in (sess or {}).get("analyses", []):
+            sh = (a.get("sheets") or {}).get(name) or sh
+        if sh is None:
+            raise ValueError("Nothing to download yet.")
+        data = repair.to_xlsx(sh)
+        fname = f"{Path(file).stem or 'Data'} (fixed by P&O).xlsx"
+        path = self.host.save_path(fname, "Excel (*.xlsx)")
+        if path:
+            Path(path).write_bytes(data)
+            self.host.open_path(str(Path(path).parent))
+            return {"path": str(path), "name": fname}
+        return {"b64": base64.b64encode(data).decode(), "name": fname}
 
     def api_slot_extra(self, token: str, kind: str, month: str | None = None, paths: list | None = None, files: list | None = None,
                        text: str | None = None) -> dict:

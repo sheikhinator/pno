@@ -53,7 +53,9 @@ def build(m: mapper.Match, sheet: Sheet, file_name: str = "") -> ParseResult | N
         if kind == "sales":
             for r in rows:
                 r.update(period="MTD", as_of=None, d_from=None)
-            res.summary = f"{len(rows)} stores · sales{' vs budget' if any(r.get('budget') for r in rows) else ''}"
+            secs = {r["name"] for r in rows if r.get("level") == "section"}
+            stores = {r["store_raw"] for r in rows}
+            res.summary = f"{len(stores)} stores" + (f" · {len(secs)} sections" if secs else "") + f" · sales{' vs budget' if any(r.get('budget') for r in rows) else ''}"
             res.needs = ["month"]
         elif kind == "po_nps":
             res.summary = f"{len(rows)} NPS scores · {', '.join(sorted({r['city'] for r in rows}))}"
@@ -73,7 +75,8 @@ def build(m: mapper.Match, sheet: Sheet, file_name: str = "") -> ParseResult | N
     res.extra = {**res.extra, "smart": True, "mapping": m.describe(), "why": m.why,
                  "columns": [{"index": c.index, "header": c.header, "examples": c.examples[:3]} for c in (m.table.columns if m.table else [])],
                  "table_title": m.table.title if m.table else ""}
-    res.warn(f"Read by Smart Import as {KIND_LABEL.get(res.kind, res.kind)} from its columns ({round(100 * m.score)}% sure). "
+    sure = f"{round(100 * m.score)}% sure" if m.score >= 0.3 else "read this way because you asked for this report"
+    res.warn(f"Read by Smart Import as {KIND_LABEL.get(res.kind, res.kind)} from its columns ({sure}). "
              "Check the column matches if anything looks wrong.")
     return res
 

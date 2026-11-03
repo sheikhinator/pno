@@ -23,4 +23,7 @@ for d, s, c in SECS:
         ws.append([d, s, c, t, n, b, a]); tb += b; ta += a
     ws.append([d, s, None, None, None, tb, ta])
     for cell in ws[ws.max_row]: cell.fill = yellow
+if "--merged" in sys.argv:          # the real export: titles merged down over rows 1-2, 'YTD' over Budget | Net Sales
+    for col in "ABCDE":
+        ws[f"{col}1"] = ws[f"{col}2"].value; ws[f"{col}2"] = None; ws.merge_cells(f"{col}1:{col}2")
 wb.save(sys.argv[1])

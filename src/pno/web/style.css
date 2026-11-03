@@ -1199,3 +1199,24 @@ h1,h2,h3,.rt-v,.pscore b,.kpi-v{font-family:var(--f-num);letter-spacing:-.02em}
 .sl-paste{margin-top:8px}.sl-paste textarea{width:100%;font-family:ui-monospace,monospace;font-size:12px}
 .sl-imp{display:flex;gap:12px;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line-2)}
 .sl-imp small{display:block;color:var(--muted);font-size:12px}
+.slot-sep{font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:10px 2px 2px}
+
+.sl-agent{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:10px 0;padding:10px 12px;border:1px dashed var(--line);border-radius:12px}
+.sl-agent.hot{border-style:solid;border-color:var(--brand);background:var(--gold-soft)}
+.sl-agent small{display:block;color:var(--muted);font-size:12px;max-width:52ch}
+.sl-review{margin:10px 0;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
+.sl-priv{display:block;color:var(--muted);margin-bottom:6px}
+.sl-steps{margin:6px 0 10px;padding-left:20px;display:grid;gap:4px;font-size:13px}.sl-steps small{display:block;color:var(--muted)}
+.sl-ba{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sl-ba>div>small{color:var(--muted);font-size:11.5px}
+.sl-tbl{max-height:220px;overflow:auto;border:1px solid var(--line-2);border-radius:10px}.sl-tbl .t{font-size:11px}.sl-tbl td,.sl-tbl th{white-space:nowrap;padding:3px 6px}
+@media (max-width:760px){.sl-ba{grid-template-columns:1fr}.sl-agent{flex-direction:column;align-items:flex-start}}
+
+/* 4.3.1 frozen headers: every table keeps its title rows (and the review tables their name column) in view while scrolling */
+.tbl-wrap{max-height:min(76vh,920px);overscroll-behavior:contain}
+table.t thead{position:sticky;top:0;z-index:4}
+table.t thead th{position:static;background:var(--card);box-shadow:inset 0 -1px 0 var(--line)}
+table.t thead tr.pfrow th{background:var(--card);padding-top:4px;padding-bottom:6px}
+.rtable tbody td:first-child,.rtable thead th:first-child{position:sticky;left:0;z-index:2;background:var(--card);box-shadow:inset -1px 0 0 var(--line-2)}
+.rtable thead th:first-child{z-index:5}
+.rtable tr.click:hover td:first-child{background:var(--card-2)}
+.sl-tbl{max-height:220px}

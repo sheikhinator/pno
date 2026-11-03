@@ -113,6 +113,8 @@ FIELDS: dict[str, F] = {
                       "sales mtd", "sales ytd", "actual sales"], fit=lambda c: c.f("money"), avoid=["budget", "target", "ly", "last year", "%"]),
     "sales_budget": F(label="Sales budget", syn=["budget", "net sales budget", "sales budget", "target sales", "plan", "sales target",
                       "budget sales"], fit=lambda c: c.f("money"), avoid=["%", "var"]),
+    "section_code": F(label="Section code", syn=["code", "section code", "sec code", "category code", "sub dept code"],
+                      fit=lambda c: 0.9 if c.n and all(re.match(r"^[SX]\s*\d{3}", str(e).strip(), re.I) for e in c.examples[:3] if e) and c.examples else 0.0),
     "sales_ly": F(label="Sales last year", syn=["ly", "last year", "sales ly", "previous year", "ly sales", "prior year"],
                   fit=lambda c: c.f("money"), avoid=["%", "gth", "growth"]),
 }
@@ -141,7 +143,7 @@ KINDS: dict[str, dict] = {
                          never=["employee_id", "employee_name", "time_in", "shrink_actual"], label="Productivity"),
     "po_shrink": dict(need=["store", ("shrink_actual", "stock_days_actual")], want=["section", "shrink_budget", "stock_days_budget"], min_want=1,
                       never=["employee_id", "employee_name", "time_in"], label="Shrinkage & stock days"),
-    "sales_simple": dict(need=["store", "sales_actual"], want=["sales_budget", "sales_ly"], min_want=1,
+    "sales_simple": dict(need=["store", "sales_actual"], want=["sales_budget", "sales_ly", "section", "department", "section_code"], min_want=1,
                          never=["employee_id", "employee_name"], label="Store sales (table)"),
 }
 
