@@ -40,3 +40,18 @@ def test_first_quick_load_is_ytd(tmp_path, monkeypatch):
     f = _file(tmp_path, "YTD Sales SEP.csv", "Store,Net Sales,Budget,LY\nLAH Fortress,900,950,800\nKCH Lucky One,1800,1700,1600\n")
     a = api.dispatch("import_analyze", {"paths": [f]})
     assert a["slot"] == "ytd" and a["files"][0]["results"][0]["period"]["type"] == "ytd"
+
+
+def test_ytd_slot_survives_older_data_and_reimports(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    f = _file(tmp_path, "Store sales.csv", "Store,Net Sales,Budget,LY\nLAH Fortress,900,950,800\nKCH Lucky One,1800,1700,1600\n")
+    api.db.set_setting("ytd_baseline", None)
+    a = api.dispatch("import_analyze", {"paths": [f], "month": "2026-09"})        # loaded month-style, as before 4.2.2
+    api.dispatch("import_commit", {"token": a["token"], "options": {}})
+    api.db.set_setting("ytd_baseline", None)
+    cal = api.dispatch("import_calendar", {"year": 2026})
+    assert cal["months"][0].get("ytd") and cal["months"][0]["end"] == "2026-09"
+    a = api.dispatch("import_analyze", {"paths": [f]})                             # re-import through Update data
+    api.dispatch("import_commit", {"token": a["token"], "options": {}})
+    assert api.dispatch("import_calendar", {"year": 2026})["months"][0].get("ytd")
+    assert [s["label"] for s in api.api_review()["period"]["slots"]] == ["Jan 2026–Sep 2026 (YTD)"]

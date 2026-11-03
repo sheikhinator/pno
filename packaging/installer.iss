@@ -2,7 +2,7 @@
 ; Built by .github/workflows/build.yml:  ISCC /DAppVersion=1.0.0 /DSourceDir=dist\PNO packaging\installer.iss
 
 #ifndef AppVersion
-  #define AppVersion "4.2.3"
+  #define AppVersion "4.2.4"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\dist\PNO"

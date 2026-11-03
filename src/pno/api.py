@@ -414,13 +414,21 @@ class Api:
     SUMMARY_KINDS = ("sales", "productivity", "po_shrink", "po_nps", "po_da")
 
     def ytd_baseline(self) -> str | None:
-        """The month the year-to-date load runs to (Jan–that month), after which data comes month by month."""
+        """The month the year-to-date load runs to (Jan–that month), after which data comes month by month. Once known it is
+        saved, so re-importing or replacing a file can never make the year-to-date slot disappear."""
         b = self.db.get_setting("ytd_baseline", None)
         if b:
             return b
+        k = ",".join("?" * len(self.SUMMARY_KINDS))
         r = self.db.q1(f"""SELECT MAX(period_to) FROM imports WHERE active=1 AND period_type='ytd' AND substr(period_from,6,2)='01'
-                           AND kind IN ({",".join("?" * len(self.SUMMARY_KINDS))})""", self.SUMMARY_KINDS)
-        return r[0] if r and r[0] else None
+                           AND kind IN ({k})""", self.SUMMARY_KINDS)
+        if not (r and r[0]):
+            # data loaded before 4.2.2 (or month by month): the year to date runs to the latest month any summary report covers
+            r = self.db.q1(f"SELECT MAX(period_to) FROM imports WHERE active=1 AND period_type IN ('ytd','mtd') AND kind IN ({k})", self.SUMMARY_KINDS)
+        if r and r[0]:
+            self.db.set_setting("ytd_baseline", r[0])
+            return r[0]
+        return None
 
     def api_ytd_baseline(self, month: str | None = None) -> dict:
         if month and not re.fullmatch(r"\d{4}-\d\d", month):
@@ -1768,6 +1776,12 @@ class Api:
             seen.add((t, f, to))
             lab = f"{_ml(f)}–{_ml(to)} (YTD)" if t == "ytd" else _ml(to)
             slots.append({"type": t, "from": f if t == "ytd" else to, "to": to, "label": lab})
+        base = self.ytd_baseline()
+        if base:
+            keep = [x for x in slots if (x["type"] == "ytd" and x["to"] == base and (x["from"] or "").endswith("-01")) or (x["type"] == "mtd" and x["to"] > base)]
+            if not any(x["type"] == "ytd" for x in keep):
+                keep.insert(0, {"type": "ytd", "from": f"{base[:4]}-01", "to": base, "label": f"{_ml(base[:4] + '-01')}–{_ml(base)} (YTD)"})
+            slots = keep
         return {"slots": slots, "view": ins.view, "label": ins.view_label, "notes": ins.notes, "leaver_window": ins.leaver_window,
                 "sales_label": ins.periods.get("po_sales") or "",
                 "months": [{"value": m, "label": _ml(m)} for m in ins.available["months"]], "types": ins.available["types"],
