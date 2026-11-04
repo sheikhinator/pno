@@ -447,7 +447,8 @@ def person(api, emp: str = "", key: str = "") -> dict:
         vs = [v for v in vs if v is not None]
         bench[c["key"]] = round(median(vs), 1) if len(vs) >= 3 else None
     a = next((r for r in rv.att() if r["emp"] == str(l.employee_id)), None)
-    return {"row": row, "criteria": {k: {"label": v["label"], "fmt": v["fmt"], **rv.t[k]} for k, v in CRITERIA.items()}, "peer_median": bench,
+    return {"row": row, "criteria": {k: {"label": v["label"], "fmt": v["fmt"], "better": v["better"], "count": bool(v.get("count")), **rv.t[k]}
+                                     for k, v in CRITERIA.items()}, "peer_median": bench,
             "peers": len(peers), "ratings": ratings, "trend": trend, "components": comps,
             "peer_scores": [next((x["value"] for x in p["cells"] if x["key"] == "score"), None) for p in peers if p.get("key") != row.get("key")],
             "weights": {k: {"weight": v["weight"], "show": v["show"]} for k, v in rv.cfg.items()},

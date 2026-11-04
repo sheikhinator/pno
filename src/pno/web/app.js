@@ -2190,49 +2190,77 @@ async function rvPerson(emp, key, tab = "results") {
   const rt = $("#pp-rat", m);
   if (rt) Charts.columns(rt, { labels: p.ratings.map(x => x.cycle || ""), series: [{ name: "Rating", values: p.ratings.map(x => x.rating), colors: p.ratings.map(x => x.rating >= 4 ? "#16A34A" : x.rating >= 3 ? "#F59E0B" : "#DC2626") }], height: 170, fmt: "score" });
 }
-/* what if: this person's score with other criteria and weights (nothing is saved unless asked) */
+/* what if: this person's score with other criteria, weights and lines — a small criteria screen for one person */
+function wifPoints(c, v, g, a) {
+  if (v == null || g == null || a == null || g === "" || a === "") return null;
+  const up = c.better !== "down"; let x = up ? v : -v; [g, a] = up ? [+g, +a] : [-g, -a];
+  const span = Math.max(Math.abs(g - a), 1e-9); let p;
+  if (c.count && x >= g) p = 10; else if (x >= g) p = 7 + 3 * Math.min(1, (x - g) / span); else if (x >= a) p = 5 + 2 * (x - a) / span; else p = 5 * Math.max(0, 1 - (a - x) / (2 * span));
+  return Math.round(100 * Math.max(0, Math.min(10, p))) / 100;
+}
 function rvWhatIf(p, m) {
-  const box = $("#wif", m), r = p.row, C = p.criteria, pts = r.points || {};
-  const keys = Object.keys(pts).filter(k => C[k]);
+  const box = $("#wif", m), r = p.row, C = p.criteria, val = Object.fromEntries(r.cells.map(c => [c.key, c.value]));
+  const keys = Object.keys(C).filter(k => k !== "score" && val[k] != null && C[k].green != null);
   if (keys.length < 3) { box.innerHTML = ""; return; }
-  const base = {}; keys.forEach(k => { const w = p.weights[k] || { weight: 0, show: true }; base[k] = { on: w.show && w.weight > 0, w: w.weight }; });
+  const base = {}; keys.forEach(k => { const w = p.weights[k] || { weight: 0, show: true }; base[k] = { on: w.show && w.weight > 0, w: w.weight, g: C[k].green, a: C[k].amber }; });
   const st = JSON.parse(JSON.stringify(base));
   const sc0 = (r.cells.find(c => c.key === "score") || {}).value;
   const peers = (p.peer_scores || []).filter(x => x != null), n = peers.length + 1;
   const rankOf = v => v == null ? null : 1 + peers.filter(x => x > v).length;
-  const g = (C.score || {}).green ?? 7, a = (C.score || {}).amber ?? 5;
-  const cls = v => v == null ? "" : v >= g ? "good" : v >= a ? "warn" : "bad";
-  const calc = () => { const on = keys.filter(k => st[k].on && st[k].w > 0), tw = on.reduce((t, k) => t + st[k].w, 0);
-    return { tw, v: on.length >= 3 && tw ? Math.round(10 * on.reduce((t, k) => t + pts[k] * st[k].w, 0) / tw) / 10 : null }; };
-  box.innerHTML = `<div class="wif-h"><div><h4>What if?</h4><small>Change what counts for ${esc(r.name.split(" ")[0])} and how much. Only this view changes; nothing is saved unless you press “Use for everyone”.</small></div>
-      <div class="row" style="gap:6px"><button class="btn sm ghost" id="wif-reset">Reset</button><button class="btn sm" id="wif-all">Use for everyone</button></div></div>
-    <div class="wif-b"><div class="wif-list">${keys.map(k => `<div class="wif-r" data-k="${k}"><label class="switch sm"><input type="checkbox" ${st[k].on ? "checked" : ""}><span></span></label>
-        <div class="wif-n"><b>${esc(C[k].label)}</b><small>${RVF(k, r.cells.find(c => c.key === k).value)} · <span class="pt ${pts[k] >= 7 ? "good" : pts[k] >= 5 ? "warn" : "bad"}">${pts[k].toFixed(1)}/10</span></small></div>
-        <input type="range" min="0" max="40" step="1" value="${st[k].w}"><b class="wif-w">${st[k].w}</b><span class="wif-s"></span></div>`).join("")}</div>
-      <div class="wif-card"><small>Score · now → what if</small><div class="wif-sc"><span class="rc-pill ${cls(sc0)}" id="wif-old">${sc0 ?? "—"}</span><span class="wif-arrow">→</span><span class="rc-pill big" id="wif-new"></span></div>
-        <div class="wif-d" id="wif-d"></div><small>Place among ${n} ${esc(r.role || "")}s</small><div class="wif-rank" id="wif-rank"></div><div class="wif-bars" id="wif-bars"></div></div></div>`;
+  const sg = (C.score || {}).green ?? 7, sa = (C.score || {}).amber ?? 5;
+  const cls = v => v == null ? "" : v >= sg ? "good" : v >= sa ? "warn" : "bad";
+  const pc = v => v == null ? "" : v >= 7 ? "good" : v >= 5 ? "warn" : "bad";
+  const pt = k => wifPoints(C[k], val[k], st[k].g, st[k].a);
+  const calc = () => { const on = keys.filter(k => st[k].on && st[k].w > 0 && pt(k) != null), tw = on.reduce((t, k) => t + st[k].w, 0);
+    return { tw, on, v: on.length >= 3 && tw ? Math.round(10 * on.reduce((t, k) => t + pt(k) * st[k].w, 0) / tw) / 10 : null }; };
+  const u = k => ({ pct0: "%", pct1: "%", pct1s: "%", pp2s: " pts" }[C[k].fmt] || "");
+  box.innerHTML = `<div class="wif-h"><div><h4>What if? · criteria for ${esc(r.name)}</h4><small>Switch criteria on or off, change their weight and where green and amber start. The score, the colours and the place update as you go.</small></div></div>
+    <div class="wif-strip"><div class="wif-k"><small>Score</small><div class="wif-sc"><span class="rc-pill ${cls(sc0)}">${sc0 ?? "—"}</span><span class="wif-arrow">→</span><span class="rc-pill big" id="wif-new"></span><span class="wif-d" id="wif-d"></span></div></div>
+      <div class="wif-k"><small>Place among ${n} ${esc(r.role || "")}s</small><div class="wif-rank" id="wif-rank"></div></div>
+      <div class="wif-act"><button class="btn sm ghost" id="wif-reset">Reset</button>
+        <div class="wif-menu"><button class="btn sm" id="wif-exp">⬇ Export ▾</button><div class="wif-pop" hidden><button data-f="xlsx">Excel</button><button data-f="pdf">PDF</button><button data-f="docx">Word</button></div></div>
+        <button class="btn sm" id="wif-all">Use for everyone</button><button class="btn sm primary" id="wif-save">Save for ${esc(r.name.split(" ")[0])}</button></div></div>
+    <div class="tbl-wrap wif-t"><table class="t"><thead><tr><th></th><th>Criterion</th><th class="n">Result</th><th class="n">Weight</th><th class="n">Green from</th><th class="n">Amber from</th><th class="n">Points /10</th><th class="n">Counts</th></tr></thead><tbody>
+      ${keys.map(k => `<tr class="wif-r" data-k="${k}"><td><label class="switch sm"><input type="checkbox" data-w="on" ${st[k].on ? "checked" : ""}><span></span></label></td>
+        <td><b>${esc(C[k].label)}</b></td><td class="n">${RVF(k, val[k])}</td>
+        <td class="n"><div class="wstep"><input type="range" min="0" max="40" step="1" data-w="r" value="${Math.min(40, st[k].w)}"><button class="btn xs" data-w="-">−</button><input class="input xs num" type="number" min="0" max="100" step="1" data-w="w" value="${st[k].w}"><button class="btn xs" data-w="+">+</button></div></td>
+        <td class="n"><input class="input xs num" type="number" step="any" data-w="g" value="${st[k].g}" title="${u(k).trim()}"></td>
+        <td class="n"><input class="input xs num" type="number" step="any" data-w="a" value="${st[k].a}" title="${u(k).trim()}"></td>
+        <td class="n"><span class="pt"></span></td><td class="n wif-s"></td></tr>`).join("")}</tbody></table></div>
+    <small class="wif-note">Nothing changes until you choose. <b>Save for ${esc(r.name.split(" ")[0])}</b>: this score then counts on the Review, rankings and exports, marked “custom criteria” (Reset on this screen removes it). <b>Use for everyone</b>: the same as changing Settings → Criteria.</small>`;
   const draw = () => {
     const { tw, v } = calc(), d = v != null && sc0 != null ? Math.round(10 * (v - sc0)) / 10 : null;
     const nv = $("#wif-new", box); nv.textContent = v == null ? "—" : v.toFixed(1); nv.className = `rc-pill big ${cls(v)}`;
     $("#wif-d", box).innerHTML = d == null ? "<small>needs at least three criteria</small>" : d === 0 ? "<span class='muted'>no change</span>" : `<span class="${d > 0 ? "t-good" : "t-bad"}">${d > 0 ? "▲ +" : "▼ "}${d}</span>`;
     const r0 = rankOf(sc0), r1 = rankOf(v);
     $("#wif-rank", box).innerHTML = r1 == null ? "—" : `<b>#${r0 ?? "—"}</b> → <b class="${r0 && r1 < r0 ? "t-good" : r0 && r1 > r0 ? "t-bad" : ""}">#${r1}</b> <small>of ${n}</small>`;
-    $$(".wif-r", box).forEach(row => { const k = row.dataset.k, on = st[k].on && st[k].w > 0, sh = on && tw ? Math.round(100 * st[k].w / tw) : 0;
-      row.classList.toggle("off", !on); $(".wif-w", row).textContent = st[k].w; $("input[type=checkbox]", row).checked = on;
-      $(".wif-s", row).innerHTML = on ? `${sh}% · +${(pts[k] * sh / 100).toFixed(2)}` : "off"; });
-    const used = keys.filter(k => st[k].on && st[k].w > 0), add = k => pts[k] * st[k].w / (tw || 1), top = Math.max(...used.map(add), 0.01);
-    $("#wif-bars", box).innerHTML = `<small class="wif-bt">What makes up the score</small>` + used.sort((x, y) => add(y) - add(x)).map(k =>
-      `<div><small>${esc(C[k].label)}</small><span><i style="width:${Math.max(3, 100 * add(k) / top)}%" class="${pts[k] >= 7 ? "good" : pts[k] >= 5 ? "warn" : "bad"}"></i></span><b>${add(k).toFixed(2)}</b></div>`).join("");
+    $$(".wif-r", box).forEach(row => { const k = row.dataset.k, on = st[k].on && st[k].w > 0, sh = on && tw ? Math.round(100 * st[k].w / tw) : 0, q = pt(k);
+      row.classList.toggle("off", !on); $("[data-w=on]", row).checked = on;
+      const ps = $(".pt", row); ps.textContent = q == null ? "—" : q.toFixed(1); ps.className = `pt ${pc(q)}`;
+      $(".wif-s", row).innerHTML = on ? `<span class="wadd"><i style="width:${sh * 2.5}%" class="${pc(q)}"></i></span>${sh}%` : "off"; });
   };
+  const sync = (row, k) => { $("[data-w=w]", row).value = st[k].w; $("[data-w=r]", row).value = Math.min(40, st[k].w); };
   $$(".wif-r", box).forEach(row => { const k = row.dataset.k;
-    $("input[type=checkbox]", row).onchange = e => { st[k].on = e.target.checked; if (st[k].on && !st[k].w) { st[k].w = 5; $("input[type=range]", row).value = 5; } draw(); };
-    $("input[type=range]", row).oninput = e => { st[k].w = +e.target.value; if (st[k].w > 0) { st[k].on = true; $("input[type=checkbox]", row).checked = true; } draw(); }; });
-  $("#wif-reset", box).onclick = () => { keys.forEach(k => { st[k] = { ...base[k] }; const row = $(`.wif-r[data-k="${k}"]`, box); $("input[type=checkbox]", row).checked = st[k].on; $("input[type=range]", row).value = st[k].w; }); draw(); };
+    const setW = w => { st[k].w = Math.max(0, Math.min(100, Math.round(w))); st[k].on = st[k].w > 0; sync(row, k); draw(); };
+    $("[data-w=on]", row).onchange = e => { st[k].on = e.target.checked; if (st[k].on && !st[k].w) { st[k].w = 5; sync(row, k); } draw(); };
+    $("[data-w=r]", row).oninput = e => setW(+e.target.value);
+    $("[data-w=w]", row).oninput = e => setW(+e.target.value || 0);
+    $("[data-w='-']", row).onclick = () => setW(st[k].w - 5);
+    $("[data-w='+']", row).onclick = () => setW(st[k].w + 5);
+    $("[data-w=g]", row).oninput = e => { st[k].g = e.target.value === "" ? null : +e.target.value; draw(); };
+    $("[data-w=a]", row).oninput = e => { st[k].a = e.target.value === "" ? null : +e.target.value; draw(); }; });
+  $("#wif-reset", box).onclick = () => { keys.forEach(k => { st[k] = { ...base[k] }; const row = $(`.wif-r[data-k="${k}"]`, box);
+    sync(row, k); $("[data-w=g]", row).value = st[k].g; $("[data-w=a]", row).value = st[k].a; }); draw(); };
+  const pop = $(".wif-pop", box); $("#wif-exp", box).onclick = () => { pop.hidden = !pop.hidden; };
+  const payload = () => keys.map(k => ({ key: k, show: st[k].on && st[k].w > 0, weight: st[k].w, green: st[k].g, amber: st[k].a }));
+  $$("button", pop).forEach(b => b.onclick = async () => { pop.hidden = true;
+    const x = await call("review_person_export", { key: m.dataset.key, emp: m.dataset.emp, fmt: b.dataset.f, rows: payload() }); if (!x.cancelled) toast("What-if scores saved"); });
+  $("#wif-save", box).onclick = async () => { await call("review_person_criteria", { key: m.dataset.key, emp: m.dataset.emp, rows: payload() });
+    toast(`Custom criteria saved for ${r.name}`); closeModal(); render(); };
   $("#wif-all", box).onclick = async () => {
-    const rows = Object.entries(p.weights).map(([k, w]) => ({ key: k, show: k in st ? st[k].on : w.show, weight: k in st ? st[k].w : w.weight,
-      green: (C[k] || {}).green ?? "", amber: (C[k] || {}).amber ?? "" }));
-    await call("review_criteria", { rows }); toast("These weights now count for everyone"); closeModal(); render();
-  };
+    const rows = Object.entries(p.weights).map(([k, w]) => ({ key: k, show: k in st ? st[k].on && st[k].w > 0 : w.show, weight: k in st ? st[k].w : w.weight,
+      green: k in st ? st[k].g : (C[k] || {}).green ?? "", amber: k in st ? st[k].a : (C[k] || {}).amber ?? "" }));
+    await call("review_criteria", { rows }); toast("These criteria now count for everyone"); closeModal(); render(); };
   draw();
 }
 async function rvUpdate() {
