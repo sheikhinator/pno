@@ -99,7 +99,7 @@ def test_views_pick_the_right_file_and_keep_general_data(db, tmp_path):
 
     p = api.dispatch("po_view", {"type": "mtd", "to": "2026-08"})
     assert p["label"] == "MTD Aug 2026" and p["view"]["type"] == "mtd"
-    r = api.dispatch("po_review", {})
+    r = api.dispatch("review", {})
     assert r["has_data"] and r["period"]["label"] == "MTD Aug 2026"
     assert {c["type"] for c in r["period"]["coverage"]} >= {"general", "mtd", "ytd"}
     api.dispatch("po_view", {"type": "latest"})

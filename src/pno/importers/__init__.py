@@ -362,6 +362,37 @@ def undo(db: Database, import_id: int) -> dict:
     return {"ok": True}
 
 
+def delete(db: Database, import_id: int) -> dict:
+    """Delete an import for good: its rows in every table and the import itself (no restore), then shrink the database."""
+    row = db.q1("SELECT * FROM imports WHERE id=?", (import_id,))
+    if not row:
+        raise ValueError("Import not found.")
+    span = None
+    if row["kind"] == "attendance":
+        r = db.q1("SELECT MIN(day), MAX(day) FROM attendance_all WHERE import_id=?", (import_id,))
+        span = (r[0], r[1]) if r and r[0] else None
+    tables = [t[0] for t in db.q("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+    removed = 0
+    with db.tx():
+        for t in tables:
+            if t == "imports":
+                continue
+            cols = {c[1] for c in db.conn.execute(f"PRAGMA table_info({t})")}
+            if "import_id" in cols:
+                removed += db.conn.execute(f"DELETE FROM {t} WHERE import_id=?", (import_id,)).rowcount
+        db.conn.execute("DELETE FROM imports WHERE id=?", (import_id,))
+    if span:
+        db.rebuild_attendance(span)
+    db.version += 1
+    db.log("delete import", f"{row['kind']} {row['file_name']} #{import_id} ({removed} rows)")
+    try:
+        with db.lock:
+            db.conn.execute("VACUUM")                    # give the space back
+    except Exception:  # noqa: BLE001 - shrinking is a nicety
+        pass
+    return {"ok": True, "rows": removed, "file": row["file_name"]}
+
+
 def redo(db: Database, import_id: int) -> dict:
     row = db.q1("SELECT * FROM imports WHERE id=?", (import_id,))
     if not row:

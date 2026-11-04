@@ -45,6 +45,11 @@ ROLES: dict[str, dict[str, Any]] = {
                                    "Plan promotions, seasons (Ramadan, Eid, 11.11) and space", "Analyse KPIs and act on gaps weekly",
                                    "Partner with buying, supply chain and P&O"],
                         "competencies": ["Strategic & commercial thinking", "Leading leaders", "Analysis & decision making", "Influence", "Driving change"]},
+    "deputy_manager": {"title": "Deputy Store Manager", "level": 5, "years": 8, "retail": 5, "education": 4, "team": 60,
+                       "skills": ["Team leadership", "Sales & KPIs", "Shrink & loss prevention", "Customer service", "Rostering & scheduling", "Excel / MIS"],
+                       "duties": ["Run the store with the store manager; lead it in their absence", "Lead department heads / section managers across the store",
+                                  "Deliver sales, shrink, availability and people KPIs", "Plan rosters, promotions and store operations"],
+                       "competencies": ["Leading leaders", "Strategic & commercial thinking", "Analysis & decision making", "Influence", "Driving change"]},
     "store_manager": {"title": "Store Manager", "level": 6, "years": 10, "retail": 6, "education": 4, "team": 100,
                       "skills": ["Team leadership", "Sales & KPIs", "Shrink & loss prevention", "Customer service", "Food safety", "Rostering & scheduling", "Excel / MIS"],
                       "duties": ["Run the store: sales, profit, shrink, people cost and customer NPS", "Lead department heads and the whole store team",
@@ -120,7 +125,7 @@ STAGES = [("applied", "Applied"), ("screened", "Screened"), ("interview1", "Inte
 
 def role_key(title: str) -> str:
     t = (title or "").lower()
-    for key, words in (("store_manager", ["store manager", "general manager"]), ("department_head", ["department head", "dept head", "head of"]),
+    for key, words in (("store_manager", ["store manager", "general manager"]), ("deputy_manager", ["deputy", "assistant store manager"]), ("department_head", ["department head", "dept head", "head of"]),
                        ("section_manager", ["section manager", "section head"]), ("team_leader", ["team leader", "supervisor", "team lead"]),
                        ("cashier", ["cashier", "checkout"])):
         if any(w in t for w in words):

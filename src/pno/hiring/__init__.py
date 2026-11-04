@@ -75,7 +75,8 @@ class Hiring:
         fields = {"title": (v.get("title") or templates.ROLES[role]["title"]).strip()[:120], "role": role, "category": v.get("category") or "",
                   "store": v.get("store") or "", "section": v.get("section") or "", "grade": v.get("grade") or "",
                   "headcount": int(v.get("headcount") or 1), "manager": v.get("manager") or "", "jd": jd, "rubric": json.dumps(rubric),
-                  "status": v.get("status") or "open", "target_date": v.get("target_date") or None, "notes": v.get("notes") or ""}
+                  "status": v.get("status") or "open", "target_date": v.get("target_date") or None, "notes": v.get("notes") or "",
+                  "fmt": v.get("fmt") or "", "department": v.get("department") or ""}
         if vid:
             old = self.db.q1("SELECT status, rubric FROM vacancies WHERE id=?", (vid,))
             if not old:
@@ -442,12 +443,12 @@ class Hiring:
         out.sort(key=lambda x: -x["score"])
         return {"rows": out[:limit]}
 
-    def internal_search(self, vid: int) -> dict:
+    def internal_search(self, vid: int, cross: bool = False) -> dict:
         from . import internal
         v = self.db.q1("SELECT * FROM vacancies WHERE id=?", (vid,))
         if not v:
             raise ValueError("Vacancy not found.")
-        r = internal.search(self.api, dict(v))
+        r = internal.search(self.api, dict(v), cross=bool(cross))
         added = {str(_j(x["parsed"], {}).get("emp")) for x in self.db.q(
             "SELECT c.parsed FROM applications a JOIN candidates c ON c.id=a.candidate_id WHERE a.vacancy_id=? AND c.source='Internal'", (vid,))}
         for c in r["candidates"]:

@@ -120,11 +120,11 @@ def _mean(xs):
 
 
 class Review:
-    def __init__(self, api):
+    def __init__(self, api, cfg: dict | None = None, t: dict | None = None):
         self.api = api
         self.ins = api._po()
-        self.t = targets(api.db)
-        self.cfg = config(api.db)
+        self.t = t or targets(api.db)
+        self.cfg = cfg or config(api.db)
         self._att = None
 
     # ---------------------------------------------------------------------------- attendance from the roster model
@@ -257,7 +257,8 @@ class Review:
         """Score = weighted average of each criterion's points (0-10 against its benchmark), using the weights in Settings."""
         parts = []
         for c in row["cells"]:
-            w = self.cfg.get(c["key"], {}).get("weight", 0)
+            cf = self.cfg.get(c["key"], {})
+            w = cf.get("weight", 0) if cf.get("show", True) else 0      # a criterion switched off doesn't count
             pt = points(c["key"], c["value"], self.t) if w > 0 else None
             if pt is not None:
                 parts.append({"key": c["key"], "label": CRITERIA[c["key"]]["label"], "points": pt, "weight": w})

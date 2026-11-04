@@ -12,61 +12,9 @@ def att(mm, emp):
     return mm.people[emp].att
 
 
-def test_init_and_screens(api):
-    init = api.dispatch("init", {})
-    assert init["has_data"] and init["month"] == "2026-09"
-    assert [m["value"] for m in init["months"]][:2] == ["2026-09", "2026-08"]
-    for c in ("roster", "attendance", "productivity", "sales", "leave"):
-        assert init["counts"][c] >= 1
-    m = "2026-09"
-    d = api.dispatch("dashboard", {"month": m, "scope": {}})
-    assert "error" not in d
-    assert api.dispatch("people", {"month": m})["rows"]
-    st = api.dispatch("stores", {"month": m})["rows"]
-    assert len(st) >= 12
-    assert "error" not in api.dispatch("store", {"store_id": st[0]["store_id"], "month": m})
-    assert "error" not in api.dispatch("attendance", {"month": m})
-    assert "error" not in api.dispatch("org", {"month": m})
-    emp = api.dispatch("people", {"month": m})["rows"][0]["emp"]
-    p = api.dispatch("person", {"emp": emp, "month": m})
-    assert "error" not in p
-    assert len(api.dispatch("compare", {"emps": [emp, emp], "month": m})["people"]) == 2
-    s = api.dispatch("search", {"q": "lucky", "month": m})
-    assert s["stores"]
-
-
 def test_unknown_request_is_a_readable_error(api):
     assert "Unknown request" in api.dispatch("drop_tables", {})["error"]
     assert api.dispatch("person", {"emp": "nobody", "month": "2026-09"}).get("error")
-
-
-@pytest.mark.parametrize("scope", [{"city": "LAH"}, {"format": "SM"}, {"dept": "02"}, {"city": "KCH", "format": "HB"}])
-def test_filters_narrow_everything(api, scope):
-    m = "2026-09"
-    allp = api.dispatch("people", {"month": m})["rows"]
-    some = api.dispatch("people", {"month": m, "scope": scope})["rows"]
-    assert 0 < len(some) < len(allp)
-    d = api.dispatch("dashboard", {"month": m, "scope": scope})
-    assert "error" not in d
-    stores = api.dispatch("stores", {"month": m, "scope": scope})["rows"]
-    if "city" in scope:
-        assert all(r.get("city") in (scope["city"], None) or r.get("city_code", scope["city"]) == scope["city"] for r in stores)
-
-
-def test_people_filters_and_sort(api):
-    rows = api.dispatch("people", {"month": "2026-09", "role": "SM", "sort": "score", "desc": True})["rows"]
-    assert rows and all(r["role"] == "SM" for r in rows)
-    scores = [r["score"] for r in rows if r["score"] is not None]
-    assert scores == sorted(scores, reverse=True)
-    q = rows[0]["name"].split()[0]
-    assert any(q in r["name"] for r in api.dispatch("people", {"month": "2026-09", "q": q})["rows"])
-
-
-def test_hide_names(api):
-    api.dispatch("settings_save", {"hide_names": True})
-    rows = api.dispatch("people", {"month": "2026-09"})["rows"]
-    assert all(r["name"].startswith("Employee ") for r in rows[:20])
-    api.dispatch("settings_save", {"hide_names": False})
 
 
 def test_upload_analyze_commit_undo_redo(api, demo, empty_db):

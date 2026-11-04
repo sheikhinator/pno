@@ -32,6 +32,7 @@ EXPECTED: list[tuple[str, str, str]] = [
     ("po_shift", "Shift roster", "dated"),
     ("leave", "Leave register", "month"),
 ]
+OPTIONAL = {"po_shift", "leave"}          # nice to have: not counted when a period is checked off
 STALE_DAYS = 45
 
 # what every figure means, where it comes from and how it behaves across periods
@@ -90,7 +91,8 @@ def checklist(db, month: str) -> list[dict[str, Any]]:
     out = []
     for kind, name, how in EXPECTED:
         imps = by_kind.get(kind, [])
-        item = {"kind": kind, "name": name, "status": "missing", "label": "", "age": None, "detail": "", "every": how == "general"}
+        item = {"kind": kind, "name": name, "status": "missing", "label": "", "age": None, "detail": "", "every": how == "general",
+                "optional": kind in OPTIONAL}
         if how == "general":
             if imps:
                 last = imps[-1]

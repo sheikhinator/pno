@@ -108,17 +108,16 @@ const NAV_FULL = [["home", "Overview", "home"], ["review", "Business review", "r
   ["people", "People", "people"], ["brain", "People Brain", "brain"], ["talent", "Leaders & talent", "talent"], ["attendance", "Attendance", "att"],
   ["insights", "People insights", "insights"], ["retention", "Turnover", "retention"], ["nps", "Customer NPS", "nps"], ["shifts", "Shift roster", "shifts"], ["data", "Other data", "data"],
   ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["forecast", "Workforce plan", "forecast"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["relations", "Employee relations", "relations"], ["calendar", "HR calendar", "calendar"], ["brief", "Weekly brief", "brief"], ["engagement", "Engagement", "engagement"], ["recognition", "Recognition", "recognition"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
-const NAV_SIMPLE = [["rv", "Review", "review"], ["ask", "Ask P&O AI", "ask"], ["learning", "Learning", "learning"], ["import", "Data", "import"]];
+const NAV_SIMPLE = [["rv", "Review", "review"], ["hiring", "Hiring", "hiring"], ["learning", "Learning", "learning"], ["ask", "Ask P&O AI", "ask"]];
+const NAV_BOTTOM = [["import", "Data", "import"], ["settings", "Settings", "settings"]];
 const DATA_PAGES = ["import", "health", "brain"];
 const dataTabs = page => `<div class="seg datatabs">${[["import", "Import & history"], ["health", "Data health"], ["brain", "People records & corrections"]].map(([k, l]) => `<button data-go="${k}" aria-pressed="${page === k}">${l}</button>`).join("")}</div>`;
 let NAV = NAV_SIMPLE;
-let ALLOWED = new Set(["rv", "ask", "learning", "settings", "import", "health", "brain"]);
+let ALLOWED = new Set(["rv", "hiring", "ask", "learning", "settings", "import", "health", "brain"]);
 // the full toolkit (every 2.x/3.x module) stays in the app, switched off; Settings → Appearance turns it on
 function applyMode() {
-  const full = !!(S.init && S.init.full_mode);
-  NAV = full ? [["rv", "Review", "review"]].concat(NAV_FULL) : NAV_SIMPLE;
-  NAV_GROUP = full ? NAV_GROUP_FULL : {};
-  ALLOWED = full ? null : new Set(["rv", "ask", "learning", "settings", ...DATA_PAGES]);
+  NAV = NAV_SIMPLE; NAV_GROUP = {};
+  ALLOWED = new Set(["rv", "hiring", "ask", "learning", "settings", ...DATA_PAGES]);
 }
 let NAV_GROUP = {};
 const NAV_GROUP_FULL = { insights: "Insights", hiring: "Talent", ask: "Tools" };
@@ -161,15 +160,18 @@ const req = (extra = {}) => ({ month: S.month, scope: S.scope, ...extra });
 function sideHtml() {
   return `
     <div class="brand"><div class="logo maf"><img src="maf-mark.png" alt="Majid Al Futtaim"></div><div><b>P&amp;O</b><small>People &amp; Organisation</small></div></div>
-    <nav class="nav" id="nav">${NAV.map(([k, l, i]) => (NAV_GROUP[k] ? `<div class="nav-label">${NAV_GROUP[k]}</div>` : "") +
-      `<button data-go="${k}" ${KEY_OF[k] ? `title="${esc(l)}  ·  G then ${KEY_OF[k].toUpperCase()}"` : ""} ${S.page === k || (S.page === "store" && k === "stores") ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "settings" && S.init && S.init.unsure_stores ? `<span class="badge">${S.init.unsure_stores}</span>` : ""}</button>`).join("")}</nav>
+    <nav class="nav" id="nav">${NAV.map(([k, l, i]) => navBtn(k, l, i)).join("")}</nav>
+    <nav class="nav nav-bottom">${NAV_BOTTOM.map(([k, l, i]) => navBtn(k, l, i)).join("")}</nav>
     <div class="side-foot">
       ${S.init && S.init.demo ? `<button class="demo-pill" data-act="demo-off" title="Return to your own data">DEMO DATA · exit</button>` : ""}
       <button class="ai-pill" data-go="settings" data-tab="ai"><span class="dot ${S.init && S.init.ai.active === "basic" ? "off" : ""}"></span><span>${esc(S.init ? S.init.ai.label : "AI")}</span></button>
       <span>Offline · data stays on this PC</span><span>v${esc(S.init ? S.init.version : "")}</span>
+      <button class="side-mini-btn" data-act="side-mini" title="Make the sidebar smaller / bigger">${document.body.classList.contains("side-mini") ? "»" : "« Smaller sidebar"}</button>
     </div>
   `;
 }
+const navBtn = (k, l, i) => `<button data-go="${k}" title="${esc(l)}" ${S.page === k || (k === "import" && DATA_PAGES.includes(S.page)) ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "settings" && S.init && S.init.unsure_stores ? `<span class="badge">${S.init.unsure_stores}</span>` : ""}</button>`;
+try { if (localStorage.getItem("pno-side-mini") === "1") document.body.classList.add("side-mini"); } catch (e) { /* no storage */ }
 function shell() {
   if ($("#view") && $(".side")) { updateSide(); topbar(); return; }     // built once; later only parts are refreshed
   $("#app").innerHTML = `
@@ -184,10 +186,9 @@ function shell() {
 function updateSide() { const sd = $(".side"); if (sd) sd.innerHTML = sideHtml(); }
 
 function topbar() {
-  if (S.init && S.init.full_mode && !["rv", "ask", "settings", "learning"].includes(S.page)) return topbarFull();
   const back = S.page === "settings" ? `<button class="btn back" data-go="rv">${ic("back", 16)}Review</button>` : "";
   $("#top").innerHTML = `<div class="top-row">${back}<div class="crumbs"><span class="ptitle">${esc(PAGE_TITLE[S.page] || "")}</span></div><div class="spacer"></div>
-    <button class="btn hide-present" data-act="rv-update">${ic("import", 16)}Update data</button>
+    ${S.page === "rv" ? `<button class="btn hide-present" data-act="rv-update">${ic("import", 16)}Update data</button>` : ""}
     ${S.page === "rv" ? `<button class="btn hide-present" data-act="rv-export">${ic("export", 16)}Export</button><button class="btn gold hide-present" data-act="present">${ic("play", 14)}Present</button>` : ""}
     <button class="btn ghost hide-present" data-act="rv-settings" title="Settings">⚙</button></div>`;
 }
@@ -300,7 +301,7 @@ function countUp(root) {
 function decorateTables(root) {
   $$(".panel", root).forEach(p => {
     const t = p.querySelector("table.t");
-    if (!t || p.querySelector(":scope > .tx, :scope .phd .tx") || p.closest(".modal, .hdraw, .pcov-box")) return;
+    if (!t || p.querySelector(":scope > .tx, :scope .phd .tx") || p.closest(".hdraw, .pcov-box")) return;
     const b = document.createElement("button");
     b.className = "tx"; b.title = "Export this table"; b.dataset.act = "tbl-export";
     b.innerHTML = ic("export", 14);
@@ -349,8 +350,8 @@ function go(page, arg = null, opts = {}) {
   if (!opts.back && S.page && (S.page !== page || S.arg !== arg)) { S.hist = (S.hist || []).concat([[S.page, S.arg]]).slice(-30); }
   S.page = page; S.arg = arg;
   topbar();
-  $$("#nav button").forEach(b => b.toggleAttribute("aria-current", b.dataset.go === (page === "store" ? "stores" : (DATA_PAGES.includes(page) && !(S.init && S.init.full_mode)) ? "import" : page)));
-  $$("#nav button[aria-current]").forEach(b => b.setAttribute("aria-current", "page"));
+  $$(".side nav button").forEach(b => b.toggleAttribute("aria-current", b.dataset.go === (DATA_PAGES.includes(page) ? "import" : page)));
+  $$(".side nav button[aria-current]").forEach(b => b.setAttribute("aria-current", "page"));
   store.set("page", page === "store" ? "stores" : page);
   render();
 }
@@ -371,7 +372,7 @@ async function render() {
   const slow = setTimeout(() => { if (token === S.busy && !same) view.innerHTML = `<div class="page"><div class="skel"><div class="sk sk-h"></div><div class="sk sk-p"></div><div class="sk-row">${"<div class='sk sk-k'></div>".repeat(5)}</div><div class="sk-row"><div class="sk sk-c"></div><div class="sk sk-c sm"></div></div></div></div>`; }, 260);
   try {
     if (PERIOD_PAGES.includes(page)) DATA[page] = null;
-    let html = await (PAGES[page] || PAGES.home)(arg);
+    let html = await (PAGES[page] || PAGES.rv)(arg);
     if (token !== S.busy) return;
     const pd = PERIOD_PAGES.includes(page) && DATA[page];
     if (pd && pd.period) {
@@ -438,50 +439,6 @@ function noData() {
     <button class="btn" data-act="demo-on">${ic("spark", 16)}Try with demo data</button></div></div></div>`;
 }
 
-PAGES.home = async () => {
-  if (!S.month) return noData();
-  const d = DATA.home = await API.call("dashboard", req({ compare: S.compare }));
-  if (!d.has_data) return noData();
-  const cards = d.cards.map(c => {
-    const val = c.fmt === "score" ? `${scoreTxt(c.value)}<small>/10</small>` : c.fmt === "int" ? (c.value ?? 0).toLocaleString("en-US") : c.fmt === "pct" ? pct(c.value, 1) : pct(c.value);
-    const target = { headcount: "people", absence: "attendance", score: "performance", sales: "stores", productivity: "stores" }[c.key];
-    return `<button class="kpi" data-go="${target}"><span class="kpi-l">${esc(c.label)}</span><span class="kpi-v">${c.value == null ? "—" : val}</span>
-      <span class="kpi-s">${delta(c.delta, c.good, c.fmt)}<span>${esc(c.sub || "")}</span></span></button>`;
-  }).join("");
-  const plist = (rows, start = 1) => rows.length ? rows.map((p, i) => `<button class="prow" data-person="${p.emp}"><span class="rank">${start + i}</span><span class="av">${esc(initials(p.name))}</span>
-      <span class="who"><b>${esc(p.name)}</b><small>${esc(p.role_label)} · ${esc(p.store)}</small></span>${pill(p.score, p.band_key)}</button>`).join("") : `<div class="empty">No scores yet</div>`;
-  const alerts = d.alerts.length ? d.alerts.map(a => `<button class="alert ${a.level}" data-act="alert" data-key="${a.key}"><span class="ic">${a.level === "bad" ? "!" : a.level === "warn" ? "•" : "i"}</span>
-      <span><b>${esc(a.text)}</b>${a.items ? `<small style="display:block;color:var(--muted)">${esc(a.items.slice(0, 3).join(" · "))}${a.items.length > 3 ? " …" : ""}</small>` : ""}</span></button>`).join("")
-    : `<div class="empty" style="padding:18px">Nothing needs attention 🎉</div>`;
-  return `
-    <div class="ph slide"><div><h1>${esc(d.scope_label.split(" › ").pop())} · ${esc(d.month_label)}</h1>
-      <p>Data up to ${fmtDate(d.as_of)}${d.complete ? " · complete month" : ` · day ${d.data_days}`}${d.compare ? ` · compared with ${esc((S.months.find(m => m.value === d.compare) || {}).label || d.compare)}` : ""}</p></div>
-      ${d.provisional ? `<span class="chip warn">Provisional: early in the month</span>` : ""}</div>
-    ${d.warnings.map(w => `<div class="banner warn">${esc(w)}</div>`).join("")}
-    <div class="panel today-p slide"><div class="phd"><h2>What needs you today</h2><small>From every screen: alerts, data, actions, flight risk, hiring and training</small></div><div id="today" class="today"><div class="sk" style="height:46px"></div></div></div>
-    <div class="kpis stagger k5">${cards}</div>
-    <div class="grid g32 slide stagger">
-      <div class="panel"><div class="phd"><h2>Store league</h2><small>Average score of everyone in the store · click a store to focus</small></div><div id="ch-league"></div></div>
-      <div class="panel"><div class="phd"><h2>Score bands</h2><small>Click a band to see the people</small></div><div id="ch-dist"></div>
-        <div class="legend">${BANDS.map(([k, l]) => `<span><i class="b-${k}"></i>${l}</span>`).join("")}</div></div>
-    </div>
-    <div class="grid g3 slide stagger">
-      <div class="panel"><div class="phd"><h2>Top performers</h2><button class="btn sm ghost" data-act="people-sort" data-desc="1">See all</button></div><div class="plist">${plist(d.top)}</div></div>
-      <div class="panel"><div class="phd"><h2>Needs attention</h2><button class="btn sm ghost" data-act="people-sort" data-desc="0">See all</button></div><div class="plist">${plist(d.bottom)}</div></div>
-      <div class="panel"><div class="phd"><h2>Things to know</h2></div><div style="display:flex;flex-direction:column;gap:8px">${alerts}</div></div>
-    </div>
-    <div class="grid g3 slide stagger">
-      <div class="panel"><div class="phd"><h2>Average score</h2><small>out of 10</small></div><div id="ch-t1"></div></div>
-      <div class="panel"><div class="phd"><h2>Real absence</h2><small>System shows ${pct(d.attendance.system_absence_pct, 1)}</small></div><div id="ch-t2"></div></div>
-      <div class="panel"><div class="phd"><h2>Sales vs budget</h2><small>Total store, % of budget</small></div><div id="ch-t3"></div></div>
-    </div>
-    <div class="grid g2 slide stagger">
-      <div class="panel"><div class="phd"><h2>Sales bridge</h2><small>From total budget to actual: what each store adds or loses</small></div><div id="ch-bridge"></div></div>
-      <div class="panel"><div class="phd"><h2>Where the people are</h2><small>Headcount by store · click to focus</small></div><div id="ch-tree"></div></div>
-    </div>
-    ${(d.pins || []).length ? `<div class="panel slide"><div class="phd"><h2>📌 Pinned insights</h2><small>Answers you pinned from P&amp;O AI</small></div><div class="pins">${d.pins.map((p, i) => `<div class="pin"><button class="btn sm ghost pinx" data-act="pin-del" data-i="${i}" title="Unpin">${ic("x", 13)}</button><span class="pq">${esc(p.q || "Insight")} · ${esc((p.at || "").slice(0, 10))}</span><div class="md">${md(p.text || "")}</div></div>`).join("")}</div></div>` : ""}
-    <div class="panel slide"><div class="phd"><h2>Productivity against target</h2><small>Bar = actual (% of target) · black mark = target · green on or above target</small></div><div id="ch-bullet"></div></div>`;
-};
 AFTER.home = () => {
   drawToday();
   const d = DATA.home;
@@ -523,27 +480,6 @@ const personRow = p => `<tr class="click" data-person="${p.emp}"><td><input type
         <td><b>${esc(p.name)}</b><span class="sub">${esc(p.designation)} · ${esc(p.emp)}</span></td><td>${esc(p.role_label)}</td><td>${esc(p.store)}<span class="sub">${esc(p.format || "")}</span></td>
         <td>${esc(p.dept || "—")}<span class="sub">${esc(p.section || "")}</span></td><td class="n">${p.score == null ? statusChip(p) || "—" : pill(p.score, p.band_key)}${p.provisional && p.score != null ? '<span class="sub">provisional</span>' : ""}</td>
         <td class="n">${p.delta == null ? "" : delta(p.delta, "up")}</td><td class="n">${scoreTxt(p.attendance)}</td><td class="n">${p.absent ?? "—"}</td><td class="n">${p.fixes || ""}</td></tr>`;
-PAGES.people = async () => {
-  if (!S.month) return noData();
-  const P = S.people;
-  const d = DATA.people = await API.call("people", req({ q: P.q, role: P.role, band: P.band, sort: P.sort, desc: P.desc, flag: P.flag, limit: 600 }));
-  const counts = Object.fromEntries(d.roles.map(r => [r.value, r.count]));
-  const total = d.roles.reduce((a, r) => a + r.count, 0);
-  const th = (k, l, n) => `<th class="sort ${n ? "n" : ""}" data-act="sort" data-key="${k}">${l}${P.sort === k ? (P.desc ? " ↓" : " ↑") : ""}</th>`;
-  const flagName = { long_absence: "Absent 7+ days in a row", fixes: "Has punches to fix", managers: "Reporting line to confirm", new_joiners: "New joiners" }[P.flag];
-  return `<div class="ph"><div><h1>People</h1><p>${d.total.toLocaleString("en-US")} people · ${esc(S.months.find(m => m.value === d.month)?.label || "")}. Click anyone to open their profile.</p></div>
-      <div class="actions"><span id="cmpbtn">${compareBtn()}</span><button class="btn" data-go="performance">${ic("perf", 16)}Rankings by role</button><button class="btn" data-go="org">${ic("org", 16)}Org chart</button><button class="btn" data-act="export" data-pack="people">${ic("export", 16)}Export list</button></div></div>
-    <div class="panel"><div class="row">
-      <div class="search" style="flex:1 1 260px;max-width:none">${ic("search", 16)}<input id="pq" placeholder="Name, employee number, designation or store" value="${esc(P.q)}"></div>
-      <div class="seg">${ROLES.map(([k, l]) => `<button data-act="role" data-role="${k}" aria-pressed="${P.role === k}">${l}<span class="c">${k === "" ? total : k === "MANAGERS" ? total - (counts.STAFF || 0) : counts[k] || 0}</span></button>`).join("")}</div></div>
-      <div class="row"><div class="seg"><button data-act="band" data-band="" aria-pressed="${!P.band}">All bands</button>${BANDS.map(([k, l]) => `<button data-act="band" data-band="${k}" aria-pressed="${P.band === k}">${l}</button>`).join("")}</div>
-      ${flagName ? `<span class="chip gold">${esc(flagName)} <button class="btn sm ghost" data-act="flag-clear" style="padding:0 4px">✕</button></span>` : ""}</div>
-    </div>
-    <div class="panel flush"><div class="tbl-wrap" style="max-height:calc(100vh - 330px)"><table class="t"><thead><tr><th style="width:34px"></th>
-      ${th("name", "Person")}${th("role", "Role")}${th("store", "Store")}<th>Department</th>${th("score", "Score", 1)}<th class="n">Change</th>${th("attendance", "Attendance", 1)}${th("absent", "Absent days", 1)}${th("fixes", "Punches to fix", 1)}</tr></thead>
-      <tbody id="ptbody">${d.rows.slice(0, PEOPLE_CHUNK).map(personRow).join("") ||
-        `<tr><td colspan="10"><div class="empty">Nobody matches these filters.</div></td></tr>`}</tbody></table></div></div>`;
-};
 AFTER.people = () => {
   const wrap = $('[data-page="people"] .tbl-wrap'), body = $("#ptbody"), rows = DATA.people ? DATA.people.rows : [];
   if (wrap && body) {
@@ -567,21 +503,6 @@ AFTER.people = () => {
 };
 
 /* performance */
-PAGES.performance = async () => {
-  if (!S.month) return noData();
-  const role = S.perfRole;
-  const d = DATA.perf = await API.call("people", req({ role, sort: "score", desc: true, limit: 200 }));
-  const rows = d.rows.filter(r => r.score != null);
-  return `<div class="ph"><div><h1>Performance</h1><p>Ranking by role on the KPIs each role controls. ▲▼ shows the change since last month.</p></div>
-    <button class="btn" data-act="export" data-pack="scorecard">${ic("export", 16)}Manager scorecards</button></div>
-    <div class="seg">${ROLES.filter(r => r[0] && r[0] !== "MANAGERS").map(([k, l]) => `<button data-act="perf-role" data-role="${k}" aria-pressed="${role === k}">${l}</button>`).join("")}</div>
-    <div class="grid g23">
-      <div class="panel"><div class="phd"><h2>Score by person</h2><small>${rows.length} scored</small></div><div id="ch-perf"></div></div>
-      <div class="panel flush"><div class="tbl-wrap" style="max-height:calc(100vh - 290px)"><table class="t"><thead><tr><th>#</th><th>Person</th><th>Store</th><th class="n">Score</th><th class="n">Change</th><th class="n">Measured on</th></tr></thead>
-      <tbody>${rows.map((p, i) => `<tr class="click" data-person="${p.emp}"><td class="n">${i + 1}</td><td><b>${esc(p.name)}</b><span class="sub">${esc(p.designation)}</span></td><td>${esc(p.store)}</td>
-        <td class="n">${pill(p.score, p.band_key)}</td><td class="n">${p.delta == null ? "" : delta(p.delta, "up")}</td><td class="n">${p.coverage}%</td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">No scored people for this role and filter.</div></td></tr>`}</tbody></table></div></div>
-    </div>`;
-};
 AFTER.performance = () => {
   const rows = (DATA.perf.rows || []).filter(r => r.score != null).slice(0, 30);
   if ($("#ch-perf")) Charts.hbar($("#ch-perf"), { labels: rows.map(r => r.name), values: rows.map(r => r.score), max: 10, fmt: "score", name: "Score",
@@ -589,46 +510,7 @@ AFTER.performance = () => {
 };
 
 /* stores */
-PAGES.stores = async () => {
-  if (!S.month) return noData();
-  const d = await API.call("stores", req());
-  return `<div class="ph"><div><h1>Stores</h1><p>${d.rows.length} stores · average score of everyone in the store, with the store manager's own score.</p></div>
-    <button class="btn" data-act="export" data-pack="director">${ic("export", 16)}Export</button></div>
-    <div class="stores stagger">${d.rows.map(r => `<button class="scard" data-act="store" data-id="${r.store_id}">
-      <div class="top2">${Charts.ring(r.score, 62, band(r.score))}<div style="min-width:0"><h3>${esc(r.store)} <span class="fmt">${esc(r.format || "")}</span></h3>
-      <small style="color:var(--muted)">${esc(r.gm ? "GM " + r.gm : "No store manager in roster")}${r.gm_score != null ? " · " + scoreTxt(r.gm_score) : ""}</small><br><small style="color:var(--muted)">${r.people} people</small></div></div>
-      <div class="meta"><div><small>Sales</small><b>${pct(r.sales_pct)}</b></div><div><small>Productivity</small><b>${pct(r.prod_pct)}</b></div><div><small>Absence</small><b>${pct(r.absence_pct, 1)}</b></div></div></button>`).join("") || `<div class="empty">No stores in this filter.</div>`}</div>`;
-};
 
-PAGES.store = async id => {
-  const d = DATA.store = await API.call("store", { store_id: id, month: S.month });
-  const t = d.total || {};
-  const comp = (d.gm_components || []).map(compRow).join("");
-  const secRows = rows => rows.map(r => `<tr><td><b>${esc(r.code)}</b> ${esc(r.name)}</td><td>${esc(r.managers.join(", ") || "—")}</td><td class="n">${money(r.actual)}</td>
-    <td class="n"><div class="bar-cell"><div class="track"><div class="fill" style="width:${Math.min(100, (r.sales_pct || 0) / 1.3)}%;background:${(r.sales_pct || 0) >= 100 ? "var(--good)" : "var(--warn)"}"></div></div>${pct(r.sales_pct)}</div></td>
-    <td class="n">${r.growth == null ? "—" : (r.growth > 0 ? "+" : "") + r.growth.toFixed(1) + "%"}</td><td class="n">${pct(r.waste, 1)}</td><td class="n">${pct(r.oos, 1)}</td><td class="n">${pct(r.prod_pct)}</td></tr>`).join("");
-  return `<div class="ph"><div><button class="btn sm ghost" data-go="stores">${ic("back", 14)} Stores</button><h1 style="margin-top:6px">${esc(d.store)} <span class="fmt">${esc(d.format)}</span> <button class="btn sm" data-act="visit-new" data-store="${esc(d.store)}">📋 Visit checklist</button></h1>
-    <p>${esc(d.format_label)} · ${esc(d.city)}${d.code ? " · store " + esc(d.code) : ""} · ${esc(d.month_label)}${d.sales_as_of ? " · sales up to " + fmtDate(d.sales_as_of) : ""}</p></div>
-    <div class="actions"><button class="btn" data-act="focus-store" data-id="${d.store_id}">Focus dashboard on this store</button><button class="btn primary" data-act="export" data-pack="store" data-store="${d.store_id}">${ic("export", 16)}Store report</button></div></div>
-    <div class="kpis stagger">
-      <div class="kpi"><span class="kpi-l">Store score</span><span class="kpi-v">${scoreTxt(d.score)}<small>/10</small></span><span class="kpi-s">${d.people} people</span></div>
-      <div class="kpi"><span class="kpi-l">Sales vs budget</span><span class="kpi-v">${pct(t.sales_pct)}</span><span class="kpi-s">${money(t.actual)} · ${t.growth == null ? "" : (t.growth > 0 ? "+" : "") + t.growth.toFixed(1) + "% vs LY"}</span></div>
-      <div class="kpi"><span class="kpi-l">Real absence</span><span class="kpi-v">${pct(d.attendance.absence_pct, 1)}</span><span class="kpi-s">System ${pct(d.attendance.system_absence_pct, 1)} · ${d.attendance.fixes} punches to fix</span></div>
-      <div class="kpi"><span class="kpi-l">Full 9h days</span><span class="kpi-v">${pct(d.attendance.compliance_pct)}</span><span class="kpi-s">${d.attendance.long_absence} long absences</span></div>
-    </div>
-    <div class="grid g2">
-      <div class="panel"><div class="phd"><h2>Store manager</h2>${d.gm ? `<button class="btn sm" data-person="${d.gm.emp}">Open profile</button>` : ""}</div>
-        ${d.gm ? `<div class="row">${Charts.ring(d.gm.score, 70, d.gm.band_key)}<div><b style="font-size:16px">${esc(d.gm.name)}</b><br><small style="color:var(--muted)">${esc(d.gm.designation)} · ${esc(d.gm.band)}</small></div></div>${comp}` : `<div class="empty">No store manager in the roster for this store.</div>`}</div>
-      <div class="panel"><div class="phd"><h2>Managers</h2><small>${d.managers.length}</small></div><div class="plist">${d.managers.map(p => `<button class="prow" data-person="${p.emp}"><span class="av">${esc(initials(p.name))}</span><span class="who"><b>${esc(p.name)}</b><small>${esc(p.designation)} · ${esc(p.role_label)}</small></span>${pill(p.score, p.band_key)}</button>`).join("") || '<div class="empty">No managers found.</div>'}</div></div>
-    </div>
-    ${d.departments.length ? `<div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Departments</h2></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Department</th><th>Head</th><th class="n">Sales</th><th class="n">vs budget</th><th class="n">Growth</th><th class="n">Waste</th><th class="n">OOS</th><th class="n">Productivity</th></tr></thead><tbody>${secRows(d.departments)}</tbody></table></div></div>` : ""}
-    ${d.sections.length ? `<div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Sections and their managers</h2><small>Growth is context only (not scored)</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Section</th><th>Manager</th><th class="n">Sales</th><th class="n">vs budget</th><th class="n">Growth</th><th class="n">Waste</th><th class="n">OOS</th><th class="n">Productivity</th></tr></thead><tbody>${secRows(d.sections)}</tbody></table></div></div>` : `<div class="banner">No BO 200-10-05 sales report for this store and month.</div>`}
-    <div class="grid g2">
-      <div class="panel"><div class="phd"><h2>Productivity</h2><small>% of target</small></div><div id="ch-prod"></div></div>
-      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Attendance by section</h2></div><div class="tbl-wrap" style="max-height:360px"><table class="t"><thead><tr><th>Section</th><th class="n">People</th><th class="n">Real absence</th><th class="n">Full 9h</th><th class="n">To fix</th></tr></thead>
-      <tbody>${d.attendance_sections.map(s => `<tr><td>${esc(s.section)}</td><td class="n">${s.people}</td><td class="n">${pct(s.absence_pct, 1)}</td><td class="n">${pct(s.compliance_pct)}</td><td class="n">${s.fixes || ""}</td></tr>`).join("")}</tbody></table></div></div>
-    </div>`;
-};
 AFTER.store = () => {
   const pr = (DATA.store.productivity || []).filter(p => p.pct != null);
   if ($("#ch-prod")) Charts.hbar($("#ch-prod"), { labels: pr.map(p => p.row), values: pr.map(p => p.pct), fmt: "pct0", ref: 100, name: "% of target",
@@ -636,31 +518,6 @@ AFTER.store = () => {
 };
 
 /* attendance */
-PAGES.attendance = async () => {
-  if (!S.month) return noData();
-  const d = DATA.att = await API.call("attendance", req());
-  const t = d.totals;
-  const tabs = [["fixes", `Punches to fix (${d.fixes.length})`], ["long", `Long absences (${d.long_absence.length})`], ["low", "Lowest 9h compliance"], ["store", "By store"], ["register", `Register (${d.register.length})`]];
-  const kinds = { missing_in: ["Missing IN", "warn"], missing_out: ["Missing OUT", "warn"], punched_absent: ["Punched but marked absent", "bad"] };
-  const tab = S.attTab;
-  let body = "";
-  if (tab === "fixes") body = `<table class="t"><thead><tr><th>Store</th><th>Person</th><th>Date</th><th>Problem</th><th>IN</th><th>OUT</th><th class="n">Hours from punches</th></tr></thead><tbody>${d.fixes.slice(0, 1500).map(f => `<tr class="click" data-person="${f.emp}"><td>${esc(f.store)}</td><td><b>${esc(f.name)}</b><span class="sub">${esc(f.section)}</span></td><td>${fmtDate(f.day)}</td><td><span class="chip ${kinds[f.kind][1]}">${kinds[f.kind][0]}</span></td><td>${f.t_in || "—"}</td><td>${f.t_out || "—"}</td><td class="n">${f.hours || "—"}</td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">No missing punches 🎉</div></td></tr>`}</tbody></table>`;
-  else if (tab === "long") body = peopleAtt(d.long_absence, true);
-  else if (tab === "low") body = peopleAtt(d.low_compliance);
-  else if (tab === "register") body = peopleAtt(d.register);
-  else body = `<table class="t"><thead><tr><th>Store</th><th class="n">People</th><th class="n">Real absence</th><th class="n">System absence</th><th class="n">Full 9h days</th><th class="n">Avg day</th><th class="n">To fix</th><th class="n">Long absences</th></tr></thead><tbody>${d.by_store.map(s => `<tr class="click" data-act="store" data-id="${s.store_id}"><td><b>${esc(s.store)}</b> <span class="fmt">${esc(s.format)}</span></td><td class="n">${s.people}</td><td class="n">${pct(s.absence_pct, 1)}</td><td class="n">${pct(s.system_absence_pct, 1)}</td><td class="n">${pct(s.compliance_pct)}</td><td class="n">${s.avg_minutes ? Math.floor(s.avg_minutes / 60) + ":" + String(s.avg_minutes % 60).padStart(2, "0") : "—"}</td><td class="n">${s.fixes}</td><td class="n">${s.long_absence}</td></tr>`).join("")}</tbody></table>`;
-  return `<div class="ph"><div><h1>Attendance</h1><p>${esc(d.month_label)} up to ${fmtDate(d.as_of)}. Real absence leaves out weekly offs (1 a week; Sat–Sun for head office), gazetted holidays and booked leave. Missing punches count as worked but need fixing.</p></div>
-    <button class="btn" data-act="export" data-pack="attendance">${ic("export", 16)}Attendance exceptions</button></div>
-    <div class="kpis stagger">
-      <div class="kpi"><span class="kpi-l">Real absence</span><span class="kpi-v">${pct(t.absence_pct, 1)}</span><span class="kpi-s">${t.absent.toLocaleString("en-US")} days of ${t.due.toLocaleString("en-US")} due</span></div>
-      <div class="kpi"><span class="kpi-l">System says</span><span class="kpi-v">${pct(t.system_absence_pct, 1)}</span><span class="kpi-s">Counts offs, leave and missing punches as absent</span></div>
-      <div class="kpi"><span class="kpi-l">Full 9-hour days</span><span class="kpi-v">${pct(t.compliance_pct)}</span><span class="kpi-s">Average day ${t.avg_minutes ? Math.floor(t.avg_minutes / 60) + ":" + String(t.avg_minutes % 60).padStart(2, "0") : "—"} · ${t.overtime_hours.toLocaleString("en-US")} h above 9h</span></div>
-      <div class="kpi"><span class="kpi-l">Punches to fix</span><span class="kpi-v">${t.fixes.toLocaleString("en-US")}</span><span class="kpi-s">${t.long_absence} people absent 7+ days in a row</span></div>
-    </div>
-    <div class="panel"><div class="phd"><h2>People at work each day</h2><small>Worked · absent · weekly off · leave / holiday</small></div><div id="ch-daily"></div></div>
-    <div class="seg">${tabs.map(([k, l]) => `<button data-act="att-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join("")}</div>
-    <div class="panel flush"><div class="tbl-wrap" style="max-height:640px">${body}</div></div>`;
-};
 function peopleAtt(rows, long) {
   return `<table class="t"><thead><tr><th>Person</th><th>Store</th><th class="n">Worked</th><th class="n">Absent</th>${long ? '<th class="n">In a row</th>' : ""}<th class="n">Leave</th><th class="n">Offs</th><th class="n">System absent</th><th class="n">Full 9h</th><th class="n">Avg day</th><th class="n">Attendance</th></tr></thead>
   <tbody>${rows.map(r => `<tr class="click" data-person="${r.emp}"><td><b>${esc(r.name)}</b><span class="sub">${esc(r.designation)}</span></td><td>${esc(r.store)}</td><td class="n">${r.worked}</td><td class="n">${r.absent}</td>${long ? `<td class="n"><b>${r.longest}</b></td>` : ""}<td class="n">${r.leave}</td><td class="n">${r.off}</td><td class="n">${r.sys_absent ?? "—"}</td><td class="n">${pct(r.compliance)}</td><td class="n">${r.avg_hours || "—"}</td><td class="n">${scoreTxt(r.attendance)}</td></tr>`).join("") || `<tr><td colspan="11"><div class="empty">Nobody here.</div></td></tr>`}</tbody></table>`;
@@ -673,22 +530,6 @@ AFTER.attendance = () => {
 };
 
 /* org chart */
-PAGES.org = async () => {
-  if (!S.month) return noData();
-  const sts = S.opts.stores || [];
-  let sid = S.scope.store_id || ((sts.find(s => s.format === "HM") || sts[0] || {}).value);
-  if (!sid) return `<div class="empty">Import a roster to see the org chart.</div>`;
-  const d = await API.call("org", { month: S.month, store_id: sid, auto: !S.scope.store_id });
-  if (d.store_id) sid = d.store_id;
-  const node = (n, depth) => `<li><div class="node ${n.role === "EXT" ? "ext" : ""}" ${n.emp ? `data-person="${n.emp}"` : ""} role="button" tabindex="0">
-      ${n.children.length ? `<span class="tg" data-act="tree-toggle">${depth > 1 ? "+" : "–"}</span>` : ""}
-      ${n.role === "EXT" ? "" : `<span class="av">${esc(initials(n.name))}</span>`}<span><b>${esc(n.name)}</b><small>${esc(n.designation || "")}${n.children.length ? ` · ${n.children.length} report${n.children.length > 1 ? "s" : ""}` : ""}</small></span>
-      ${n.score != null ? pill(n.score, n.band) : ""}</div>${n.children.length ? `<ul ${depth > 1 ? "hidden" : ""}>${n.children.map(c => node(c, depth + 1)).join("")}</ul>` : ""}</li>`;
-  return `<div class="ph"><div><h1>Org chart</h1><p>${esc((S.opts.stores.find(s => s.value == sid) || {}).label || "")} · ${d.people} people · reporting lines from the roster (matched by name within the store first).</p></div>
-    <div class="actions"><div class="fsel"><label>Store</label><select data-scope="store_id">${(S.opts.stores || []).map(s => `<option value="${s.value}" ${s.value == sid ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select></div>
-    <button class="btn" data-act="tree-all">Expand all</button></div></div>
-    <div class="panel org">${d.tree.length ? `<ul class="tree" style="padding-left:0">${d.tree.map(n => node(n, 0)).join("")}</ul>` : `<div class="empty">Nobody from this store is in the roster for this month. Pick another store or import its roster.</div>`}</div>`;
-};
 AFTER.org = () => { $$(".page select[data-scope]").forEach(s => s.onchange = () => setScope("store_id", s.value)); };
 
 /* ask: a Claude-style analyst chat */
@@ -1048,29 +889,34 @@ PAGES.import = async () => {
   const found = new Set(sess ? sess.files.flatMap(f => f.results.map(r => r.kind_hint || r.kind)) : []);
   const tiles = cal.months.map(m => { const pct = m.total ? m.ok / m.total : 0; const cls = m.future ? "fut" : pct >= 0.99 ? "full" : pct >= 0.5 ? "part" : pct > 0 ? "low" : "none";
     return `<button class="mtile ${cls} ${m.ytd ? "ytd" : ""} ${m.month === S.impMonth ? "on" : ""}" data-act="imp-month" data-m="${m.month}" ${m.future ? "disabled" : ""}>${m.ytd ? `<em>Year to date</em>` : ""}<b>${m.short}</b><span class="mring" style="--p:${Math.round(pct * 100)}"></span><small>${m.running ? "running" : m.future ? "—" : `${m.ok}/${m.total}`}</small>${m.locked ? `<i title="Locked">🔒</i>` : ""}</button>`; }).join("");
+  const need = it => it.needs ? `<span class="slot-need"><b>Columns:</b> ${it.needs.must.map(esc).join(" · ")}${it.needs.want.length ? ` <i>· better with ${it.needs.want.map(esc).join(", ")}</i>` : ""}</span>` : "";
   const slotRow = it => { const st = found.has(it.kind) ? ["Ready to save", "info"] : IMP_STATUS[it.status] || ["", ""];
-    return `<div class="slot click ${found.has(it.kind) ? "found" : it.status}" data-act="slot" data-kind="${it.kind}" data-name="${esc(it.name)}" data-st="${it.status}" title="${["missing", "older"].includes(it.status) ? "Add this report" : "See, replace or remove"}"><div class="slot-ic">${KIND_ICON[it.kind] || "📄"}</div><div class="slot-b"><b>${esc(it.name)}</b><small>${esc(it.status === "missing" && !found.has(it.kind) ? (cal.guide[it.kind] || "") : (it.label || it.detail || ""))}</small></div><span class="chip ${st[1]}">${st[0]}</span></div>`; };
-  const per = mon.items.filter(it => !it.every), every = mon.items.filter(it => it.every);
-  const slots = per.map(slotRow).join("") + (every.length ? `<div class="slot-sep">Every period · not counted per month</div>` + every.map(slotRow).join("") : "");
+    const add = ["missing", "older"].includes(it.status);
+    return `<div class="slot click ${found.has(it.kind) ? "found" : it.status}" data-act="slot" data-kind="${it.kind}" data-name="${esc(it.name)}" data-st="${it.status}">
+      <div class="slot-ic">${KIND_ICON[it.kind] || "📄"}</div><div class="slot-b"><b>${esc(it.name)}</b>${add ? need(it) : `<small>${esc(it.label || it.detail || "")}</small>`}</div>
+      <span class="chip ${st[1]}">${st[0]}</span><span class="slot-go">${add ? "Add" : "View"}</span></div>`; };
+  const grp = (t, list, note) => list.length ? `<div class="slot-sep">${t}${note ? ` <i>${note}</i>` : ""}</div>${list.map(slotRow).join("")}` : "";
+  const per = mon.items.filter(it => !it.every && !it.optional), every = mon.items.filter(it => it.every), opt = mon.items.filter(it => it.optional && !it.every);
+  const left = per.filter(it => ["missing", "older"].includes(it.status)).length;
   const nres = sess ? sess.files.reduce((a, f) => a + f.results.length, 0) : 0;
-  return `<div class="ph"><div><h1>Import data</h1><p>Pick the period (the year-to-date load first, then each month after it), then drop every file you have for it: any report, any layout, any file name. Smart Import works out what each sheet is from its columns, checks it for problems and shows you before anything is saved.</p></div></div>
+  return `<div class="ph"><div><h1>Data</h1><p>Three steps: pick the period · click a report below · give it a file or paste the cells. P&O cleans it, checks it and shows you before anything is saved.</p></div></div>
     ${S.init.unsure_stores ? `<div class="banner">🏬 ${S.init.unsure_stores} store name${S.init.unsure_stores > 1 ? "s were" : " was"} matched with less certainty. <button class="btn sm" data-go="settings" data-tab="stores">Check store names</button></div>` : ""}
-    <div class="panel icald"><div class="phd"><h2>1 · Which period are you loading?</h2>
+    <div class="panel icald"><div class="phd"><h2><span class="stepn">1</span>Period</h2>
       ${cal.months[0] && cal.months[0].ytd ? `<label class="ytdend">Year to date runs to <select id="ytd-end" class="input sm">${cal.ytd_end_choices.map(m => `<option value="${m}" ${m === cal.months[0].end ? "selected" : ""}>${new Date(m + "-01").toLocaleString("en", { month: "long" })}</option>`).join("")}</select></label>` : ""}<div class="row"><button class="btn sm ghost" data-act="imp-year" data-y="${yr - 1}">‹ ${yr - 1}</button><b>${yr}</b><button class="btn sm ghost" data-act="imp-year" data-y="${yr + 1}" ${yr + 1 > +cur.slice(0, 4) ? "disabled" : ""}>${yr + 1} ›</button></div></div>
-      <div class="mtiles">${tiles}</div></div>
-    <div class="grid g2 imp-grid">
-      <div class="panel"><div class="phd"><h2>2 · What ${esc(mon.label)} needs</h2><small>${mon.ok} of ${mon.total} in${found.size ? ` · ${found.size} in this upload` : ""}</small></div><div class="slots">${slots}</div></div>
-      <div class="drop big" id="drop"><div class="ic">${ic("import", 30)}</div><h3>3 · Drop all the files for ${esc(mon.label)}</h3>${mon.ytd ? `<p class="ytdnote">Load the year-to-date reports here (sales, productivity, shrinkage, NPS, DA: Jan–${esc(mon.short.split("–")[1])} in one go). Every month after it is loaded on its own.</p>` : ""}<p style="margin:0;color:var(--muted)">Excel, CSV, text or HTML exports · any number · any names · several sheets in one workbook are fine</p>
-        <div class="row" style="justify-content:center"><button class="btn primary" data-act="pick">${ic("file", 16)}Choose files</button><button class="btn" data-act="paste">${ic("paste", 16)}Paste cells</button></div>
-        <small style="color:var(--muted)">Files stay on this computer. Nothing is saved until you press Save.</small>
-        <input type="file" id="filein" multiple hidden accept=".xlsx,.xls,.xlsm,.xlsb,.ods,.csv,.txt,.tsv,.htm,.html,.pdf"></div></div>
-    ${sess ? `<div class="panel"><div class="phd"><h2>4 · Check and save</h2><div class="tools"><button class="btn" data-act="import-cancel">Cancel</button><button class="btn primary" data-act="import-commit" ${nres ? "" : "disabled"}>Save ${nres} table${nres === 1 ? "" : "s"}</button></div></div>
+      <div class="mtiles">${tiles}</div>${mon.ytd ? `<p class="ytdnote">The year-to-date load: sales, productivity, shrinkage, NPS and DA from January to ${esc(mon.short.split("–")[1] || "")} in one go. Every month after it is loaded on its own.</p>` : ""}</div>
+    <div class="panel"><div class="phd"><h2><span class="stepn">2</span>Reports for ${esc(mon.label)}</h2><small>${left ? `${left} still needed · click one to add it` : "everything needed is in ✓"}</small></div>
+      <div class="slots">${grp("Needed for this period", per)}${grp("Every period", every, "the employee master, roles and ratings: load once, update when they change")}${grp("Optional", opt, "not counted")}</div></div>
+    <details class="panel imp-many" ${sess ? "open" : ""}><summary class="phd" style="cursor:pointer"><h2 style="display:inline">Have several files at once?</h2> <small>drop them all here and P&O sorts out which is which</small></summary>
+      <div class="drop" id="drop"><div class="row" style="justify-content:center"><button class="btn primary" data-act="pick">${ic("file", 16)}Choose files</button><button class="btn" data-act="paste">${ic("paste", 16)}Paste cells</button></div>
+        <small style="color:var(--muted)">or drag files here · Excel, CSV, text, HTML or PDF · nothing is saved until you press Save</small>
+        <input type="file" id="filein" multiple hidden accept=".xlsx,.xls,.xlsm,.xlsb,.ods,.csv,.txt,.tsv,.htm,.html,.pdf"></div>
+    ${sess ? `<div class="phd" style="margin-top:12px"><h2>Check and save</h2><div class="tools"><button class="btn" data-act="import-cancel">Cancel</button><button class="btn primary" data-act="import-commit" ${nres ? "" : "disabled"}>Save ${nres} table${nres === 1 ? "" : "s"}</button></div></div>
       <div class="isheets">${sess.files.map(f => f.results.length ? f.results.map(r => impSheetCard(f, r, sess)).join("") : `<div class="iiss bad"><span>✕</span><div><b>${esc(f.file)}</b>: no table could be read.${f.skipped.length ? ` <small>${esc(f.skipped.join(", "))}</small>` : ""}</div></div>`).join("")}</div>
-      ${(sess.errors || []).map(e => `<div class="errbox">${esc(e.file)}: ${esc(e.error)}</div>`).join("")}</div>` : ""}
-    <details class="panel flush" open><summary class="phd" style="padding:14px 16px;cursor:pointer"><h2 style="display:inline">Import history</h2> <small>Undo removes an import's data; Restore brings it back</small></summary><div class="tbl-wrap" style="max-height:520px"><table class="t"><thead><tr><th>When</th><th>Type</th><th>File</th><th>Period</th><th class="n">Rows</th><th>Summary</th><th></th></tr></thead>
-    <tbody>${h.rows.map(r => `<tr style="${r.active ? "" : "opacity:.5"}"><td>${esc(r.created_at.replace("T", " ").slice(0, 16))}</td><td><span class="chip">${KIND_ICON[r.kind] || ""} ${esc(r.kind_label || r.kind)}</span></td><td>${esc(r.file_name)}<span class="sub">${esc(r.source)}</span></td>
-      <td class="nw">${r.period_label ? `<span class="chip ${r.period_type === "ytd" ? "gold" : r.period_type === "mtd" ? "info" : ""}">${esc(r.period_label)}</span>` : esc(r.as_of || r.month || "")}</td><td class="n">${r.rows.toLocaleString("en-US")}</td><td>${esc(r.summary)}${r.warnings.length ? `<span class="sub">⚠ ${esc(r.warnings[0])}</span>` : ""}</td>
-      <td class="n">${r.active ? `<button class="btn sm" data-act="undo" data-id="${r.id}">${ic("undo", 13)}Undo</button>` : `<button class="btn sm" data-act="redo" data-id="${r.id}">Restore</button>`}</td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">Nothing imported yet.</div></td></tr>`}</tbody></table></div></details>`;
+      ${(sess.errors || []).map(e => `<div class="errbox">${esc(e.file)}: ${esc(e.error)}</div>`).join("")}` : ""}</details>
+    <details class="panel flush"><summary class="phd" style="padding:14px 16px;cursor:pointer"><h2 style="display:inline">Everything loaded so far</h2> <small>${h.rows.filter(r => r.active).length} files · Undo removes a file's data; Restore brings it back</small></summary><div class="tbl-wrap" style="max-height:520px"><table class="t"><thead><tr><th>When</th><th>Report</th><th>File</th><th>Period</th><th class="n">Rows</th><th>Summary</th><th></th></tr></thead>
+    <tbody>${h.rows.map(r => `<tr style="${r.active ? "" : "opacity:.5"}"><td>${esc(r.created_at.replace("T", " ").slice(0, 16))}</td><td><span class="chip">${KIND_ICON[r.kind] || ""} ${esc(r.kind_label || r.kind)}</span></td><td>${esc(r.file_name)}</td>
+      <td class="nw">${r.period_label ? `<span class="chip ${r.period_type === "ytd" ? "gold" : r.period_type === "mtd" ? "info" : ""}">${esc(r.period_label)}</span>` : esc(r.as_of || r.month || "")}</td><td class="n">${r.rows.toLocaleString("en-US")}</td><td>${esc(r.summary)}</td>
+      <td class="n nw">${r.active ? `<button class="btn sm" data-act="undo" data-id="${r.id}" title="Switch it off; can be restored">${ic("undo", 13)}Undo</button>` : `<button class="btn sm" data-act="redo" data-id="${r.id}">Restore</button>`}<button class="btn sm danger" data-act="imp-del" data-id="${r.id}" data-name="${esc(r.file_name)}" title="Delete for good: frees the space, can't be restored">🗑 Delete</button></td></tr>`).join("")}</tbody></table></div></details>`;
 };
 function impReplace(file) {
   const s = S.importSess; if (!s) return;
@@ -1143,36 +989,14 @@ window.PNO_drop = async paths => {
 
 /* settings */
 PAGES.settings = async () => {
-  const tabs = S.init.full_mode
-    ? [["bench", "Criteria"], ["scoring", "Scoring"], ["ai", "AI assistant"], ["stores", "Stores"], ["sections", "Sections"], ["holidays", "Holidays"], ["leave", "Leave"], ["data", "Data & backup"], ["backups", "Backups & columns"], ["look", "Appearance"]]
-    : [["bench", "Criteria"], ["ai", "AI"], ["stores", "Stores"], ["backups", "Backups & columns"], ["data", "Data"], ["look", "Appearance"]];
-  if (!tabs.some(x => x[0] === S.setTab)) S.setTab = S.init.full_mode ? "scoring" : "bench";
+  const tabs = [["bench", "Criteria"], ["ai", "AI"], ["stores", "Stores"], ["backups", "Backups & columns"], ["data", "Data"], ["look", "Appearance"]];
+  if (!tabs.some(x => x[0] === S.setTab)) S.setTab = "bench";
   const t = S.setTab;
   const body = await SETTINGS[t]();
   return `<div class="ph"><div><h1>Settings</h1><p>Benchmarks for the colours, which AI answers, store matching, backups and your data.</p></div></div>
     <div class="seg">${tabs.map(([k, l]) => `<button data-act="set-tab" data-tab="${k}" aria-pressed="${t === k}">${l}</button>`).join("")}</div>${body}`;
 };
 const SETTINGS = {};
-SETTINGS.scoring = async () => {
-  const s = DATA.settings = await API.call("settings");
-  const roles = Object.keys(s.default_weights);
-  const parts = Object.keys(s.labels);
-  const r = s.rules;
-  const rule = (k, l, hint) => `<div class="setting"><div><b>${l}</b><small>${hint}</small></div><div class="row">${r[k].map((v, i) => `<input class="input" style="width:74px" type="number" data-rule="${k}" data-i="${i}" value="${v}">`).join("")}</div></div>`;
-  const one = (k, l, hint) => `<div class="setting"><div><b>${l}</b><small>${hint}</small></div><input class="input" style="width:90px" type="number" data-rule1="${k}" value="${r[k]}"></div>`;
-  return `<div class="panel"><div class="phd"><h2>Weights by role</h2><small>Each row is shared out by weight; parts with no data are left out and the rest scaled up.</small></div>
-    <div class="tbl-wrap"><table class="t"><thead><tr><th>Role</th>${parts.map(p => `<th class="n">${esc(s.labels[p])}</th>`).join("")}<th class="n">Total</th></tr></thead><tbody>
-    ${roles.map(ro => `<tr><td><b>${esc(s.role_labels[ro])}</b></td>${parts.map(p => `<td class="n"><input class="input" style="width:64px;text-align:right" type="number" min="0" data-w="${ro}" data-p="${p}" value="${s.weights[ro][p] ?? ""}" placeholder="—"></td>`).join("")}<td class="n"><b data-total="${ro}"></b></td></tr>`).join("")}</tbody></table></div></div>
-    <div class="panel"><div class="phd"><h2>Thresholds</h2><small>Results between the points score on a straight line; 7 = target met</small></div>
-      ${rule("budget", "Sales vs budget (%)", "Scores 0 / 7 / 10")}${rule("productivity", "Productivity vs target (%)", "Scores 0 / 7 / 10")}
-      ${rule("presence", "Presence (% of due days worked)", "Scores 0 / 7 / 10")}${rule("compliance", "Full 9-hour days (% of worked days)", "Scores 0 / 5 / 10")}
-      ${one("full_day_minutes", "Full day (minutes)", "The 9-hour golden rule = 540")}${one("grace_minutes", "Grace (minutes)", "A day this much short of 9h still counts as full")}
-      ${one("presence_weight", "Presence share of the attendance score (%)", "The rest is 9-hour compliance")}${one("provisional_days", "Provisional until day", "Scores early in the month are marked provisional")}
-      ${one("new_joiner_days", "New joiners (days)", "Not scored until they have worked this long")}${one("min_coverage", "Minimum coverage (%)", "Below this share of weighted parts: 'Not enough data'")}
-      ${one("outlier_pct", "Flag sales variance beyond (±%)", "Bulk / B2B sales are flagged and capped")}${one("long_absence_days", "Long absence (days in a row)", "Flagged as a possible leaver or long leave")}
-      <div class="row" style="justify-content:flex-end"><button class="btn danger" data-act="weights-reset">Restore defaults</button><button class="btn primary" data-act="weights-save">Save scoring</button></div></div>
-    ${s.weights_history.length ? `<div class="panel"><div class="phd"><h2>Change history</h2></div>${s.weights_history.slice().reverse().slice(0, 8).map(h => `<small style="color:var(--muted)">${esc(h.at.replace("T", " "))}</small>`).join("<br>")}</div>` : ""}`;
-};
 SETTINGS.ai = async () => {
   const s = await API.call("agent_status");
   const o = s.offline_status;
@@ -1212,30 +1036,6 @@ SETTINGS.stores = async () => {
     ${s.aliases.map(a => `<tr><td><b>${esc(a.raw)}</b></td><td>${esc(a.source)}</td><td><select class="input" data-alias="${esc(a.alias)}">${opt(a.store_id)}</select></td><td class="n">${a.confirmed ? '<span class="chip good">Confirmed</span>' : `<button class="btn sm primary" data-act="alias-ok" data-alias="${esc(a.alias)}" data-store="${a.store_id}">Confirm</button>`} <button class="btn sm ghost" data-act="alias-new" data-alias="${esc(a.alias)}" title="Make this a separate store">Separate</button></td></tr>`).join("")}</tbody></table></div></div>
     <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Stores</h2><small>Head-office units use Saturday + Sunday as weekly offs</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th>Format</th><th>City</th><th>Code</th><th class="n">Head office</th></tr></thead><tbody>
     ${s.stores.map(st => `<tr><td><input class="input" value="${esc(st.name)}" data-rename="${st.id}"></td><td>${esc(st.format_label || st.format)}</td><td>${esc(st.city_label)}</td><td>${esc(st.code)}</td><td class="n"><label class="switch"><input type="checkbox" data-ho="${st.id}" ${st.is_ho ? "checked" : ""}><span></span></label></td></tr>`).join("")}</tbody></table></div></div>`;
-};
-SETTINGS.sections = async () => {
-  const s = await API.call("section_map");
-  const desc = m => m.codes ? "Sections " + m.codes.join(", ") : m.dept ? "Department " + m.dept : m.store ? "Whole store" : m.cco ? "CCO" : m.service ? "Service (attendance only)" : "Not linked";
-  return `<div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Roster sections → BO sections</h2><small>Used to find each manager's area. Type codes like S054, S050 to change.</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Roster section</th><th>Dept</th><th>Measured on</th><th>Change to</th><th></th></tr></thead><tbody>
-  ${s.rows.map(r => `<tr><td><b>${esc(r.section)}</b></td><td>${esc(r.dept)}</td><td>${esc(desc(r.map))} ${r.overridden ? '<span class="chip gold">edited</span>' : ""}</td>
-    <td><input class="input" placeholder="S054, S050 or dept 02 or store" data-secmap="${esc(r.key)}" style="width:230px"></td><td class="n">${r.overridden ? `<button class="btn sm ghost" data-act="sec-reset" data-key="${esc(r.key)}">Reset</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="5"><div class="empty">Import a roster first.</div></td></tr>`}</tbody></table></div></div>`;
-};
-SETTINGS.holidays = async () => {
-  const y = (S.month || new Date().toISOString()).slice(0, 4);
-  const s = await API.call("holidays", {});
-  return `<div class="panel"><div class="phd"><h2>Gazetted holidays</h2><button class="btn" data-act="hol-defaults" data-year="${y}">Add fixed national holidays for ${y}</button></div>
-    <small style="color:var(--muted)">Eid, Muharram and other moon-dependent holidays change every year: add them here (or ask P&O AI: "Add 21 March 2027 as Eid holiday").</small>
-    <div class="row"><input class="input" type="date" id="hol-day"><input class="input" id="hol-name" placeholder="Holiday name" style="flex:1"><button class="btn primary" data-act="hol-add">Add holiday</button></div>
-    <div class="tbl-wrap"><table class="t"><thead><tr><th>Date</th><th>Holiday</th><th></th></tr></thead><tbody>${s.rows.map(h => `<tr><td>${fmtDate(h.day)}</td><td>${esc(h.name)}</td><td class="n"><button class="btn sm ghost danger" data-act="hol-del" data-day="${h.day}">Remove</button></td></tr>`).join("") || `<tr><td colspan="3"><div class="empty">No holidays yet.</div></td></tr>`}</tbody></table></div></div>`;
-};
-SETTINGS.leave = async () => {
-  const s = await API.call("leaves", { month: S.month });
-  return `<div class="panel"><div class="phd"><h2>Add leave</h2><small>Booked leave is not counted as absence</small></div>
-    <div class="row"><input class="input" id="lv-emp" placeholder="Employee number" style="width:170px"><input class="input" type="date" id="lv-from"><input class="input" type="date" id="lv-to">
-    <select class="input" id="lv-type">${["Annual Leave", "Sick Leave", "Casual Leave", "Maternity Leave", "Hajj / Umrah", "Compensatory", "Unpaid Leave", "Other"].map(x => `<option>${x}</option>`).join("")}</select>
-    <button class="btn primary" data-act="lv-add">Add leave</button></div><small style="color:var(--muted)">Import a leave register on the Import screen, or drop it into Ask P&O AI in any layout.</small></div>
-    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Leave in ${esc((S.months.find(m => m.value === S.month) || {}).label || "this month")}</h2><small>${s.rows.length} records</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Person</th><th>Store</th><th>Type</th><th>From</th><th>To</th><th>Source</th><th></th></tr></thead><tbody>
-    ${s.rows.map(l => `<tr><td><b>${esc(l.name)}</b><span class="sub">${esc(l.emp_no)}</span></td><td>${esc(l.store)}</td><td>${esc(l.type)}</td><td>${fmtDate(l.d_from)}</td><td>${fmtDate(l.d_to)}</td><td>${esc(l.source || "file")}</td><td class="n"><button class="btn sm ghost danger" data-act="lv-del" data-id="${l.id}">Remove</button></td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">No leave recorded for this month.</div></td></tr>`}</tbody></table></div></div>`;
 };
 SETTINGS.data = async () => {
   const s = await API.call("settings");
@@ -1614,44 +1414,6 @@ async function setView(patch) {
   render();
 }
 document.addEventListener("change", e => { const t = e.target.closest && e.target.closest("[data-pv]"); if (t) setView({ [t.dataset.pv]: t.value }); });
-PAGES.review = async () => {
-  const d = DATA.review = await API.call("po_review", { metric: S.po.metric });
-  if (!d.has_data) return poEmpty();
-  const h = d.headline;
-  const kpi = (l, v, s, go) => `<button class="kpi" ${go ? `data-go="${go}"` : ""}><span class="kpi-l">${esc(l)}</span><span class="kpi-v">${v}</span><span class="kpi-s"><span>${s}</span></span></button>`;
-  const high = d.alerts.filter(a => a.severity === "High").length;
-  const [, label, good, bad, higher, f] = PO_HEAT.find(m => m[0] === S.po.metric);
-  const heat = d.heat.sections.length ? `<div class="tbl-wrap"><table class="t po-heat"><thead><tr><th>Store</th>${d.heat.sections.map(s => `<th class="n">${esc(s.replace("Fruits & Vegetables", "F&V").replace("Light Household", "LHH").replace("Heavy Household", "HHH"))}</th>`).join("")}</tr></thead>
-    <tbody>${d.heat.stores.map((st, i) => `<tr><td><b>${esc(st)}</b></td>${d.heat.values[i].map(v => poCell(v, good, bad, higher, f)).join("")}</tr>`).join("")}</tbody></table></div>` : `<div class="empty">No data for this measure.</div>`;
-  return `
-    <div class="ph slide"><div><h1>Business review · Country</h1><p>${h.stores} stores · ${h.leaders} section leaders · data as of ${fmtDate(h.as_of)}</p></div>
-      <div class="row"><button class="btn" data-act="export" data-pack="po">${ic("export", 16)}Export P&amp;O pack</button></div></div>
-    <div class="kpis stagger po-kpis">
-      ${kpi("Sales · " + (d.period.sales_label || "latest"), poMoney(h.sales), `${pct(h.sales_vs_budget_pct, 1)} of budget`, "stores")}
-      ${kpi("Growth vs last year", poSigned(h.growth_pct), "All stores")}
-      ${kpi("Productivity vs target", poSigned(h.productivity_vs_target_pct), "Average across stores")}
-      ${kpi("Stores on track", `${h.stores_on_track}<small>/${h.stores}</small>`, `${h.stores_at_risk} at risk`)}
-      ${kpi("Leavers · " + d.period.leaver_window, h.leavers_12m ?? "—", `${pct(h.voluntary_pct)} voluntary`, "retention")}
-      ${kpi("Open alerts", d.alerts.length, `${high} high priority`)}
-    </div>
-    <div class="panel flush slide"><div class="phd" style="padding:14px 16px 0"><h2>Store league table</h2><small>Status combines sales vs budget, productivity vs target and shrinkage</small></div>
-      <div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th>Status</th><th class="n">Sales</th><th class="n">vs budget</th><th class="n">Growth</th><th class="n">Prod. vs target</th><th class="n">Shrink vs bud.</th><th class="n">OOS</th><th class="n">Margin</th><th class="n">NPS</th><th class="n">Leavers</th><th class="n">DA</th><th class="n">Leader index</th></tr></thead>
-      <tbody>${d.stores.map(c => `<tr class="click" data-act="po-store" data-store="${esc(c.store)}"><td><b>${esc(c.store)}</b><span class="sub">${esc(c.format || "")}</span></td><td>${poStatus(c.status)}</td>
-        <td class="n">${poMoney(c.sales)}</td>${poCell(c.sales_vs_budget_pct, 100, 92, true, v => v.toFixed(0) + "%")}${poCell(c.growth_pct, 5, 0, true, v => poSigned(v))}
-        ${poCell(c.productivity_vs_target_pct, 0, -10, true, v => poSigned(v, 0))}${poCell(c.shrink_variance_avg, 0, -1, true, v => poSigned(v, 1, " pp"))}
-        ${poCell(c.oos_pct, 8, 15, false, v => v.toFixed(1) + "%")}<td class="n">${pct(c.margin_pct, 1)}</td><td class="n">${c.nps == null ? "—" : Math.round(c.nps)}</td>
-        ${poCell(c.leavers_12m, 2, 6, false, v => v)}<td class="n">${c.da_cases ?? "—"}</td><td class="n">${poIndex(c.avg_leader_score)}</td></tr>`).join("")}</tbody></table></div></div>
-    <div class="panel slide"><div class="phd"><h2>Section heatmap</h2><div class="seg">${PO_HEAT.map(([k, l]) => `<button data-act="po-metric" data-metric="${k}" aria-pressed="${S.po.metric === k}">${l}</button>`).join("")}</div></div>
-      <small style="color:var(--muted)">${esc(label)} · stores × sections · green on plan, amber watch, red act · — not in the workbook</small>${heat}</div>
-    <div class="grid g2 slide">
-      <div class="panel"><div class="phd"><h2>What needs attention</h2><small>${d.alerts.length} alerts from every tab, biggest first</small></div>
-        <div style="display:flex;flex-direction:column;gap:8px;max-height:520px;overflow:auto">${d.alerts.slice(0, 30).map(a => `<div class="alert ${a.severity === "High" ? "bad" : a.severity === "Medium" ? "warn" : ""}"><span class="ic">${a.severity === "High" ? "!" : a.severity === "Medium" ? "•" : "i"}</span>
-          <span style="flex:1"><b>${esc(a.store)}</b> · ${esc(a.message)}<small style="display:block;color:var(--muted)">${esc(a.area)}</small></span>
-          <button class="btn sm ghost" data-act="act-quick" data-title="${esc(a.area + ": " + a.message)}" data-store="${esc(a.store)}" data-area="${esc(a.area)}" data-source="Business review" title="Make this an action">+ Action</button></div>`).join("")}</div></div>
-      <div class="panel"><div class="phd"><h2>Sales vs budget by store</h2><small>% of budget · click a store for its leaders</small></div><div id="ch-po-sales"></div></div>
-    </div>
-    <small style="color:var(--muted)">Sources · ${d.sources.map(s => `${esc(s.kind)}: ${esc(s.source)}`).join(" · ")}</small>`;
-};
 AFTER.review = () => {
   const d = DATA.review; if (!d || !d.has_data || !$("#ch-po-sales")) return;
   const rows = d.stores.filter(c => c.sales_vs_budget_pct != null).sort((a, b) => b.sales_vs_budget_pct - a.sales_vs_budget_pct);
@@ -1660,63 +1422,6 @@ AFTER.review = () => {
     onClick: i => { S.po = { ...S.po, store: rows[i].store, q: "", tab: "leaders" }; go("talent"); } });
 };
 
-PAGES.talent = async () => {
-  const d = DATA.talent = await API.call("po_leaders", { q: S.po.q, store: S.po.store });
-  if (!d.has_data) return poEmpty();
-  const tab = S.po.tab;
-  const tabs = `<div class="seg">${[["leaders", "Leader 360°"], ["grid", "Talent grid"], ["risk", "Flight risk"], ["succ", "Succession"], ["bench", "Bench strength"], ["weights", "Index weights"]].map(([k, l]) => `<button data-act="po-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join("")}</div>`;
-  let body = "";
-  if (tab === "leaders") {
-    if (!S.po.leader || !d.leaders.some(l => l.key === S.po.leader)) S.po.leader = d.leaders.length ? d.leaders[0].key : null;
-    body = `<div class="grid po-split">
-      <div class="panel flush"><div class="row" style="padding:12px 12px 0;gap:8px"><input class="input" id="po-q" placeholder="Search leader or employee number" value="${esc(S.po.q)}" style="flex:1">
-        <select class="input" data-act-change="po-store-filter" id="po-store"><option value="">All stores</option>${d.stores.map(s => `<option ${s === S.po.store ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
-        <div class="tbl-wrap" style="max-height:calc(100vh - 300px)"><table class="t"><thead><tr><th>#</th><th>Leader</th><th>Leads</th><th class="n">Index</th><th class="n">Rating</th><th class="n">In role</th></tr></thead><tbody>
-        ${d.leaders.map(l => `<tr class="click ${l.key === S.po.leader ? "po-sel" : ""}" data-act="po-leader" data-key="${esc(l.key)}"><td>${l.rank ?? "—"}</td><td><b>${esc(l.name)}</b><span class="sub">${esc(l.role || "Role not on file")}${l.system_role ? ` <span class="chip" title="Title in the HR system">system: ${esc(l.system_role)}</span>` : ""} · ${esc(l.store === "—" ? "Store not on file" : l.store)}</span></td>
-          <td>${esc(l.leads)}</td><td class="n">${poIndex(l.score)}</td><td class="n">${l.rating == null ? "—" : l.rating}</td><td class="n">${esc(l.in_role)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">No leader matches.</td></tr>`}
-        </tbody></table></div></div>
-      <div class="panel po-profile" id="po-profile"><div class="loading"><span class="spin"></span>Loading…</div></div></div>`;
-  } else if (tab === "grid") {
-    body = `<div class="panel"><small style="color:var(--muted)">Appraisal rating (rows) against the business results of the area each leader runs (columns). Click a name for their 360°. Leaders need both a rating and section results to be placed.</small>
-      <div class="po-grid">${d.talent.map(b => `<div class="po-box r${b.row}c${b.col}"><b>${esc(b.name)} <span class="chip">${b.leaders.length}</span></b>
-        ${b.leaders.slice(0, 12).map(l => `<button class="po-name" data-act="po-leader" data-key="${esc(l.key)}">${esc(l.name)}<small>${esc(l.store || "")}</small></button>`).join("")}${b.leaders.length > 12 ? `<small>+${b.leaders.length - 12} more</small>` : ""}</div>`).join("")}</div>
-      <div class="po-axis"><span>Results low</span><span>Results on plan</span><span>Results strong</span></div></div>`;
-  } else if (tab === "risk") {
-    const r = DATA.risk = await API.call("po_risk");
-    const n = b => r.risk.filter(x => x.band === b).length;
-    body = `<div class="kpis k5"><div class="kpi"><span class="kpi-l">High risk</span><span class="kpi-v t-bad">${n("High")}</span><span class="kpi-s"><span>score 55+</span></span></div>
-        <div class="kpi"><span class="kpi-l">Medium</span><span class="kpi-v">${n("Medium")}</span><span class="kpi-s"><span>35–54</span></span></div><div class="kpi"><span class="kpi-l">Low</span><span class="kpi-v">${n("Low")}</span><span class="kpi-s"><span>below 35</span></span></div>
-        <div class="kpi"><span class="kpi-l">Leaders checked</span><span class="kpi-v">${r.risk.length}</span><span class="kpi-s"><span>leavers window: ${esc(r.window)}</span></span></div>
-        <div class="kpi"><span class="kpi-l">Top reason</span><span class="kpi-v txt">${esc((() => { const c = {}; r.risk.forEach(x => x.reasons.forEach(y => { const k = y.replace(/[\d.]+/g, "#").split("(")[0].trim(); c[k] = (c[k] || 0) + 1; })); return Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0] || "—"; })())}</span><span class="kpi-s"><span>most common signal</span></span></div></div>
-      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Who might leave, and why</h2><small>Points for each signal in the data: new joiners, years without a move, low or missing ratings, leavers and DA in their area, acting without the title, heavy evening rosters, store turnover. A prompt for a stay conversation, not a verdict.</small></div>
-      <div class="tbl-wrap" style="max-height:calc(100vh - 330px)"><table class="t"><thead><tr><th>Risk</th><th>Leader</th><th>Store</th><th>Leads</th><th>Why</th><th class="n">In role</th><th></th></tr></thead><tbody>
-      ${r.risk.map(x => `<tr><td><div class="hbarw"><div class="hbarv ${x.band === "High" ? "no" : x.band === "Medium" ? "weak" : "strong"}" style="width:${Math.max(3, x.score)}px"></div><b>${x.score}</b></div></td>
-        <td class="click" data-act="po-leader-open" data-key="${esc(x.key)}"><b>${esc(x.name)}</b><span class="sub">${esc(x.role)}</span></td><td>${esc(x.store)}</td><td>${esc(x.leads)}</td>
-        <td><small>${x.reasons.map(esc).join(" · ")}</small></td><td class="n">${x.in_role_months == null ? "—" : Math.floor(x.in_role_months / 12) + "y " + (x.in_role_months % 12) + "m"}</td>
-        <td class="n">${x.band !== "Low" ? `<button class="btn sm" data-act="act-quick" data-title="${esc("Stay conversation with " + x.name)}" data-store="${esc(x.store)}" data-area="Retention" data-detail="${esc(x.reasons.join("; "))}">+ Action</button>` : ""}</td></tr>`).join("")}</tbody></table></div></div>`;
-  } else if (tab === "succ") {
-    const r = DATA.risk = await API.call("po_risk");
-    const sc = r.succession;
-    const tone = { "Ready now": "good", "Ready in a year": "warn", "No successor": "bad", "No one in role": "" };
-    body = `<div class="kpis">${Object.entries(tone).map(([k, t]) => `<div class="kpi"><span class="kpi-l">${k}</span><span class="kpi-v ${t ? "t-" + t : ""}">${sc.summary[k] || 0}</span><span class="kpi-s"><span>roles</span></span></div>`).join("")}</div>
-      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Succession board</h2><small>Each store's leadership roles and the best people one level below. Hover a cell for the names.</small></div>
-      <div class="tbl-wrap"><table class="t succ"><thead><tr><th>Store</th>${sc.roles.map(x => `<th>${esc(x)}</th>`).join("")}</tr></thead><tbody>
-      ${sc.stores.map(st => `<tr><td><b>${esc(st)}</b></td>${sc.roles.map(role => { const c = sc.cells.find(x => x.store === st && x.role === role) || {}; return `<td class="succ-c ${tone[c.status] || ""}" title="${esc((c.successors || []).map(x => `${x.name} (${x.ready})`).join(", "))}">
-        <span class="chip ${tone[c.status] || ""}">${esc(c.status || "—")}</span><small>${esc((c.holders || []).join(", ") || "role holder not on file")}</small>${(c.successors || []).slice(0, 2).map(x => `<small>→ ${esc(x.name)} · ${esc(x.ready.toLowerCase())}</small>`).join("")}</td>`; }).join("")}</tr>`).join("")}
-      </tbody></table></div></div>`;
-  } else if (tab === "bench") {
-    body = `<div class="panel flush"><div class="tbl-wrap" style="max-height:calc(100vh - 260px)"><table class="t"><thead><tr><th>Priority</th><th>Leader</th><th>Store</th><th>Leads</th><th>Why flagged</th></tr></thead><tbody>
-      ${d.bench.map(f => `<tr class="click" data-act="po-leader" data-key="${esc(f.key)}"><td><span class="chip ${f.severity === "High" ? "bad" : f.severity === "Medium" ? "warn" : ""}">${f.severity}</span></td><td><b>${esc(f.name)}</b><span class="sub">${esc(f.role || "")}</span></td><td>${esc(f.store)}</td><td>${esc(f.leads)}</td><td>${esc(f.reason)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">No roles flagged.</td></tr>`}
-      </tbody></table></div></div>`;
-  } else {
-    const w = await API.call("po_weights", {});
-    body = `<div class="panel" style="max-width:720px"><div class="phd"><h2>Leader index (out of 10)</h2></div>
-      <small style="color:var(--muted)">How much each measure counts. Weights are relative. Each measure comes from the section(s) a leader runs and is scored 0–10; missing measures are left out, never counted as zero; a leader needs 3 measures to get an index.</small>
-      ${Object.entries(w.labels).map(([k, l]) => `<label class="setting"><span><b>${esc(l)}</b><small>default ${w.defaults[k]}</small></span><input class="input" type="number" min="0" max="100" step="5" data-po-w="${k}" value="${w.weights[k]}" style="width:90px"></label>`).join("")}
-      <div class="row" style="justify-content:flex-end"><button class="btn" data-act="po-w-reset">Reset</button><button class="btn primary" data-act="po-w-save">Save weights</button></div></div>`;
-  }
-  return `<div class="ph"><div><h1>Leaders &amp; talent</h1><p>${d.total} section leaders · ${d.scored} with a leader index · every leader joined to the results of the area they run</p></div>${tabs}</div>${body}`;
-};
 AFTER.talent = async () => {
   const q = $("#po-q");
   if (q) q.addEventListener("input", () => { clearTimeout(S.po.t); S.po.t = setTimeout(() => { S.po.q = q.value; render(); }, 280); });
@@ -1730,23 +1435,6 @@ AFTER.talent = async () => {
   if (q && document.activeElement !== q && S.po.q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
 };
 
-PAGES.retention = async () => {
-  const d = DATA.retention = await API.call("po_turnover", {});
-  if (!d.has_data) return poEmpty();
-  const types = Object.fromEntries(d.by_type);
-  const kpi = (l, v, s) => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
-  return `<div class="ph"><div><h1>Turnover &amp; retention</h1><p>${esc(d.window === "last 12 months" ? "Last 12 months to " + fmtDate(d.as_of) : d.window)} · by requested date</p></div></div>
-    <div class="kpis k5">${kpi("Leavers · " + d.window, d.total, d.window_months && d.window_months !== 12 ? `≈ ${d.annualised} a year at this pace` : `${d.all_time} on file`)}${kpi("Voluntary", pct(d.voluntary_pct), `${types.Resignation || 0} resignations`)}
-      ${kpi("Turnover rate · yearly", d.rate_annualised == null ? "—" : d.rate_annualised.toFixed(1) + "%", d.headcount ? `${d.rate_leavers} leavers on ${d.headcount.toLocaleString("en-US")} people · ${d.rate_scope}` : "import the Basic Sheet for a rate")}${kpi("Terminations", types.Termination || 0, `${types.Absconding || 0} absconded`)}${kpi("Top reason", `<span class="txt">${esc(d.by_reason.length ? d.by_reason[0][0] : "—")}</span>`, d.by_reason.length ? d.by_reason[0][1] + " leavers" : "")}</div>
-    <div class="panel"><div class="phd"><h2>Leavers per month</h2><small>Last 24 months</small></div><div id="ch-po-monthly"></div></div>
-    <div class="grid g2"><div class="panel"><div class="phd"><h2>Why people leave</h2><small>${esc(d.window)}</small></div><div id="ch-po-reasons"></div></div>
-      <div class="panel"><div class="phd"><h2>Leavers by store</h2><small>${esc(d.window)}</small></div><div id="ch-po-stores"></div></div></div>
-    <div class="grid g2"><div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Hotspots</h2><small>store × section</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th>Section</th><th class="n">Leavers</th></tr></thead>
-      <tbody>${d.hotspots.map(([s, sec, n]) => `<tr><td><b>${esc(s)}</b></td><td>${esc(sec)}</td>${poCell(n, 3, 6, false, v => v)}</tr>`).join("")}</tbody></table></div></div>
-      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Most recent leavers</h2></div><div class="tbl-wrap" style="max-height:420px"><table class="t"><thead><tr><th>Date</th><th>Name</th><th>Store</th><th>Section</th><th>Type</th><th>Reason</th></tr></thead>
-      <tbody>${d.recent.map(r => `<tr><td>${fmtDate(r.date)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.store)}</td><td>${esc(r.section)}</td><td>${esc(r.type)}</td><td>${esc(r.reason)}</td></tr>`).join("")}</tbody></table></div></div></div>
-    <small style="color:var(--muted)">Many records carry salary period 2025-12 whatever their date; counts use the requested date. Confirm with HR operations which date is the official exit date.</small>`;
-};
 AFTER.retention = () => {
   const d = DATA.retention; if (!d || !d.has_data || !$("#ch-po-monthly")) return;
   const ml = d.monthly.map(([m]) => new Date(m + "-01T00:00:00").toLocaleDateString("en-GB", { month: "short", year: "2-digit" }));
@@ -1756,27 +1444,6 @@ AFTER.retention = () => {
 };
 
 const PO_SHIFT = { Morning: ["M", "m"], Mid: ["Mid", "d"], Evening: ["E", "e"], Off: ["Off", "o"], Leave: ["AL", "l"], Inventory: ["Inv", "i"], "Not rostered": ["", "n"], Other: ["?", "n"] };
-PAGES.shifts = async () => {
-  const d = DATA.shifts = await API.call("po_shifts", { store: S.po.shiftStore });
-  if (!d.has_data) return poEmpty();
-  S.po.shiftStore = d.store;
-  const mix = d.mix, worked = (mix.Morning || 0) + (mix.Mid || 0) + (mix.Evening || 0);
-  const day = x => new Date(x + "T00:00:00");
-  const gaps = d.gaps.filter(g => g.store === d.store);
-  return `<div class="ph"><div><h1>Shift roster</h1><p>${d.people} leaders · ${fmtDate(d.days[0])} – ${fmtDate(d.days[d.days.length - 1])} · Morning till 11, Mid till 2, Evening after 2</p></div>
-      <select class="input" id="po-shift-store">${d.stores.map(s => `<option ${s === d.store ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
-    <div class="kpis po-kpis4"><div class="kpi"><span class="kpi-l">Morning share</span><span class="kpi-v">${pct(worked ? 100 * (mix.Morning || 0) / worked : null)}</span><span class="kpi-s"><span>of worked shifts</span></span></div>
-      <div class="kpi"><span class="kpi-l">Mid share</span><span class="kpi-v">${pct(worked ? 100 * (mix.Mid || 0) / worked : null)}</span><span class="kpi-s"><span>of worked shifts</span></span></div>
-      <div class="kpi"><span class="kpi-l">Evening share</span><span class="kpi-v">${pct(worked ? 100 * (mix.Evening || 0) / worked : null)}</span><span class="kpi-s"><span>of worked shifts</span></span></div>
-      <div class="kpi"><span class="kpi-l">Coverage gaps</span><span class="kpi-v">${d.gaps.length}</span><span class="kpi-s"><span>department-days, all leaders off</span></span></div></div>
-    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>${esc(d.store)}</h2><small>${Object.entries(PO_SHIFT).filter(([k]) => !["Not rostered", "Other"].includes(k)).map(([k, [c, cl]]) => `<span class="po-s ${cl}">${c}</span> ${k}`).join(" &nbsp; ")}</small></div>
-      <div class="tbl-wrap"><table class="t po-shifts"><thead><tr><th>Leader</th>${d.days.map(x => `<th class="n">${day(x).getDate()}<br><span class="sub">${day(x).toLocaleDateString("en-GB", { weekday: "short" }).slice(0, 2)}</span></th>`).join("")}</tr></thead>
-      <tbody>${d.grid.map(p => `<tr><td><b>${esc(p.name)}</b><span class="sub">${esc(p.section)}</span></td>${p.days.map(s => { const [c, cl] = PO_SHIFT[s] || ["?", "n"]; return `<td class="po-s ${cl}">${c}</td>`; }).join("")}</tr>`).join("")}</tbody></table></div></div>
-    <div class="grid g2"><div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Coverage gaps</h2><small>every rostered leader of a department off or on leave</small></div><div class="tbl-wrap" style="max-height:360px"><table class="t"><thead><tr><th>Store</th><th>Department</th><th>Date</th><th class="n">Leaders</th></tr></thead>
-      <tbody>${d.gaps.map(g => `<tr><td><b>${esc(g.store)}</b></td><td>${esc(g.department)}</td><td>${fmtDate(g.date)}</td><td class="n">${g.leaders}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">No gaps.</td></tr>`}</tbody></table></div></div>
-      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Leave this month</h2></div><div class="tbl-wrap" style="max-height:360px"><table class="t"><thead><tr><th>Leader</th><th>Store</th><th class="n">Days</th></tr></thead>
-      <tbody>${d.leave.map(l => `<tr><td><b>${esc(l.name)}</b></td><td>${esc(l.store)}</td>${poCell(l.days, 3, 6, false, v => v)}</tr>`).join("")}</tbody></table></div></div></div>`;
-};
 AFTER.shifts = () => { const s = $("#po-shift-store"); if (s) s.addEventListener("change", () => { S.po.shiftStore = s.value; render(); }); };
 
 Object.assign(ACT, {
@@ -1791,40 +1458,6 @@ Object.assign(ACT, {
 /* ---------------------------------------------------------------- Data explorer: any other table, charted and explained */
 S.dx = { id: null, group: null, measure: null, agg: null, q: "" };
 const dxNum = (v, type) => v == null ? "—" : type === "percent" ? (+v).toFixed(1) + "%" : Math.abs(v) >= 1e9 ? (v / 1e9).toFixed(2) + " bn" : Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + " M" : (+v).toLocaleString("en-US", { maximumFractionDigits: 2 });
-PAGES.data = async () => {
-  const list = (await API.call("datasets", {})).datasets;
-  if (!list.length) return `<div class="ph"><div><h1>Other data</h1><p>Any table P&O does not already know lands here, charted and explained.</p></div></div>
-    <div class="panel"><div class="hero"><div class="logo" style="width:64px;height:64px;font-size:20px;border-radius:18px">DATA</div><h2>No other data yet</h2>
-    <p>Import or paste any table (a KPI sheet, a training list, a survey, a store checklist…). P&O finds the header, understands the columns
-    (stores, sections, people, actual, budget, dates) and shows charts and insights here. Known reports still go to their own screens.</p>
-    <div class="row" style="justify-content:center"><button class="btn primary" data-go="import">${ic("import", 16)}Import or paste data</button></div></div></div>`;
-  if (!S.dx.id || !list.some(d => d.id === S.dx.id)) S.dx = { id: list[0].id, group: null, measure: null, agg: null, q: "" };
-  const v = DATA.data = await API.call("dataset", { import_id: S.dx.id, group: S.dx.group, measure: S.dx.measure, agg: S.dx.agg });
-  const groups = v.columns.filter(c => c.type === "text");
-  const measures = v.columns.filter(c => c.type === "number" || c.type === "percent");
-  const opt = (val, label, cur) => `<option value="${esc(val)}" ${val === cur ? "selected" : ""}>${esc(label)}</option>`;
-  const cols = v.columns.filter(c => !c.name.startsWith("_"));
-  const kpis = [`<div class="kpi"><span class="kpi-l">Rows</span><span class="kpi-v">${v.rows.toLocaleString("en-US")}</span><span class="kpi-s"><span>${v.columns.length} columns</span></span></div>`]
-    .concat(v.totals.slice(0, 4).map(t => `<div class="kpi"><span class="kpi-l">${esc(t.name)}</span><span class="kpi-v">${dxNum(t.value, t.type)}</span><span class="kpi-s"><span>${t.agg === "avg" ? "average" : "total"}</span></span></div>`)).join("");
-  return `<div class="ph"><div><h1>${esc(v.title)}${v.period ? ` <span class="chip ${/^YTD/.test(v.period) ? "gold" : /^MTD/.test(v.period) ? "info" : ""}" style="vertical-align:middle;font-size:12px">${esc(v.period === "General" ? "General · every period" : v.period)}</span>` : ""}</h1><p>${esc(v.description || "From " + (v.file || "imported data"))} · ${v.rows.toLocaleString("en-US")} rows</p></div>
-      <select class="input" id="dx-pick">${list.map(d => opt(String(d.id), (d.ai_title || d.title) + (d.period ? " · " + d.period : "") + " · " + d.rows + " rows", String(S.dx.id))).join("")}</select></div>
-    <div class="kpis po-kpis4 dx-kpis">${kpis}</div>
-    <div class="panel"><div class="phd"><h2>Explore</h2><div class="row" style="gap:8px">
-        <label class="dx-l">Group by<select class="input" id="dx-group">${opt("", "Nothing (all rows)", v.group || "")}${groups.map(c => opt(c.name, c.label, v.group)).join("")}</select></label>
-        <label class="dx-l">Measure<select class="input" id="dx-measure">${opt("__count", "Number of rows", v.measure || "__count")}${measures.map(c => opt(c.name, c.label, v.measure)).join("")}</select></label>
-        <label class="dx-l">As<select class="input" id="dx-agg">${[["sum", "Total"], ["avg", "Average"], ["max", "Highest"], ["min", "Lowest"], ["count", "Count"]].map(([k, l]) => opt(k, l, v.agg)).join("")}</select></label></div></div>
-      <div id="ch-dx"></div>${v.series_count > 40 ? `<small style="color:var(--muted)">Showing the top 40 of ${v.series_count}.</small>` : ""}</div>
-    ${v.trend.length >= 2 ? `<div class="panel"><div class="phd"><h2>Over time</h2><small>${esc(v.date)}</small></div><div id="ch-dx-t"></div></div>` : ""}
-    <div class="grid g2">
-      <div class="panel"><div class="phd"><h2>Insights</h2><small>calculated from the data</small></div><div class="dx-ins">${v.insights.map(i => `<p>${md(i)}</p>`).join("")}</div></div>
-      <div class="panel"><div class="phd"><h2>AI analyst</h2><button class="btn sm primary" data-act="dx-ai">${ic("spark", 14)}Analyse with AI</button></div>
-        <div id="dx-ai" class="dx-ins">${v.ai_insights ? md(v.ai_insights) : `<p style="color:var(--muted)">The AI reads the summaries above (not the raw file) and writes what a P&amp;O director should act on. Uses the AI chosen in Settings → AI (Groq, Gemini, OpenRouter or offline).</p>`}</div></div>
-    </div>
-    <div class="panel flush"><div class="row" style="padding:12px 14px 0;justify-content:space-between"><h2 style="margin:0">Data</h2><input class="input" id="dx-q" placeholder="Filter rows" value="${esc(S.dx.q)}" style="width:260px"></div>
-      <div class="tbl-wrap" style="max-height:520px"><table class="t" id="dx-table"><thead><tr>${cols.map(c => `<th class="${c.type === "number" || c.type === "percent" ? "n" : ""}">${esc(c.name)}${c.role ? `<span class="sub">${esc(c.role.replace("_", " "))}</span>` : ""}</th>`).join("")}</tr></thead>
-      <tbody>${v.table.slice(0, 500).map(r => `<tr>${cols.map(c => `<td class="${c.type === "number" || c.type === "percent" ? "n" : ""}">${c.type === "number" || c.type === "percent" ? dxNum(r[c.name], c.type) : esc(r[c.name] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>
-    ${v.warnings.length ? `<small style="color:var(--muted)">${v.warnings.map(esc).join(" · ")}</small>` : ""}`;
-};
 AFTER.data = () => {
   const v = DATA.data; if (!v || !$("#ch-dx")) return;
   const mcol = v.columns.find(c => c.name === v.measure);
@@ -1855,27 +1488,6 @@ ACT["dx-ai"] = async b => {
 S.nps = { city: "" };
 const npsTone = v => v == null ? "none" : v >= 50 ? "good" : v >= 20 ? "warn" : "bad";
 const npsTxt = v => v == null ? "—" : (v > 0 ? "+" : "") + Math.round(v);
-PAGES.nps = async () => {
-  const d = DATA.nps = await API.call("po_nps", { city: S.nps.city });
-  if (!d.has_data) return `<div class="panel"><div class="hero"><h2>No NPS data yet</h2><p>Import the NPS sheet (Details · Section · Product Influence · NPS). It is recognised automatically.</p>
-    <div class="row" style="justify-content:center"><button class="btn primary" data-go="import">${ic("import", 16)}Import data</button></div></div></div>`;
-  const kpi = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${s}</span></span></div>`;
-  const delta = d.overall != null && d.overall_prev != null ? d.overall - d.overall_prev : null;
-  const list = (items, key) => items.length ? items.map(c => `<div class="nps-row"><span>${esc(c.category)}<small>${esc(c.section)}</small></span><b class="t-${npsTone(c.nps)}">${key === "change" ? npsTxt(c.change) : npsTxt(c.nps)}</b></div>`).join("") : `<div class="empty">—</div>`;
-  return `<div class="ph"><div><h1>Customer NPS</h1><p>Net Promoter Score by city, section and product · ${d.latest}${d.prev ? ` vs ${d.prev}` : ""} · −100 to +100</p></div>
-      <div class="seg"><button data-act="nps-city" data-city="" aria-pressed="${!d.city}">All cities</button>${d.cities.map(c => `<button data-act="nps-city" data-city="${esc(c)}" aria-pressed="${d.city === c}">${esc(c)}</button>`).join("")}</div></div>
-    <div class="kpis po-kpis4">${kpi(`NPS ${d.latest}`, npsTxt(d.overall), d.city || "All cities", "t-" + npsTone(d.overall))}
-      ${kpi("Change vs last year", delta == null ? "—" : npsTxt(delta), d.prev ? `vs ${d.prev}: ${npsTxt(d.overall_prev)}` : "one year only")}
-      ${kpi("Best category", d.best.length ? esc(d.best[0].category) : "—", d.best.length ? npsTxt(d.best[0].nps) : "", "txt")}
-      ${kpi("Needs work", d.worst.length ? `<span class="clamp3" title="${esc(d.worst[0].category)}">${esc(d.worst[0].category)}</span>` : "—", d.worst.length ? npsTxt(d.worst[0].nps) : "", "txt")}</div>
-    <div class="panel"><div class="phd"><h2>What it says</h2></div><div class="dx-ins">${d.insights.map(i => `<p>${md(i)}</p>`).join("")}</div></div>
-    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>City × section · ${d.latest}</h2><small>green ≥ +50 · amber +20 to +49 · red below +20 · small number = change vs ${d.prev || "last year"}</small></div>
-      <div class="tbl-wrap"><table class="t po-heat"><thead><tr><th>City</th>${d.sections.map(s => `<th class="n">${esc(s.replace("Fruits & Vegetables", "F&V").replace("Light Household", "LHH").replace("Heavy Household", "HHH"))}</th>`).join("")}</tr></thead>
-      <tbody>${d.cities.map((c, i) => `<tr><td><b>${esc(c)}</b></td>${d.matrix[i].map((v, j) => `<td class="n po-h ${npsTone(v)}">${npsTxt(v)}${d.change[i][j] != null ? `<span class="sub">${npsTxt(d.change[i][j])}</span>` : ""}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>
-    <div class="grid g2"><div class="panel"><div class="phd"><h2>Every category · ${d.latest}</h2></div><div id="ch-nps"></div></div>
-      <div class="panel"><div class="phd"><h2>Moved most since ${d.prev || "last year"}</h2></div><div class="grid g2" style="gap:12px">
-        <div><small class="nps-h">Biggest gains</small>${list(d.gains, "change")}</div><div><small class="nps-h">Biggest drops</small>${list(d.drops, "change")}</div></div></div></div>`;
-};
 AFTER.nps = () => {
   const d = DATA.nps; if (!d || !d.has_data || !$("#ch-nps")) return;
   const c = d.categories.filter(x => x.nps != null).sort((a, b) => b.nps - a.nps);
@@ -1997,7 +1609,9 @@ function hireForm(v) {
       <label class="dx-l">Start from role<select class="input" id="hv-role">${roles}</select></label>
       <label class="dx-l">Area<select class="input" id="hv-cat">${cats}</select></label>
       <label class="dx-l">Store<input class="input" id="hv-store" list="hv-stores" value="${esc(v.store || "")}"><datalist id="hv-stores">${(t.stores || []).map(s => `<option value="${esc(s)}">`).join("")}</datalist></label>
-      <label class="dx-l">Section<input class="input" id="hv-section" value="${esc(v.section || "")}" placeholder="e.g. Bakery"></label>
+      <label class="dx-l">Store format<select class="input" id="hv-fmt">${[["", "From the store"], ["Hypermarket", "Hypermarket"], ["Supermarket", "Supermarket"]].map(([k, l]) => `<option value="${k}" ${(v.fmt || "") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label class="dx-l">Department<select class="input" id="hv-dept">${["", "Consumer Goods", "Fresh Food", "Light Household", "Heavy Household", "Textile", "Health & Beauty"].map(d => `<option value="${d}" ${(v.department || "") === d ? "selected" : ""}>${d || "Whole store / from the section"}</option>`).join("")}</select></label>
+      <label class="dx-l">Section<input class="input" id="hv-section" value="${esc(v.section || "")}" placeholder="e.g. Bakery (leave blank for a department head)"></label>
       <label class="dx-l">Posts<input class="input" id="hv-head" type="number" min="1" value="${v.headcount || 1}"></label>
       <label class="dx-l">Hiring manager<input class="input" id="hv-mgr" value="${esc(v.manager || "")}"></label>
       <label class="dx-l">Fill by<input class="input" id="hv-date" type="date" value="${esc(v.target_date || "")}"></label>
@@ -2042,7 +1656,8 @@ function intCard(c, i) {
   return `<div class="icand ${i === 0 ? "top" : ""}">
     <div class="icand-h"><div class="iring" style="--p:${ring}"><b>${ring}</b><small>/100</small></div>
       <div style="flex:1;min-width:0"><div class="row" style="gap:8px;flex-wrap:wrap"><b class="iname">${esc(c.name)}</b><span class="chip ${c.move === "Promotion" ? "good" : "info"}">${esc(c.move)}</span>${i === 0 ? `<span class="chip gold">Best option</span>` : ""}${c.flight_risk === "High" ? `<span class="chip warn" title="Flight risk">at risk of leaving</span>` : ""}</div>
-        <span class="sub">${esc(c.designation)} · ${esc(c.leads || "")} · ${esc(c.store)}${c.emp ? ` · #${esc(c.emp)}` : ""}</span></div>
+        <span class="sub">${esc(c.designation)} · ${esc(c.leads || "")} · ${esc(c.store)}${c.format ? ` (${esc(c.format)})` : ""}${c.emp ? ` · #${esc(c.emp)}` : ""}</span>
+        ${c.experience ? `<span class="iexp ${c.cross ? "x" : ""}">${c.cross ? "⚠ " : "✓ "}${esc(c.experience)}</span>` : ""}${c.review_score != null ? `<span class="chip">Review score ${c.review_score}</span>` : ""}</div>
       <div class="row" style="gap:6px">${c.in_pipeline ? `<span class="chip good">In the pipeline</span>` : `<button class="btn sm primary" data-act="int-add" data-key="${esc(c.key)}">+ Shortlist</button>`}<button class="btn sm ghost" data-act="int-more" data-i="${i}">Profile</button></div></div>
     <div class="icand-b"><div class="iparts">${c.parts.map(p => `<div><small>${esc(p.label)} <i>${p.weight}%</i></small><div class="ibar"><i style="width:${p.score}%"></i></div><b>${p.score}</b></div>`).join("")}</div>
       <div class="iwhy">${c.why.map(w => `<div class="g">✓ ${esc(w)}</div>`).join("")}${c.watch.map(w => `<div class="w">! ${esc(w)}</div>`).join("")}</div></div>
@@ -2052,13 +1667,18 @@ function intCard(c, i) {
 async function drawInternal() {
   const box = $("#h-internal"); if (!box) return;
   try {
-    const r = DATA.hint = await API.call("hire_internal", { vacancy_id: S.hire.vid });
+    const r = DATA.hint = await API.call("hire_internal", { vacancy_id: S.hire.vid, cross: !!S.hire.cross });
     const vcls = { internal: "good", internal_backfill: "gold", develop: "warn", external: "info" }[r.verdict.decision] || "";
     box.innerHTML = `<div class="iverdict ${vcls}"><div class="iv-ic">${r.verdict.decision === "external" ? "🌐" : r.verdict.decision === "develop" ? "🌱" : "🏆"}</div><div><small>P&O recommends</small><h3>${esc(r.verdict.title)}</h3><p>${esc(r.verdict.text)}</p></div>
         <div class="iv-act">${r.verdict.decision !== "internal" ? `<button class="btn primary" data-act="h-vtab" data-t="external">Start external search →</button>` : `<button class="btn" data-act="h-vtab" data-t="external">Also screen outside CVs</button>`}</div></div>
       ${(r.notes || []).map(n => `<div class="banner">ℹ ${esc(n)}</div>`).join("")}
-      <div class="row" style="justify-content:space-between;margin:10px 0 6px"><small style="color:var(--muted)">${r.candidates.length} internal option${r.candidates.length === 1 ? "" : "s"} from ${r.pool.leaders} leaders${r.pool.staff ? ` and ${r.pool.staff} staff` : ""} · ${esc(r.method)}</small></div>
-      <div class="icands">${r.candidates.map(intCard).join("") || `<div class="empty">No internal candidates at the right level.</div>`}</div>
+      <div class="itarget"><b>${esc(r.target.title)}</b><span class="chip">${esc(r.target.fmt || "")}</span>${r.target.department ? `<span class="chip">${esc(r.target.department)}</span>` : ""}${r.target.section ? `<span class="chip">${esc(r.target.section)}</span>` : ""}${r.target.store ? `<span class="chip">${esc(r.target.store)}</span>` : ""}
+        <label class="row" style="gap:6px;margin-left:auto"><span class="switch"><input type="checkbox" id="h-cross" ${r.cross ? "checked" : ""}><span></span></span><small>Also show people from other departments</small></label></div>
+      <small style="color:var(--muted);display:block;margin:6px 0 10px">${r.candidates.length} internal option${r.candidates.length === 1 ? "" : "s"} from ${r.pool.leaders} leaders${r.pool.staff ? ` and ${r.pool.staff} staff` : ""} · ${esc(r.method)}</small>
+      ${(() => { const grp = [["Same level · a transfer", c => c.move !== "Promotion"], ["A step up · a promotion", c => c.move === "Promotion"]];
+        const idx = new Map(r.candidates.map((c, i) => [c, i]));
+        const html = grp.map(([t, f]) => { const cs = r.candidates.filter(f); return cs.length ? `<h3 class="igroup">${t} <small>${cs.length}</small></h3><div class="icands">${cs.map(c => intCard(c, idx.get(c))).join("")}</div>` : ""; }).join("");
+        return html || `<div class="empty">No one inside has the level and experience for this seat${r.cross ? "" : ". Switch on “other departments” to see people with different experience"}.</div>`; })()}
       <div class="panel" style="margin-top:14px"><div class="phd"><h2>Outside the company</h2><small>${r.external_pipeline} CVs screened for this vacancy</small></div>
         ${r.bank.length ? `<div class="hint-list">${r.bank.map(b => `<div><b>${esc(b.name)}</b><small>${esc(b.city || "")} · past applicant · ${b.score}/100 · ${esc(b.band_label)}</small></div>`).join("")}</div>` : `<small style="color:var(--muted)">No strong past applicants in the talent bank.</small>`}
         <div class="row" style="margin-top:8px"><button class="btn" data-act="h-vtab" data-t="external">Screen CVs</button><button class="btn ghost" data-act="h-matchbank">Add talent bank matches</button></div></div>`;
@@ -2078,6 +1698,7 @@ function intProfile(c) {
 }
 const INT_ACTS = {
   "h-vtab": b => { S.hire.vtab = b.dataset.t; render(); },
+  "h-cross": () => {},
   "int-add": async b => { b.disabled = true; await call("hire_internal_add", { vacancy_id: S.hire.vid, key: b.dataset.key }); closeModal(); toast("Added to the pipeline as an internal candidate"); drawInternal(); },
   "int-more": b => intProfile(DATA.hint.candidates[+b.dataset.i]),
 };
@@ -2245,37 +1866,6 @@ function personPicker(m, id, onPick) {
     box.hidden = false; $$("button", box).forEach(b => b.onclick = () => { inp.value = b.dataset.name; inp.dataset.emp = b.dataset.emp; box.hidden = true; onPick && onPick(b.dataset.emp, b.dataset.name); }); }, 220); };
 }
 const pickerHtml = (id, label, val = "") => `<label class="dx-l ppick">${label}<input class="input" id="${id}" autocomplete="off" placeholder="Name or employee number" value="${esc(val)}"><div class="ppick-r" id="${id}-r" hidden></div></label>`;
-PAGES.relations = async () => {
-  const E = S.er;
-  const tabs = `<div class="seg">${[["cases", "Cases"], ["letters", "HR letters"], ["exits", "Exit interviews"]].map(([k, l]) => `<button data-act="er-tab" data-t="${k}" aria-pressed="${E.tab === k}">${l}</button>`).join("")}</div>`;
-  const head = (p, right = "") => `<div class="ph"><div><h1>Employee relations</h1><p>${p}</p></div><div class="row">${right}${tabs}</div></div>`;
-  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
-  if (E.tab === "letters") {
-    const d = DATA.lt = await API.call("letter_types");
-    const icons = { offer: "📨", appointment: "📝", confirmation: "✅", probation_extension: "⏳", transfer: "🔁", promotion: "🚀", show_cause: "❗", warning: "⚠️", experience: "🎓", relieving: "👋" };
-    return head("Every standard HR letter, filled in from the person's record, numbered and filed on their page.") +
-      `<div class="ltypes">${d.types.map(t => `<button class="ltype" data-act="lt-new" data-k="${t.kind}"><span>${icons[t.kind] || "✉️"}</span><b>${esc(t.title)}</b><small>${t.fields.length} details to check</small></button>`).join("")}</div>
-      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Letters issued</h2><small>${d.letters.length}</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Date</th><th>Reference</th><th>Letter</th><th>To</th><th></th></tr></thead><tbody>
-      ${d.letters.map(l => `<tr><td class="nw">${esc(l.created_at.slice(0, 10))}</td><td><code>${esc(l.ref)}</code></td><td>${esc((d.types.find(t => t.kind === l.kind) || {}).title || l.kind)}</td><td><button class="lnk" data-act="br-open" data-emp="${esc(l.emp)}">${esc(l.name)}</button></td><td>${l.case_id ? `<span class="chip">case #${l.case_id}</span>` : ""}</td></tr>`).join("") || `<tr><td colspan="5"><div class="empty">No letters yet.</div></td></tr>`}</tbody></table></div></div>`;
-  }
-  if (E.tab === "exits") {
-    const d = DATA.ex = await API.call("exits");
-    return head("Why people leave, in their own words: reasons, how they rate their manager, pay, culture and growth, and who we should not have lost.", `<button class="btn primary" data-act="ex-new">+ Exit interview</button>`) +
-      `<div class="kpis k5">${k("Interviews", d.n, "recorded")}${k("Top reason", d.main.length ? `<span class="txt">${esc(d.main[0][0])}</span>` : "—", d.main.length ? d.main[0][1] + " people" : "")}${k("Would come back", d.would_return == null ? "—" : d.would_return + "%", "of those asked", d.would_return >= 50 ? "t-good" : "")}
-        ${k("Leaver eNPS", d.enps == null ? "—" : (d.enps > 0 ? "+" : "") + d.enps, "would recommend us", d.enps == null ? "" : d.enps >= 0 ? "t-good" : "t-bad")}${k("Regrettable", d.regrettable.length, "strong performers who left", d.regrettable.length ? "t-bad" : "")}</div>
-      ${d.n ? `<div class="grid g2"><div class="panel"><div class="phd"><h2>Why they left</h2><small>main and other reasons</small></div><div id="ch-exr"></div></div><div class="panel"><div class="phd"><h2>How leavers rate us</h2><small>1-5</small></div><div id="ch-exs"></div></div></div>` : ""}
-      ${d.regrettable.length ? `<div class="panel"><div class="phd"><h2>Regrettable leavers</h2><small>rated 4+ or leader index 7+</small></div>${d.regrettable.map(r => `<div class="il bad">${esc(r.name)} · ${esc(r.store || "")} · ${esc(r.why)} · left for: <b>${esc(r.reason)}</b></div>`).join("")}</div>` : ""}
-      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Interviews</h2></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Left</th><th>Name</th><th>Store</th><th>Main reason</th><th class="n">Manager</th><th class="n">Pay</th><th class="n">Growth</th><th class="n">Recommend</th><th>Comments</th></tr></thead><tbody>
-      ${d.rows.map(r => `<tr><td class="nw">${r.leave_date ? fmtDate(r.leave_date) : ""}</td><td><button class="lnk" data-act="br-open" data-emp="${esc(r.emp)}">${esc(r.name)}</button><span class="sub">${esc(r.designation || "")}</span></td><td>${esc(r.store || "")}</td><td><span class="chip">${esc(r.main_reason)}</span></td><td class="n">${r.manager_score ?? "—"}</td><td class="n">${r.pay_score ?? "—"}</td><td class="n">${r.growth_score ?? "—"}</td><td class="n">${r.recommend ?? "—"}</td><td><small>${esc((r.comments || "").slice(0, 120))}</small></td></tr>`).join("") || `<tr><td colspan="9"><div class="empty">No exit interviews yet.</div></td></tr>`}</tbody></table></div></div>`;
-  }
-  const d = DATA.er = await API.call("er_cases", { status: E.status });
-  return head("Disciplinary cases, grievances, investigations and improvement plans: every step with its deadline, letters attached, consistent outcomes.", `<button class="btn primary" data-act="er-new">+ New case</button>`) +
-    `<div class="kpis k5">${k("Open cases", d.open, "in progress")}${k("Overdue steps", d.overdue, "past their deadline", d.overdue ? "t-bad" : "")}${k("Closed", d.closed, "all time")}${k("Days to close", d.avg_days_to_close ?? "—", "average")}${k("Most common", d.by_category.length ? `<span class="txt">${esc(d.by_category[0][0])}</span>` : "—", d.by_category.length ? d.by_category[0][1] + " cases" : "")}</div>
-    <div class="grid g2" style="grid-template-columns:1.6fr 1fr"><div class="panel flush"><div class="row" style="padding:12px 14px 0"><div class="seg">${[["open", "Open"], ["overdue", "Overdue"], ["closed", "Closed"], ["all", "All"]].map(([v, l]) => `<button data-act="er-status" data-s="${v}" aria-pressed="${E.status === v}">${l}</button>`).join("")}</div></div>
-      <div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th>Person</th><th>Type</th><th>Step</th><th>Next due</th><th>Outcome</th></tr></thead><tbody>
-      ${d.rows.map(r => `<tr class="click ${r.overdue ? "row-bad" : ""}" data-act="er-open" data-id="${r.id}"><td>${r.id}</td><td><b>${esc(r.confidential ? "Confidential case" : r.name)}</b><span class="sub">${esc(r.designation || "")} · ${esc(r.store || "")}</span></td><td>${esc(r.kind)}<span class="sub">${esc(r.category)}</span></td><td><span class="chip ${r.stage === "Closed" ? "" : "info"}">${esc(r.stage)}</span></td><td class="nw ${r.overdue ? "t-bad" : ""}">${r.stage_due ? fmtDate(r.stage_due) : "—"}</td><td>${esc(r.outcome || "")}</td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">No cases here.</div></td></tr>`}</tbody></table></div></div>
-      <div class="panel"><div class="phd"><h2>By category</h2></div>${d.by_category.length ? `<div id="ch-erc"></div>` : `<div class="empty">No cases yet.</div>`}${d.by_outcome.length ? `<h4 class="ih">Outcomes</h4><div id="ch-ero"></div>` : ""}</div></div>`;
-};
 AFTER.relations = () => {
   const E = S.er;
   if (E.tab === "cases" && DATA.er) { const d = DATA.er;
@@ -2365,45 +1955,6 @@ const ER_ACTS = {
 };
 
 /* ============================================================== 2.8 People insights */
-PAGES.insights = async () => {
-  const d = DATA.pi = await API.call("people_insights");
-  const A = d.absence || {}, W = d.wellbeing || {}, T = d.attrition || {}, G = d.gender || {}, K = d.week || {}, R = d.drivers || {};
-  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
-  const none = msg => `<div class="empty" style="padding:22px">${esc(msg)}</div>`;
-  const who = r => `<button class="lnk" data-act="br-open" data-emp="${esc(r.emp)}">${esc(r.name)}</button><span class="sub">${esc(r.designation || "")}${r.store ? " · " + esc(r.store) : ""}</span>`;
-  return `<div class="ph"><div><h1>People insights</h1><p>Patterns behind the numbers: when people are absent, who is overworked, who leaves early, who we should not have lost, and what moves with turnover.</p></div></div>
-  <div class="kpis k5">${k("Absence rate", A.available ? A.average + "%" : "—", A.month ? "of scheduled days · " + A.month : "needs attendance", A.average > 5 ? "t-bad" : "")}
-    ${k("Pattern absence", A.available ? A.bradford_high : "—", "Bradford score 125+", A.bradford_high ? "t-bad" : "")}
-    ${k("Overworked", W.available ? W.n : "—", "long days or no rest", W.n ? "t-warn" : "")}
-    ${k("Leave in 90 days", T.early_pct != null ? T.early_pct + "%" : "—", T.early_pct != null ? `${T.early} of ${T.known_tenure} leavers` : "needs joining dates", T.early_pct >= 20 ? "t-bad" : "")}
-    ${k("Women in leadership", G.leaders_women_pct != null ? G.leaders_women_pct + "%" : "—", G.women_pct != null ? `${G.women_pct}% of all staff` : "needs gender in roster")}</div>
-  <div class="grid g2">
-    <div class="panel"><div class="phd"><h2>This week</h2><small>${K.from ? fmtDate(K.from) + " – " + fmtDate(K.to) : ""}</small></div>
-      <h4 class="ih">🎉 Work anniversaries</h4>${(K.anniversaries || []).length ? K.anniversaries.slice(0, 8).map(a => `<div class="il ${a.milestone ? "good" : ""}"><b>${a.years} year${a.years > 1 ? "s" : ""}</b> · ${esc(a.name)} · ${esc(a.designation || "")} · ${esc(a.store || "")} · ${fmtDate(a.on)}${a.milestone ? " · milestone" : ""}</div>`).join("") : `<small class="muted">None in the next 7 days (or no joining dates).</small>`}
-      <h4 class="ih">🌴 Away on leave</h4>${(K.off || []).length ? K.off.slice(0, 10).map(o => `<div class="il ${o.level >= 3 ? "warn" : ""}">${esc(o.name)} · ${esc(o.designation || "")} · ${esc(o.store || "")} · ${esc(o.type)} ${fmtDate(o.from)} – ${fmtDate(o.to)}</div>`).join("") : `<small class="muted">Nobody on recorded leave this week.</small>`}</div>
-    <div class="panel"><div class="phd"><h2>When people are absent</h2><small>% of scheduled days, by weekday</small></div>
-      ${A.available && Object.keys(A.by_weekday).length ? `<div id="ch-wd"></div>${A.peak ? `<div class="banner">📅 <b>${esc(A.peak.day)}</b> absence is ${A.peak.x}× the average (${A.peak.rate}% vs ${A.average}%). Check rosters and leave approvals for that day.</div>` : ""}${A.next_to_off_share != null ? `<small class="muted">${A.next_to_off_share}% of absences sit right next to a day off or holiday.</small>` : ""}` : none("Import attendance to see absence patterns.")}</div></div>
-  <div class="grid g2">
-    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Pattern absence</h2><small>Bradford factor = spells² × days</small></div>
-      ${(A.bradford || []).length ? `<div class="tbl-wrap"><table class="t"><thead><tr><th>Person</th><th class="n">Days</th><th class="n">Spells</th><th class="n">Next to off</th><th class="n">Bradford</th></tr></thead><tbody>
-      ${A.bradford.slice(0, 12).map(r => `<tr><td>${who(r)}</td><td class="n">${r.days}</td><td class="n">${r.spells}</td><td class="n">${r.next_to_off}</td><td class="n"><span class="chip ${r.bradford >= 250 ? "bad" : r.bradford >= 125 ? "warn" : ""}">${r.bradford}</span></td></tr>`).join("")}</tbody></table></div>
-      <small class="muted" style="display:block;padding:8px 16px 14px">Many short absences disrupt a store more than one long one. 125+ deserves a return-to-work talk; 250+ a formal review.</small>` : none("No absences recorded.")}</div>
-    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Wellbeing watch</h2><small>11h+ days, 12+ days without rest, 40h+ over</small></div>
-      ${(W.rows || []).length ? `<div class="tbl-wrap"><table class="t"><thead><tr><th>Person</th><th class="n">Avg day</th><th class="n">11h+ days</th><th class="n">Longest run</th><th>Why</th></tr></thead><tbody>
-      ${W.rows.slice(0, 12).map(r => `<tr><td>${who(r)}</td><td class="n">${r.avg_h}h</td><td class="n">${r.long_days}</td><td class="n">${r.streak}</td><td><small>${esc(r.flags.join(" · "))}</small></td></tr>`).join("")}</tbody></table></div>` : none(W.available ? "Nobody is working unusually long hours or without rest. 👍" : "Import attendance with punch times to check working hours.")}</div></div>
-  <div class="grid g2">
-    <div class="panel"><div class="phd"><h2>How long leavers stayed</h2><small>${T.known_tenure || 0} of ${T.n || 0} with a joining date</small></div>
-      ${T.known_tenure ? `<div id="ch-ten"></div>${T.early_by_store.length ? `<h4 class="ih">Early leavers by store</h4><div id="ch-early"></div>` : ""}` : none(T.available ? "Leavers' joining dates are missing. Add a 'Joining Date' column to the turnover sheet, or import the Basic Sheet with past employees." : "Import the turnover sheet.")}</div>
-    <div class="panel"><div class="phd"><h2>Regrettable losses</h2><small>${T.regrettable_n || 0} strong performers left · ${T.regrettable_voluntary || 0} resigned</small></div>
-      ${(T.regrettable || []).length ? T.regrettable.slice(0, 10).map(r => `<div class="il bad">${esc(r.name)} · ${esc(r.store || "")} · ${esc(r.section || "")} · ${r.date ? fmtDate(r.date) : ""} · ${esc(r.regrettable)}${r.reason ? ` · <b>${esc(r.reason)}</b>` : ""}</div>`).join("") : none("No leaver had a rating of 4+ or a leader index of 7+.")}</div></div>
-  <div class="grid g2">
-    <div class="panel"><div class="phd"><h2>Gender mix by level</h2><small>current staff · groups under ${G.min_group || 5} not split</small></div>
-      ${(G.rows || []).length ? `<div class="gmix">${G.rows.map(r => r.women_pct == null ? `<div class="gm"><span>${esc(r.band)}</span><div class="gbar"><i style="width:100%;background:var(--line-2)"></i></div><small>${r.n} people</small></div>`
-        : `<div class="gm"><span>${esc(r.band)}</span><div class="gbar"><i class="w" style="width:${r.women_pct}%"></i><i class="m" style="width:${100 - r.women_pct}%"></i></div><small><b>${r.women_pct}%</b> women · ${r.n}</small></div>`).join("")}
-        <div class="legend"><span><i style="background:#C2410C"></i>Women</span><span><i style="background:#1E3A8A"></i>Men</span></div></div>${G.note ? `<div class="banner">⚖️ ${esc(G.note)}</div>` : ""}` : none("Gender is not in the imported roster.")}</div>
-    <div class="panel"><div class="phd"><h2>What moves together across stores</h2><small>${R.stores || 0} stores · links, not causes</small></div>
-      ${(R.drivers || []).length ? R.drivers.map(x => `<div class="drv"><div class="drv-r ${x.r > 0 ? "pos" : "neg"}"><i style="width:${Math.abs(x.r) * 100}%"></i></div><div><b>${x.r > 0 ? "+" : ""}${x.r.toFixed(2)}</b> ${esc(x.text)}</div></div>`).join("") + `<small class="muted">Correlation across stores: a lead to look into, not proof. A strong link with only a few stores can be chance.</small>` : none("No strong links between turnover, absence, leadership, sales and NPS across stores yet.")}</div></div>`;
-};
 AFTER.insights = () => {
   const d = DATA.pi; if (!d) return;
   const A = d.absence || {}, T = d.attrition || {};
@@ -2416,20 +1967,6 @@ AFTER.insights = () => {
 /* ============================================================== 3.0 HR calendar */
 const EVK = { anniversary: ["🎉", "Anniversary", "#16A34A"], probation: ["⏳", "Probation ends", "#F59E0B"], leave: ["🌴", "Leave", "#0EA5E9"], er: ["⚖️", "ER step due", "#DC2626"],
   goal: ["🎯", "Goal due", "#7A5C9E"], action: ["✅", "Action due", "#94481A"], followup: ["💬", "1:1 follow-up", "#C2410C"], holiday: ["🏖️", "Holiday", "#B8860B"], training: ["🎓", "Training due", "#1E3A8A"] };
-PAGES.calendar = async () => {
-  const m = S.calMonth || new Date().toISOString().slice(0, 7);
-  const d = DATA.cal = await API.call("hr_calendar", { month: m });
-  const shift = n => { const [y, mo] = m.split("-").map(Number); const t = new Date(y, mo - 1 + n, 1); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`; };
-  const today = new Date().toISOString().slice(0, 10), f = S.calKind || "all";
-  const cells = Array(d.first_weekday).fill(`<div class="cd empty"></div>`).concat(d.days.map(x => {
-    const ev = x.events.filter(e => f === "all" || e.kind === f);
-    return `<div class="cd ${x.day === today ? "today" : ""} ${ev.length ? "has" : ""}" ${ev.length ? `data-act="cal-day" data-d="${x.day}"` : ""}><b>${+x.day.slice(8)}</b>
-      ${ev.slice(0, 3).map(e => `<span class="ce" style="--c:${EVK[e.kind][2]}" title="${esc(e.text)}">${EVK[e.kind][0]} ${esc(e.text)}</span>`).join("")}${ev.length > 3 ? `<small>+${ev.length - 3} more</small>` : ""}</div>`; }));
-  return `<div class="ph"><div><h1>HR calendar</h1><p>Every date that matters in one place: anniversaries, probation ends, leave, case deadlines, goals, actions, follow-ups, training and holidays.</p></div>
-    <div class="row"><button class="btn sm" data-act="cal-m" data-m="${shift(-1)}">‹</button><b style="min-width:130px;text-align:center">${esc(d.label)}</b><button class="btn sm" data-act="cal-m" data-m="${shift(1)}">›</button><button class="btn sm ghost" data-act="cal-m" data-m="">Today</button></div></div>
-    <div class="chips cal-f"><button class="chip ${f === "all" ? "on" : ""}" data-act="cal-k" data-k="all">All</button>${Object.entries(EVK).map(([k, [i, l, c]]) => `<button class="chip ${f === k ? "on" : ""}" data-act="cal-k" data-k="${k}" style="--c:${c}">${i} ${l} <b>${d.counts[k] || 0}</b></button>`).join("")}</div>
-    <div class="panel hrcal"><div class="hc-h">${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(x => `<span>${x}</span>`).join("")}</div><div class="hc-g">${cells.join("")}</div></div>`;
-};
 function calDay(day) {
   const x = DATA.cal.days.find(d => d.day === day);
   modal(`<h3>${fmtDate(day)}</h3>${x.events.map(e => `<div class="il" style="border-left:3px solid ${EVK[e.kind][2]};padding-left:10px">${EVK[e.kind][0]} <b>${EVK[e.kind][1]}</b> · ${esc(e.text)}
@@ -2438,13 +1975,6 @@ function calDay(day) {
 }
 
 /* ============================================================== 3.0 Weekly brief */
-PAGES.brief = async () => {
-  const b = DATA.brief = await API.call("weekly_brief");
-  const IC = { "The numbers": ["📊", "#B8860B"], "Stores that need attention": ["🏬", "#DC2626"], "Leaders": ["⭐", "#0EA5E9"], "Needs you this week": ["📌", "#C2410C"], "People": ["👥", "#16A34A"], "Coming up": ["📅", "#7A5C9E"] };
-  return `<div class="ph"><div><h1>Weekly brief</h1><p>${esc(b.title)}. Built from everything in P&O, ready to send to your line manager or the store managers.</p></div>
-    <div class="row"><button class="btn" data-act="brief-copy">Copy text</button><button class="btn" data-act="brief-x" data-f="docx">Word</button><button class="btn primary" data-act="brief-x" data-f="pdf">PDF</button></div></div>
-    <div class="brief">${b.sections.map(s => `<div class="panel bsec" style="--c:${(IC[s.title] || ["", "#94481A"])[1]}"><h2>${(IC[s.title] || ["•"])[0]} ${esc(s.title)}</h2><ul>${s.items.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>`).join("") || `<div class="panel"><div class="empty">Import data to build the brief.</div></div>`}</div>`;
-};
 
 /* ============================================================== 3.0 Store visit checklist */
 async function visitForm(store) {
@@ -2566,7 +2096,7 @@ PAGES.rv = async () => {
   if (F.store) crumbs.push([F.store, { dept: "", section: "" }]);
   if (F.dept) crumbs.push([(o.depts.find(x => x[0] === F.dept) || [0, F.dept])[1], { section: "" }]);
   if (F.section) crumbs.push([F.section, {}]);
-  const tile = t => `<div class="rtile ${t.status}" title="${esc(rvBench(t.key))}"><span class="rt-l">${esc(t.label)}</span><span class="rt-v">${RVF(t.key, t.value)}</span><span class="rt-b">${esc(rvBench(t.key, true).split(" · ")[0])}</span></div>`;
+  const tile = t => `<div class="rtile ${t.status} click" data-act="rv-tile" data-k="${t.key}" title="${esc(rvBench(t.key))} · click: rank the people on this"><span class="rt-l">${esc(t.label)}</span><span class="rt-v">${RVF(t.key, t.value)}</span><span class="rt-b">${esc(rvBench(t.key, true).split(" · ")[0])}</span></div>`;
   const cell = c => `<td class="n rc ${c.status}">${RVF(c.key, c.value)}</td>`;
   const head = keys => keys.map(k => `<th class="n" title="${esc(C[k].label + " · " + rvBench(k))}">${esc(C[k].short)}</th>`).join("");
   // people: sortable and filterable, never ranked; the score sits next to the name
@@ -2601,7 +2131,7 @@ PAGES.rv = async () => {
       <div class="tbl-wrap"><table class="t rtable"><thead><tr><th>${esc(d.grid_kind.replace(/^./, c => c.toUpperCase()).replace(/s$/, ""))}</th>${head(d.grid_keys)}</tr></thead><tbody>
       ${d.grid.map((g, i) => `<tr class="click" data-act="rv-drill" data-i="${i}"><td><b>${esc(g.name)}</b></td>${g.cells.filter(c => d.grid_keys.includes(c.key)).map(cell).join("")}</tr>`).join("")}</tbody></table></div></div>` : ""}
     <div class="panel flush rpanel"><div class="phd"><h2>People benchmark</h2><small>${ppl.length} of ${d.people.length} leader${d.people.length === 1 ? "" : "s"} · click a column to sort · filter under each column · 🎓 builds a course for that person</small>
-      ${nf ? `<button class="btn sm ghost" data-act="rv-pfclear">Clear ${nf} filter${nf > 1 ? "s" : ""}</button>` : ""}</div>
+      ${nf ? `<button class="btn sm ghost" data-act="rv-pfclear">Clear ${nf} filter${nf > 1 ? "s" : ""}</button>` : ""}<button class="btn sm" data-act="rv-scores" title="Every person's points out of 10 on every criterion">⬇ All scores · Excel</button></div>
       ${d.people.length ? `<div class="tbl-wrap"><table class="t rtable"><thead><tr><th>Person</th>${pk.map(k => `<th class="n sortable ${F.sort === k ? "sorted" : ""} ${k === "score" ? "rscore-h" : ""}" data-act="rv-sort" data-k="${k}" title="${esc(C[k].label + " · " + rvBench(k))}">${esc(C[k].short)}${F.sort === k ? (F.desc ? " ↓" : " ↑") : ""}</th>`).join("")}</tr>
         <tr class="pfrow"><th><input class="pfq" id="rv-pq" placeholder="Search name, role, store…" value="${esc(PF.q)}"></th>${pk.map(k => `<th class="n">${fsel(k)}</th>`).join("")}</tr></thead><tbody>
       ${ppl.map(p => `<tr class="click" data-act="rv-person" data-emp="${esc(p.emp)}" data-key="${esc(p.key)}"><td class="rwho"><div class="rwho-in"><div><b>${esc(p.name)}</b>${p.acting ? ` <span class="chip">acting</span>` : ""}<span class="sub">${esc(p.role)} · ${esc(p.area)}${F.store ? "" : " · " + esc(p.store)}</span></div>
@@ -2649,7 +2179,7 @@ async function rvPerson(emp, key, tab = "results") {
     <div class="pfacts">${Object.entries(p.facts).map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(String(v ?? "—"))}</b></div>`).join("")}</div>
     <div class="seg ptabs">${tabs.map(([k, l]) => `<button data-act="rv-ptab" data-t="${k}" aria-pressed="${tab === k}">${l}</button>`).join("")}</div>
     <div class="pbody">${body[tab]}</div>
-    <div class="row" style="justify-content:flex-end;margin-top:12px;gap:6px"><button class="btn" data-act="rv-course" data-key="${esc(key)}" data-name="${esc(r.name)}">🎓 Build a course for ${esc(r.name.split(" ")[0])}</button>${r.emp ? `<button class="btn" data-act="rv-pdf" data-emp="${esc(r.emp)}">Data sheet PDF</button>` : ""}<button class="btn primary" data-act="modal-close">Close</button></div>`);
+    <div class="row" style="justify-content:flex-end;margin-top:12px;gap:6px"><button class="btn" data-act="rv-course" data-key="${esc(key)}" data-name="${esc(r.name)}">🎓 Build a course for ${esc(r.name.split(" ")[0])}</button><button class="btn" data-act="rv-pscores" data-key="${esc(key)}" data-f="xlsx">⬇ Scores · Excel</button><button class="btn" data-act="rv-pscores" data-key="${esc(key)}" data-f="pdf">⬇ Scores · PDF</button>${r.emp ? `<button class="btn" data-act="rv-pdf" data-emp="${esc(r.emp)}">Data sheet PDF</button>` : ""}<button class="btn primary" data-act="modal-close">Close</button></div>`);
   m.classList.add("wide", "xwide"); m.dataset.emp = emp; m.dataset.key = key;
   const cp = $("#pp-comp", m);
   if (cp) { if (p.components.length) Charts.hbar(cp, { labels: p.components.map(c => `${c.label} (${c.share}%)`), values: p.components.map(c => c.value), max: 10, fmt: "score",
@@ -2730,6 +2260,10 @@ const RV_ACTS = {
   "rv-fix": b => { const p = DATA.rvp, m = b.closest(".modal"); DATA.brp = { name: p.row.name, emp: p.row.emp, facts: (p.record || {}).facts || [] };
     closeModal(); brainFix("designation"); RV_AFTER_FIX = [m.dataset.emp, m.dataset.key]; },
   "rv-ptab": b => { const m = b.closest(".modal"); closeModal(); rvPerson(m.dataset.emp, m.dataset.key, b.dataset.t); },
+  "rv-pscores": async b => { const r = await call("review_person_export", { key: b.dataset.key, fmt: b.dataset.f }); if (!r.cancelled) toast("Scores saved"); },
+  "rv-scores": async () => { const F = S.rv; const r = await call("review_scores_export", { store: F.store, dept: F.dept, section: F.section, role: F.role, fmt: "xlsx" }); if (!r.cancelled) toast("All scores saved"); },
+  "rv-tile": b => { const F = S.rv; F.sort = b.dataset.k; const c = (DATA.rv && DATA.rv.criteria[b.dataset.k]) || {}; F.desc = c.better ? c.better === "up" : !["stock_days", "oos", "waste", "leavers", "da"].includes(b.dataset.k); render();
+    setTimeout(() => { const t = $$(".rpanel").pop(); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); }, 250); },
   "rv-pdf": async b => { const r = await call("profile_export", { emp: b.dataset.emp, fmt: "pdf" }); if (!r.cancelled) toast("Data sheet saved"); },
   "rv-update": () => rvUpdate(),
   "rv-clear": () => { Object.assign(S.rv, { store: "", dept: "", section: "", role: "", sort: null }); render(); },
@@ -2755,8 +2289,34 @@ SETTINGS.bench = async () => {
       <td class="n"><input class="input sm num" type="number" step="any" data-cf="amber" value="${r.amber ?? ""}"><small>${u(r)}</small></td></tr>`).join("")}</tbody></table></div>
     <div class="scorecol"><b>Score colours</b><span>Green from</span><input class="input sm num" type="number" min="0" max="10" step="0.1" id="sc-g" value="${t.score.green}"><span>Amber from</span><input class="input sm num" type="number" min="0" max="10" step="0.1" id="sc-a" value="${t.score.amber}"><small class="muted">out of 10 · below amber is red</small></div>
     <div class="row" style="justify-content:space-between;margin-top:12px"><small class="muted">Total weight ${t.total}: each weight's share of the score is shown beside it.</small>
-      <div class="row" style="gap:6px"><button class="btn" data-act="tg-reset">Reset to defaults</button><button class="btn primary" data-act="crit-save">Save criteria</button></div></div></div>`;
+      <div class="row" style="gap:6px"><span class="crit-state muted" id="crit-state">Changes save by themselves</span><button class="btn" data-act="tg-reset">Reset to defaults</button></div></div></div>
+    <div class="panel flush"><div class="phd"><h2>Live preview</h2><small>scores and ranking with the settings above · ▲▼ how far each person moved</small></div>
+      <div class="tbl-wrap" style="max-height:420px" id="crit-prev"><p class="muted" style="padding:14px 16px">Change a weight, switch a criterion off or move a line to see the effect.</p></div></div>`;
 };
+function critRows() {
+  return $$("tr[data-ck]").map(tr => ({ key: tr.dataset.ck, show: $("[data-cf=show]", tr).checked, weight: +$("[data-cf=weight]", tr).value || 0,
+    green: $("[data-cf=green]", tr).value, amber: $("[data-cf=amber]", tr).value }));
+}
+let critTimer = null;
+function critLive() {
+  // every change: shares and preview at once, then saved (so the Review, people sheets, hiring and courses all use it)
+  clearTimeout(critTimer);
+  const st = $("#crit-state"); if (st) st.textContent = "Updating…";
+  critTimer = setTimeout(async () => {
+    const rows = critRows(), score = { green: $("#sc-g").value, amber: $("#sc-a").value };
+    let pv; try { pv = await API.call("review_preview", { rows, score }); } catch (e) { if (st) st.textContent = e.message; return; }
+    $$("tr[data-ck]").forEach(tr => { const sh = pv.shares[tr.dataset.ck] ?? 0; const b = $(".share", tr); if (b) b.innerHTML = `<i style="width:${sh}%"></i><b>${sh}%</b>`; tr.classList.toggle("off", !$("[data-cf=show]", tr).checked); });
+    const box = $("#crit-prev");
+    if (box) box.innerHTML = `<table class="t"><thead><tr><th class="n">#</th><th>Person</th><th class="n">Before</th><th class="n">Now</th><th class="n">Moved</th></tr></thead><tbody>${pv.people.map(p => {
+      const mv = p.old_rank && p.new_rank ? p.old_rank - p.new_rank : 0;
+      return `<tr><td class="n">${p.new_rank}</td><td><b>${esc(p.name)}</b><span class="sub">${esc([p.role, p.store].filter(Boolean).join(" · "))}</span></td><td class="n muted">${p.old ?? "—"}</td>
+        <td class="n"><span class="rc-pill ${p.status || ""}">${p.new}</span></td><td class="n ${mv > 0 ? "up" : mv < 0 ? "down" : ""}">${mv > 0 ? `▲ ${mv}` : mv < 0 ? `▼ ${-mv}` : "–"}</td></tr>`; }).join("")}</tbody></table>`;
+    try { await call("review_criteria", { rows, score }); if (st) st.textContent = "Saved ✓ · the Review uses this now"; }
+    catch (e) { if (st) st.textContent = "Not saved: " + e.message; }
+  }, 350);
+}
+document.addEventListener("input", e => { if (e.target.closest && e.target.closest(".crit, .scorecol")) critLive(); });
+document.addEventListener("change", e => { if (e.target.closest && e.target.closest(".crit") && e.target.type === "checkbox") critLive(); });
 Object.assign(RV_ACTS, {
   "tg-reset": async () => { await call("review_criteria", { reset: true }); toast("Criteria reset to defaults"); render(); },
   "crit-save": async () => {
@@ -2954,7 +2514,7 @@ const HIRE_ACTS = {
     const d = await call("hire_draft", { title: $("#hv-title").value, role: $("#hv-role").value, store: $("#hv-store").value, section: $("#hv-section").value, category: $("#hv-cat").value });
     if (!$("#hv-title").value) $("#hv-title").value = d.title;
     $("#hv-jd").value = d.jd; S.hire.form = { ...S.hire.form, rubric: d.rubric, role: d.role };
-    const keep = { title: $("#hv-title").value, role: d.role, category: $("#hv-cat").value, store: $("#hv-store").value, section: $("#hv-section").value, headcount: +$("#hv-head").value, manager: $("#hv-mgr").value, target_date: $("#hv-date").value, jd: d.jd, rubric: d.rubric, id: S.hire.form.id, status: S.hire.form.status };
+    const keep = { title: $("#hv-title").value, role: d.role, category: $("#hv-cat").value, store: $("#hv-store").value, section: $("#hv-section").value, fmt: $("#hv-fmt").value, department: $("#hv-dept").value, headcount: +$("#hv-head").value, manager: $("#hv-mgr").value, target_date: $("#hv-date").value, jd: d.jd, rubric: d.rubric, id: S.hire.form.id, status: S.hire.form.status };
     hireOpenForm(keep);
   },
   "h-aijd": async b => { b.disabled = true; b.innerHTML = `<span class="spin" style="width:13px;height:13px"></span> Writing…`;
@@ -2963,6 +2523,7 @@ const HIRE_ACTS = {
   "h-save": async b => {
     const f = S.hire.form || {};
     const v = { id: b.dataset.id ? +b.dataset.id : null, title: $("#hv-title").value.trim(), role: $("#hv-role").value, category: $("#hv-cat").value, store: $("#hv-store").value.trim(),
+      fmt: $("#hv-fmt").value, department: $("#hv-dept").value,
       section: $("#hv-section").value.trim(), headcount: +$("#hv-head").value || 1, manager: $("#hv-mgr").value.trim(), target_date: $("#hv-date").value || null,
       jd: $("#hv-jd").value, rubric: hireRubricFromForm(f.rubric), status: $("#hv-status") ? $("#hv-status").value : "open" };
     if (!v.title) return toast("Give the vacancy a title.", { err: true });
@@ -3252,24 +2813,6 @@ Object.assign(ACT, LEARN_ACTS);
 
 
 /* ============================================================== Action tracker */
-PAGES.actions = async () => {
-  const d = DATA.actions = await API.call("actions");
-  const F = S.actFilter || "active";
-  const rows = d.rows.filter(r => F === "all" || (F === "active" ? ["open", "in progress"].includes(r.status) : F === "overdue" ? r.overdue : r.status === F));
-  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
-  return `<div class="ph"><div><h1>Action tracker</h1><p>Every decision turned into an owner and a date: from alerts, AI answers, flight-risk reviews and meetings.</p></div>
-      <div class="row"><button class="btn primary" data-act="act-new">+ New action</button></div></div>
-    <div class="kpis k5">${k("Open", d.counts.open, "not started")}${k("In progress", d.counts["in progress"], "being worked on")}${k("Overdue", d.overdue, "past the due date", d.overdue ? "t-bad" : "")}${k("Done · 30 days", d.done_30d, "closed this month")}
-      ${k("Busiest owner", d.by_owner.length ? `<span class="txt">${esc(d.by_owner[0][0])}</span>` : "—", d.by_owner.length ? d.by_owner[0][1] + " open" : "")}</div>
-    <div class="panel flush"><div class="row" style="padding:12px 14px 0;justify-content:space-between"><div class="seg">${[["active", "Active"], ["overdue", "Overdue"], ["done", "Done"], ["all", "All"]].map(([v, l]) => `<button data-act="act-filter" data-f="${v}" aria-pressed="${F === v}">${l}</button>`).join("")}</div></div>
-      <div class="tbl-wrap"><table class="t"><thead><tr><th>Action</th><th>Owner</th><th>Store</th><th>Area</th><th>Due</th><th>Priority</th><th>Status</th><th>Source</th><th></th></tr></thead><tbody>
-      ${rows.map(r => `<tr class="${r.overdue ? "row-bad" : ""}"><td><b>${esc(r.title)}</b>${r.detail ? `<span class="sub">${esc(r.detail.slice(0, 160))}</span>` : ""}${r.history.length > 1 ? `<span class="sub">${esc(r.history[r.history.length - 1].note || "")}</span>` : ""}</td>
-        <td><input class="input sm" data-actf="owner" data-id="${r.id}" value="${esc(r.owner || "")}" placeholder="Owner" style="width:120px"></td><td>${esc(r.store || "—")}</td><td>${esc(r.area || "—")}</td>
-        <td><input class="input sm" type="date" data-actf="due" data-id="${r.id}" value="${esc(r.due || "")}"></td>
-        <td><select class="input sm" data-actf="priority" data-id="${r.id}">${["High", "Medium", "Low"].map(p => `<option ${p === r.priority ? "selected" : ""}>${p}</option>`).join("")}</select></td>
-        <td><select class="input sm" data-actf="status" data-id="${r.id}">${d.statuses.map(st => `<option ${st === r.status ? "selected" : ""}>${st}</option>`).join("")}</select></td>
-        <td><span class="chip">${esc(r.source || "")}</span></td><td class="n"><button class="btn sm ghost" data-act="act-note" data-id="${r.id}">Note</button><button class="btn sm ghost danger" data-act="act-del" data-id="${r.id}">×</button></td></tr>`).join("") || `<tr><td colspan="9"><div class="empty">Nothing here. Add actions from alerts (Business review), AI answers (→ Actions) or Flight risk.</div></td></tr>`}</tbody></table></div></div>`;
-};
 function actionForm(o = {}) {
   const m = modal(`<h3>New action</h3><div class="hform"><label class="dx-l" style="grid-column:1/-1">What needs to be done<input class="input" id="af-title" value="${esc(o.title || "")}"></label>
     <label class="dx-l">Owner<input class="input" id="af-owner" value="${esc(o.owner || "")}" placeholder="Name or role"></label><label class="dx-l">Store<input class="input" id="af-store" value="${esc(o.store || "")}"></label>
@@ -3289,19 +2832,6 @@ document.addEventListener("change", async e => {
 });
 
 /* ============================================================== Manpower: approved vs actual */
-PAGES.manpower = async () => {
-  const d = DATA.manpower = await API.call("manpower");
-  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
-  return `<div class="ph"><div><h1>Manpower</h1><p>Approved heads against people on the Basic Sheet, by store and department, with open vacancies from Hiring.</p></div>
-      <div class="row"><button class="btn primary" data-act="mp-paste">Paste approved manning</button></div></div>
-    ${d.has_plan ? "" : `<div class="banner">No approved manning yet. Paste it from Excel (Store · Department · Approved heads) or type it in the table below. Until then, actual headcount is shown.</div>`}
-    <div class="kpis k5">${k("Headcount", d.headcount.toLocaleString("en-US"), "on the Basic Sheet")}${k("Approved", d.has_plan ? d.approved.toLocaleString("en-US") : "—", "stores with a plan")}
-      ${k("Vacant positions", d.has_plan ? d.vacant : "—", "below approved", d.vacant ? "t-bad" : "")}${k("Over plan", d.has_plan ? d.over : "—", "above approved", d.over ? "t-warn" : "")}${k("Open vacancies", d.open_vacancies, "in Hiring")}</div>
-    ${d.has_plan ? `<div class="panel"><div class="phd"><h2>Fill rate by store</h2><small>Actual ÷ approved · black mark = 100%</small></div><div id="ch-mp"></div></div>` : ""}
-    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>By store and department</h2><small>Type an approved number to set the plan</small></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th>Department</th><th class="n">Approved</th><th class="n">Actual</th><th class="n">Gap</th><th class="n">Fill</th><th class="n">Open vacancies</th></tr></thead><tbody>
-    ${d.rows.map(r => `<tr><td>${esc(r.store)}</td><td>${esc(r.department)}</td><td class="n"><input class="input sm" type="number" min="0" data-mp-store="${esc(r.store)}" data-mp-dept="${esc(r.department)}" value="${r.approved ?? ""}" style="width:80px"></td>
-      <td class="n">${r.actual}</td><td class="n ${r.gap == null ? "" : r.gap < 0 ? "t-bad" : r.gap > 0 ? "t-warn" : "t-good"}">${r.gap == null ? "—" : (r.gap > 0 ? "+" : "") + r.gap}</td><td class="n">${r.fill_pct == null ? "—" : r.fill_pct + "%"}</td><td class="n">${r.open_vacancies || ""}</td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">Import the Basic Sheet to see headcount.</div></td></tr>`}</tbody></table></div></div>`;
-};
 AFTER.manpower = () => {
   const d = DATA.manpower;
   if (d && $("#ch-mp")) { const st = d.stores.filter(s => s.has_plan); Charts.bullet($("#ch-mp"), { items: st.map(s => ({ label: s.store, value: s.fill_pct || 0, target: 100, max: Math.max(120, ...st.map(x => x.fill_pct || 0)), fmt: "pct0" })) }); }
@@ -3372,18 +2902,22 @@ function slotVerdict(r, name) {
   return `<div class="sl-v ${lv[1]}"><span>${lv[0]}</span><div><b>${esc(r.headline || "")}</b>${r.file ? `<small>${esc(r.file)}${r.sheet && r.sheet !== r.file ? ` · ${esc(r.sheet)}` : ""}</small>` : ""}</div></div>
     ${r.ai_note ? `<div class="banner">🤖 ${esc(r.ai_note)}</div>` : ""}
     <ul class="sl-checks">${(r.checks || []).map(c => { const l = SLOT_LV[c.level] || SLOT_LV.info; return `<li class="${l[1]}"><span>${l[0]}</span>${esc(c.text)}</li>`; }).join("")}</ul>
-    ${cols.length ? `<details class="sl-map" ${r.status === "bad" ? "open" : ""}><summary>Which column is which? <small>change any match and press Read again — P&O remembers it for this layout</small></summary>
+    <div id="sl-fix"></div>
+    <details class="sl-more"><summary>More options</summary>
+    ${cols.length ? `<details class="sl-map" open><summary>Which column is which? <small>change any match and press Read again — P&O remembers it for this layout</small></summary>
       <div class="sl-grid">${fields.map(f => `<label><span>${esc(f.label)}</span><select class="input sm" data-f="${f.value}">${opt(map[f.value] ?? -1)}</select></label>`).join("")}</div>
       <div class="row" style="margin-top:8px"><button class="btn sm" data-x="fix">Read again with these columns</button></div></details>` : ""}
-    <div class="sl-agent ${r.status === "good" ? "" : "hot"}"><div><b>🤖 Let AI fix it</b><small>The AI looks at how the file is laid out (titles over two rows, subtotal lines, grouped labels, numbers in front of names, stores across the columns…), P&O makes the fixes on a copy and shows you before and after. Nothing is used until you say so.</small></div>
+    <div class="sl-agent"><div><b>🤖 Fix it again</b><small>The AI looks at how the file is laid out (titles over two rows, subtotal lines, grouped labels, numbers in front of names, stores across the columns…), P&O makes the fixes on a copy and shows you before and after. Nothing is used until you say so.</small></div>
       <div class="row"><button class="btn sm primary" data-x="repair">Fix &amp; match with AI</button><button class="btn sm ghost" data-x="repair-own">Fix without AI</button></div></div>
-    <div id="sl-fix"></div>
-    ${r.status !== "bad" && (r.checks || []).some(c => c.level === "warn" && /not in this file/.test(c.text)) ? `<div class="sl-extra"><b>Missing a part?</b> <small>Add just that part from another file or pasted cells (e.g. the budget). It is matched store by store and section by section.</small><div id="sl-x"></div></div>` : ""}`;
+    ${r.status !== "bad" && (r.checks || []).some(c => c.level === "warn" && /not in this file/.test(c.text)) ? `<div class="sl-extra"><b>Missing a part?</b> <small>Add just that part from another file or pasted cells (e.g. the budget). It is matched store by store and section by section.</small><div id="sl-x"></div></div>` : ""}</details>`;
 }
 async function slotOpen(kind, name, month, replace) {
   const label = /^ytd:/.test(month || "") ? "the year-to-date load" : month;
   const m = modal(`<div class="sl"><h3>${KIND_ICON[kind] || "📄"} ${esc(name)} <small style="color:var(--muted);font-weight:500">· ${esc(label)}</small></h3>
-    <p class="sl-guide">${esc((DATA.cal && DATA.cal.guide && DATA.cal.guide[kind]) || "")}</p>
+    ${(() => { const it = ((DATA.cal && DATA.cal.months) || []).flatMap(x => x.items || []).find(x => x.kind === kind); const n = it && it.needs;
+      return n ? `<div class="sl-needs"><b>The file or cells need these columns</b> <small>(any titles, any order — P&O works out which is which)</small>
+        <div>${n.must.map(x => `<span class="chip good">✓ ${esc(x)}</span>`).join("")}${n.want.map(x => `<span class="chip">+ ${esc(x)}</span>`).join("")}</div>
+        <small>Green: must be there · grey: better with it. Totals, blank rows, merged titles and text numbers are fine.</small></div>` : `<p class="sl-guide">${esc((DATA.cal && DATA.cal.guide && DATA.cal.guide[kind]) || "")}</p>`; })()}
     <div id="sl-give"></div><div id="sl-out"></div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Close</button><button class="btn primary" id="sl-save" hidden>Save</button></div></div>`);
   m.classList.add("wide");
@@ -3421,7 +2955,11 @@ async function slotOpen(kind, name, month, replace) {
     if (ro) ro.onclick = () => runFix(false);
     if ($("#sl-x", m)) slotGive(m, "sl-x", async p => show(await call("slot_extra", { token, kind, month, ...p })));
   };
-  slotGive(m, "sl-give", async p => { $("#sl-out", m).innerHTML = `<p class="sl-wait">Reading, cleaning and checking…</p>`; try { show(await call("slot_read", { kind, month, ...p })); } catch (e) { $("#sl-out", m).innerHTML = ""; } });
+  slotGive(m, "sl-give", async p => { $("#sl-out", m).innerHTML = `<p class="sl-wait">Reading, cleaning and checking…</p>`;
+    let r; try { r = await call("slot_read", { kind, month, ...p }); } catch (e) { $("#sl-out", m).innerHTML = ""; return; }
+    show(r);
+    // not right first time: let the AI (or P&O's own engine) fix a copy straight away and show it for review
+    if (r && !r.cancelled && (r.status === "bad" || (r.confidence != null && r.confidence < 0.6)) && r.columns && r.columns.length) { const rp = $("[data-x=repair]", m); if (rp) rp.click(); } });
   $("#sl-save", m).onclick = async () => { if (!token) return; const b = $("#sl-save", m); b.disabled = true; b.textContent = "Saving…";
     await call("slot_save", { token, kind, month, replace: replace || null }); closeModal(); toast(replace ? `${name} replaced ✓` : `${name} saved ✓`); S.importSess = null; await afterDataChange(true); };
 }
@@ -3431,7 +2969,7 @@ async function slotInfo(kind, name, month) {
     ${d.imports.length ? d.imports.map(x => `<div class="sl-imp"><div><b>${esc(x.file)}</b>${x.sheet && x.sheet !== x.file ? ` <small>· ${esc(x.sheet)}</small>` : ""}
       <small>${esc(x.at)} · ${x.period ? `${esc(x.period)} · ` : ""}${(x.rows || 0).toLocaleString("en-US")} rows</small>${x.summary ? `<small>${esc(x.summary)}</small>` : ""}
       ${x.warnings.length ? `<ul class="sl-checks">${x.warnings.slice(0, 4).map(w => `<li class="info"><span>i</span>${esc(w)}</li>`).join("")}</ul>` : ""}</div>
-      <button class="btn sm danger" data-x="rm" data-id="${x.id}">Remove</button></div>`).join("") : `<p class="sl-guide">${d.status === "derived" ? "This is worked out from other reports (nothing to remove here)." : "Nothing is saved for this period yet."}</p>`}
+      <div class="row" style="gap:6px;flex:none"><button class="btn sm" data-x="rm" data-id="${x.id}" title="Switch it off; can be restored">Undo</button><button class="btn sm danger" data-act="imp-del" data-id="${x.id}" data-name="${esc(x.file)}">🗑 Delete</button></div></div>`).join("") : `<p class="sl-guide">${d.status === "derived" ? "This is worked out from other reports (nothing to remove here)." : "Nothing is saved for this period yet."}</p>`}
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-act="modal-close">Close</button><button class="btn primary" id="sl-rep">Replace with a new file…</button></div></div>`);
   m.classList.add("wide");
   $$("[data-x=rm]", m).forEach(b => b.onclick = async () => { await call("import_undo", { import_id: +b.dataset.id }); closeModal();
@@ -3449,22 +2987,6 @@ Object.assign(ACT, RV_ACTS);
 ACT["tpl-forget"] = async b => { await call("import_templates", { forget: b.dataset.k }); toast("Forgotten"); render(); };
 
 /* ============================================================== 2.2 Policy assistant */
-PAGES.policies = async () => {
-  const d = DATA.pol = await API.call("policies");
-  const a = S.polAns;
-  return `<div class="ph"><div><h1>Policy assistant</h1><p>Add the HR policy manual and handbooks once; ask any question and get the exact clause, with the AI's short answer when one is set up.</p></div>
-      <div class="row"><button class="btn" data-act="pol-paste">Paste text</button><button class="btn primary" data-act="pol-add">${ic("import", 14)}Add policies</button></div></div>
-    <div class="panel pol-ask"><form id="pol-f" class="row" style="gap:10px"><input class="input" id="pol-q" placeholder="e.g. How many days of sick leave? What happens after three late arrivals?" value="${esc(S.polQ || "")}" style="flex:1;font-size:15px;padding:12px 14px">
-      <button class="btn primary" type="submit">Ask</button></form>
-      <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap">${["Annual leave entitlement", "Sick leave and medical certificate", "Late arrival rules", "Notice period on resignation", "Overtime", "Maternity leave"].map(x => `<button class="chip-btn" data-act="pol-try" data-q="${esc(x)}">${esc(x)}</button>`).join("")}</div>
-      ${a ? `<div class="pol-ans"><div class="md">${md(a.answer)}</div><small style="color:var(--muted)">${a.engine === "search" ? "Found by search in your policies" : "Answered by " + esc(a.engine) + " from the passages below only"}</small>
-        ${a.sources.length ? `<div class="pol-src">${a.sources.map((s, i) => `<details ${i === 0 ? "open" : ""}><summary><b>[${i + 1}] ${esc(s.policy)}</b>${s.heading ? ` · ${esc(s.heading)}` : ""}</summary><div class="pol-txt">${esc(s.text).replace(/\n/g, "<br>")}</div></details>`).join("")}</div>` : ""}</div>` : ""}</div>
-    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Policy library</h2><small>${d.policies.length} document${d.policies.length === 1 ? "" : "s"} · kept on this computer only</small></div>
-      <div class="tbl-wrap"><table class="t"><thead><tr><th>Policy</th><th>File</th><th class="n">Passages</th><th class="n">Words</th><th>Added</th><th></th></tr></thead><tbody>
-      ${d.policies.map(p => `<tr><td><b>${esc(p.title)}</b></td><td><small>${esc(p.file_name || "pasted")}</small></td><td class="n">${p.passages}</td><td class="n">${p.words.toLocaleString("en-US")}</td><td class="nw">${esc((p.added_at || "").slice(0, 10))}</td>
-        <td class="n"><button class="btn sm ghost" data-act="pol-view" data-id="${p.id}">Read</button><button class="btn sm ghost danger" data-act="pol-del" data-id="${p.id}">×</button></td></tr>`).join("")
-        || `<tr><td colspan="6"><div class="empty drop-hint">No policies yet. Add the HR manual, leave policy, code of conduct… as PDF, Word or text (or drop the files here).</div></td></tr>`}</tbody></table></div></div>`;
-};
 AFTER.policies = () => {
   const f = $("#pol-f");
   if (f) f.onsubmit = async e => { e.preventDefault(); const q = $("#pol-q").value.trim(); if (!q) return; S.polQ = q;
@@ -3481,23 +3003,6 @@ function polAfter(r) {
 }
 
 /* ============================================================== 2.2 Goals */
-PAGES.goals = async () => {
-  const d = DATA.goals = await API.call("goals");
-  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
-  const C = d.counts, cls = { "on track": "good", achieved: "good", "at risk": "warn", "off track": "bad", missed: "bad", "no update": "", done: "good", dropped: "" };
-  return `<div class="ph"><div><h1>Goals</h1><p>Store and department goals with a baseline, a target and a date. Update the number as it moves; P&O tells you if it is on track for the date.</p></div>
-      <div class="row"><button class="btn primary" data-act="goal-new">+ New goal</button></div></div>
-    <div class="kpis k5">${k("Open goals", d.open, "being tracked")}${k("On track", (C["on track"] || 0) + (C.achieved || 0), "incl. achieved")}${k("At risk", C["at risk"] || 0, "behind the time elapsed", C["at risk"] ? "t-warn" : "")}
-      ${k("Off track or missed", (C["off track"] || 0) + (C.missed || 0), "need a decision", (C["off track"] || C.missed) ? "t-bad" : "")}${k("Average progress", d.avg_progress == null ? "—" : d.avg_progress + "%", "of open goals")}</div>
-    <div class="goal-grid">${d.rows.map(g => `<div class="goal ${cls[g.state] || ""}"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><b>${esc(g.title)}</b><span class="sub">${esc([g.level, g.store, g.owner].filter(Boolean).join(" · "))}</span></div><span class="chip ${cls[g.state] || ""}">${esc(g.state)}</span></div>
-        <div class="goal-nums"><span><small>Baseline</small>${g.baseline ?? "—"}${esc(g.unit || "")}</span><span class="cur"><small>${esc(g.metric || "Now")}</small>${g.current ?? "—"}${esc(g.unit || "")}</span><span><small>Target</small>${g.target ?? "—"}${esc(g.unit || "")}</span></div>
-        <div class="goal-bar"><i style="width:${Math.min(100, g.progress || 0)}%"></i></div>
-        <div class="row" style="justify-content:space-between"><small>${g.progress == null ? "No numbers yet" : g.progress + "% of the way"} · due ${fmtDate(g.due)}</small>
-          <span><button class="btn sm" data-act="goal-upd" data-id="${g.id}">Update</button>${g.status === "open" ? `<button class="btn sm ghost" data-act="goal-done" data-id="${g.id}">Close</button>` : ""}<button class="btn sm ghost danger" data-act="goal-del" data-id="${g.id}">×</button></span></div>
-        ${g.history.length > 1 ? `<div class="goal-spark" data-spark="${esc(JSON.stringify(g.history.filter(h => h.value != null).map(h => h.value)))}"></div>` : ""}
-        ${g.history.length && g.history[g.history.length - 1].note ? `<small class="sub">“${esc(g.history[g.history.length - 1].note)}”</small>` : ""}</div>`).join("")
-      || `<div class="panel"><div class="empty">No goals yet. Start from a template:<div class="row" style="justify-content:center;gap:6px;margin-top:10px;flex-wrap:wrap">${d.templates.map((t, i) => `<button class="chip-btn" data-act="goal-new" data-t="${i}">${esc(t.title)}</button>`).join("")}</div></div></div>`}</div>`;
-};
 AFTER.goals = () => {
   $$(".goal-spark").forEach(el => { const v = JSON.parse(el.dataset.spark || "[]"); el.innerHTML = Charts.spark(v, { w: 260, h: 28, color: "var(--brand)" }); });
 };
@@ -3514,21 +3019,6 @@ function goalForm(t = {}) {
 }
 
 /* ============================================================== 2.2 1:1s and visits */
-PAGES.notes = async () => {
-  const d = DATA.notes = await API.call("meetings");
-  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
-  const f = S.noteKind || "all", rows = d.rows.filter(r => f === "all" || r.kind === f);
-  const moods = ["", "😟", "🙁", "😐", "🙂", "😄"];
-  return `<div class="ph"><div><h1>1:1s & visits</h1><p>Notes from one-to-ones, store visits and coaching. A follow-up becomes an action with an owner and date.</p></div>
-      <div class="row"><button class="btn" data-act="visit-new">📋 Store visit checklist</button><button class="btn primary" data-act="note-new">+ New note</button></div></div>
-    <div class="kpis">${k("Notes", d.rows.length, "all time")}${k("People met", d.people, "with at least one note")}${k("Open follow-ups", d.open_follow_ups, "in the action tracker", d.open_follow_ups ? "t-warn" : "")}${k("No 1:1 in 45 days", d.overdue_1to1.length, "leaders", d.overdue_1to1.length ? "t-warn" : "")}</div>
-    <div class="grid g2" style="grid-template-columns:2fr 1fr">
-      <div class="panel flush"><div class="row" style="padding:12px 14px 0"><div class="seg">${["all", ...d.kinds].map(x => `<button data-act="note-kind" data-k="${esc(x)}" aria-pressed="${f === x}">${x === "all" ? "All" : esc(x)}</button>`).join("")}</div></div>
-        <div class="note-list">${rows.map(r => `<div class="note"><div class="row" style="justify-content:space-between"><div><b>${esc(r.subject)}</b> <span class="chip">${esc(r.kind)}</span> ${r.mood ? `<span title="Mood">${moods[r.mood]}</span>` : ""}<span class="sub">${esc(r.store || "")} · ${fmtDate(r.met_on)}</span></div><button class="btn sm ghost danger" data-act="note-del" data-id="${r.id}">×</button></div>
-          ${r.body ? `<div class="note-b">${esc(r.body).replace(/\n/g, "<br>")}</div>` : ""}${r.follow_up ? `<div class="note-f">→ ${esc(r.follow_up)}${r.follow_due ? ` · by ${fmtDate(r.follow_due)}` : ""} <span class="chip ${r.action_status === "done" ? "good" : "warn"}">${esc(r.action_status || "")}</span></div>` : ""}</div>`).join("") || `<div class="empty">No notes yet.</div>`}</div></div>
-      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Due a 1:1</h2><small>No 1:1 note in 45 days</small></div><div class="tbl-wrap" style="max-height:520px"><table class="t"><tbody>
-        ${d.overdue_1to1.map(x => `<tr><td><b>${esc(x.name)}</b><span class="sub">${esc(x.role || "")} · ${esc(x.store || "")}${x.last ? " · last " + fmtDate(x.last) : " · never"}</span></td><td class="n"><button class="btn sm" data-act="note-new" data-subject="${esc(x.name)}" data-key="${esc(x.key)}" data-store="${esc(x.store || "")}">Log 1:1</button></td></tr>`).join("") || `<tr><td><div class="empty">Everyone is up to date.</div></td></tr>`}</tbody></table></div></div></div>`;
-};
 function noteForm(o = {}) {
   const m = modal(`<h3>${o.subject ? "1:1 with " + esc(o.subject) : "New note"}</h3><div class="hform">
     <label class="dx-l">Person or store<input class="input" id="nf-sub" value="${esc(o.subject || "")}"></label><label class="dx-l">Type<select class="input" id="nf-kind">${(DATA.notes?.kinds || ["1:1", "Store visit", "Feedback", "Coaching", "Concern", "Recognition"]).map(x => `<option>${esc(x)}</option>`).join("")}</select></label>
@@ -3568,31 +3058,6 @@ const WORK_ACTS = {
 Object.assign(ACT, WORK_ACTS);
 
 /* ============================================================== 2.3 Engagement pulse surveys */
-PAGES.engagement = async () => {
-  const d = DATA.eng = await API.call("engagement", { survey_id: S.engSurvey || null });
-  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
-  const head = `<div class="ph"><div><h1>Engagement</h1><p>Anonymous pulse surveys: how people feel about their work, manager, schedule, pay and future, by store, with eNPS and comment themes.</p></div>
-      <div class="row"><button class="btn" data-act="eng-template">${ic("export", 14)}Survey template</button>${d.has_data ? `<button class="btn" data-act="eng-export">Export</button>` : ""}<button class="btn primary" data-act="eng-import">${ic("import", 14)}Import results</button></div></div>`;
-  if (!d.has_data) return head + `<div class="panel"><div class="empty" style="padding:30px"><b>No survey results yet.</b><br>1. Download the survey template (English + Urdu, 12 questions + eNPS).<br>2. Collect answers on paper, Google Forms or MS Forms (no names).<br>3. Import the results file here. Results for a group are only shown when ${d.min_group}+ people answered.</div></div>`;
-  const fcls = v => v == null ? "" : v >= 70 ? "t-good" : v >= 50 ? "" : "t-bad";
-  const heat = v => v == null ? "var(--line-2)" : `hsl(${Math.round(v * 1.2)}, 55%, ${88 - v * 0.25}%)`;
-  return head + `<div class="row" style="margin-bottom:10px;gap:8px"><small>Survey</small><select class="input sm" id="eng-s">${d.surveys.map(s => `<option value="${s.id}" ${s.id === d.survey.id ? "selected" : ""}>${esc(s.title)} · ${esc(s.wave)} · ${s.n} answers</option>`).join("")}</select>
-      <button class="btn sm ghost danger" data-act="eng-del" data-id="${d.survey.id}">Remove survey</button></div>
-    <div class="kpis k5">${k("Answers", d.survey.n, `${d.response_counts.with_comment} with a comment`)}${k("Favourable", d.favourable == null ? "—" : d.favourable + "%", "agree or strongly agree", fcls(d.favourable))}
-      ${k("eNPS", d.enps == null ? "—" : (d.enps > 0 ? "+" : "") + d.enps, "promoters − detractors", d.enps == null ? "" : d.enps >= 10 ? "t-good" : d.enps < 0 ? "t-bad" : "")}
-      ${k("Strongest", d.strengths[0] ? d.strengths[0].favourable + "%" : "—", d.strengths[0] ? d.strengths[0].question.slice(0, 48) : "")}${k("Weakest", d.concerns[0] ? d.concerns[0].favourable + "%" : "—", d.concerns[0] ? d.concerns[0].question.slice(0, 48) : "", "t-bad")}</div>
-    <div class="grid g2" style="grid-template-columns:1.4fr 1fr">
-      <div class="panel"><div class="phd"><h2>By question</h2><small>Share answering 4–5 (favourable)</small></div><div id="ch-engq"></div></div>
-      <div class="panel"><div class="phd"><h2>Trend</h2><small>${d.trend.length} survey${d.trend.length > 1 ? "s" : ""}</small></div>${d.trend.length > 1 ? `<div id="ch-engt"></div>` : `<div class="empty">Import the next survey to see the trend.</div>`}
-        <h4 style="margin-top:14px">What comments are about</h4>${d.themes.length ? `<div id="ch-ength"></div>` : `<div class="empty">No comments.</div>`}</div></div>
-    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Heatmap by store</h2><small>Favourable % per question · groups under ${d.min_group} answers are hidden to protect anonymity</small></div>
-      <div class="tbl-wrap"><table class="t heat"><thead><tr><th>Store</th><th class="n">Answers</th><th class="n">eNPS</th>${d.questions.map((q, i) => `<th class="n" title="${esc(q.question)}">Q${i + 1}</th>`).join("")}</tr></thead><tbody>
-      ${d.stores.map(s => s.hidden ? `<tr><td>${esc(s.name)}</td><td class="n">${s.n}</td><td colspan="${d.questions.length + 1}"><small style="color:var(--muted)">Too few answers to show (protects anonymity)</small></td></tr>`
-        : `<tr><td><b>${esc(s.name)}</b></td><td class="n">${s.n}</td><td class="n">${s.enps ?? "—"}</td>${s.by_q.map(v => `<td class="n" style="background:${heat(v)}">${v ?? "—"}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${d.questions.length + 3}"><div class="empty">The file had no Store column.</div></td></tr>`}
-      </tbody></table></div><div style="padding:8px 16px 14px">${d.questions.map((q, i) => `<small style="display:inline-block;margin-right:14px"><b>Q${i + 1}</b> ${esc(q.question)}</small>`).join("")}</div></div>
-    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Comments</h2><small>${d.comments.length} · never linked to a person</small></div><div class="note-list" style="max-height:420px">
-      ${d.comments.map(c => `<div class="note"><div class="note-b" style="margin:0">“${esc(c.text)}”</div><div>${c.themes.map(t => `<span class="chip">${esc(t)}</span>`).join(" ")}</div></div>`).join("") || `<div class="empty">No comments.</div>`}</div></div>`;
-};
 AFTER.engagement = () => {
   const d = DATA.eng; if (!d || !d.has_data) { engDrop(); return; }
   const s = $("#eng-s"); if (s) s.onchange = () => { S.engSurvey = +s.value; render(); };
@@ -3605,15 +3070,6 @@ function engDrop() { const page = $(".page"); if (page) { page.ondragover = e =>
 function engAfter(r) { if (!r || r.cancelled) return; if (r.added) { toast(`Survey imported: ${r.survey.n} answers`); S.engSurvey = r.survey.id; } (r.failed || []).forEach(f => toast(`${f.file}: ${f.error}`, { err: true })); render(); }
 
 /* ============================================================== 2.3 Recognition */
-PAGES.recognition = async () => {
-  const d = DATA.stars = await API.call("stars", { month: S.month });
-  S.starSel = S.starSel || new Set(d.stars.map((_, i) => i).filter(i => i < 15));
-  const icon = a => a.startsWith("Country") ? "🏆" : a === "Perfect attendance" ? "⏱" : "⭐";
-  return `<div class="ph"><div><h1>Recognition</h1><p>Stars of the month picked from the data: best leader in every store, the country's top three, perfect attendance. Print certificates in one click.</p></div>
-      <div class="row"><button class="btn primary" data-act="star-cert">${ic("export", 14)}Certificates for selected</button></div></div>
-    <div class="star-grid">${d.stars.map((s, i) => `<label class="star ${S.starSel.has(i) ? "on" : ""}"><input type="checkbox" data-star="${i}" ${S.starSel.has(i) ? "checked" : ""}><span class="star-i">${icon(s.award)}</span>
-      <span><small>${esc(s.award)}</small><b>${esc(s.name)}</b><span class="sub">${esc([s.role, s.store].filter(Boolean).join(" · "))}</span><span class="why">${esc(s.why)}</span></span></label>`).join("") || `<div class="panel"><div class="empty">Import the P&O workbook (leaders) or attendance to pick stars.</div></div>`}</div>`;
-};
 AFTER.recognition = () => { $$("[data-star]").forEach(c => c.onchange = () => { const i = +c.dataset.star; c.checked ? S.starSel.add(i) : S.starSel.delete(i); c.closest(".star").classList.toggle("on", c.checked); }); };
 
 /* ============================================================== 2.3 Month close */
@@ -3673,31 +3129,6 @@ Object.assign(ACT, ENG_ACTS);
 
 /* ============================================================== 2.4 Workforce plan: forecast and what-if */
 S.fc = S.fc || { months: 6, turnover_change: 0, hires_per_month: "", growth_heads: 0, replacement_cost: "" };
-PAGES.forecast = async () => {
-  const p = S.fc;
-  const d = DATA.fc = await API.call("forecast", { months: p.months, turnover_change: p.turnover_change, hires_per_month: p.hires_per_month === "" ? null : +p.hires_per_month,
-    growth_heads: p.growth_heads, replacement_cost: p.replacement_cost === "" ? null : +p.replacement_cost });
-  const b = d.baseline, pk = v => "PKR " + Math.round(v).toLocaleString("en-US");
-  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
-  const last = a => a[a.length - 1];
-  return `<div class="ph"><div><h1>Workforce plan</h1><p>Where headcount is heading at today's leaver rate, and what changes if turnover falls, hiring speeds up or new heads are added.</p></div></div>
-    <div class="kpis k5">${k("Headcount now", b.headcount.toLocaleString("en-US"), b.approved ? `${b.approved.toLocaleString("en-US")} approved` : "no approved manning yet")}
-      ${k("Leavers a month", b.leavers_per_month, `last 12 months · ${b.voluntary_share}% resigned`)}${k("Yearly turnover", b.annual_rate == null ? "—" : b.annual_rate + "%", "leavers ÷ headcount")}
-      ${k(`Headcount in ${d.labels.length} months`, last(d.series.scenario).toLocaleString("en-US"), `today's trend: ${last(d.series.today).toLocaleString("en-US")}`, last(d.series.scenario) < last(d.series.today) ? "t-warn" : "")}
-      ${k("Saving from scenario", d.cost.saving > 0 ? pk(d.cost.saving) : "—", `${d.leavers.today - d.leavers.scenario} fewer leavers × ${pk(b.replacement_cost)}`, d.cost.saving > 0 ? "t-good" : "")}</div>
-    <div class="grid g2" style="grid-template-columns:320px 1fr">
-      <div class="panel fc-ctl"><div class="phd"><h2>What if…</h2></div>
-        <label class="dx-l">Months ahead <b id="fc-mv">${p.months}</b><input type="range" min="3" max="18" step="1" value="${p.months}" data-fc="months"></label>
-        <label class="dx-l">Turnover change <b id="fc-tv">${p.turnover_change > 0 ? "+" : ""}${p.turnover_change}%</b><input type="range" min="-60" max="60" step="5" value="${p.turnover_change}" data-fc="turnover_change"></label>
-        <label class="dx-l">Hires a month<input class="input" type="number" min="0" step="1" placeholder="Replace leavers (${d.scenario.leavers_per_month})" value="${esc(p.hires_per_month)}" data-fc="hires_per_month"></label>
-        <label class="dx-l">New heads to add (store openings, growth)<input class="input" type="number" min="0" step="5" value="${p.growth_heads}" data-fc="growth_heads"></label>
-        <label class="dx-l">Cost to replace one leaver (PKR)<input class="input" type="number" min="0" step="5000" placeholder="${b.replacement_cost}" value="${esc(p.replacement_cost)}" data-fc="replacement_cost"><small>Hiring, onboarding and training time</small></label>
-        <button class="btn sm ghost" data-act="fc-reset">Reset</button></div>
-      <div class="panel"><div class="phd"><h2>Headcount projection</h2><small>${d.scenario.leavers_per_month} leavers and ${d.scenario.hires_per_month} hires a month in the scenario</small></div><div id="ch-fc"></div>
-        <div class="fc-sum">${[["Leavers over the period", `${d.leavers.scenario}`, `today's rate: ${d.leavers.today}`], ["Cost of turnover", pk(d.cost.scenario), `today's rate: ${pk(d.cost.today)}`],
-          ["Hires needed", d.hires_needed, `${d.hires_per_month_needed} a month to stay at plan`], ["Open vacancies", b.open_vacancies, "in Hiring"]].map(([l, v, s]) => `<div><small>${l}</small><b>${v}</b><span>${esc(s)}</span></div>`).join("")}</div></div></div>
-    ${b.monthly.length ? `<div class="panel"><div class="phd"><h2>Leavers by month</h2><small>the base for the forecast</small></div><div id="ch-fcm"></div></div>` : ""}`;
-};
 AFTER.forecast = () => {
   const d = DATA.fc; if (!d) return;
   const s = [{ name: "Today's trend", values: d.series.today }, { name: "Scenario", values: d.series.scenario }];
@@ -3733,41 +3164,6 @@ Object.assign(ACT, {
 });
 
 /* ============================================================== Organisation health */
-PAGES.organisation = async () => {
-  const d = DATA.org = await API.call("organisation", {});
-  const ch = d.changes, sp = d.span, pr = d.probation, ca = d.calibration;
-  const k = (l, v, s, cls = "") => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v ${cls}">${v}</span><span class="kpi-s"><span>${esc(s)}</span></span></div>`;
-  const list = (title, rows, f, empty) => `<div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>${title}</h2><small>${rows.length}</small></div><div class="tbl-wrap" style="max-height:320px"><table class="t"><tbody>${rows.map(f).join("") || `<tr><td><div class="empty">${empty}</div></td></tr>`}</tbody></table></div></div>`;
-  return `<div class="ph"><div><h1>Organisation</h1><p>Who joined, left, moved and got promoted; span of control; probation; and whether ratings are calibrated and fair.</p></div></div>
-    <div class="kpis k5">${k("Headcount", d.headcount.toLocaleString("en-US"), "Basic Sheet")}${k("Joiners", ch.has_data ? ch.joiners.length : "—", ch.has_data ? "since " + ch.from_date : "no comparison yet")}
-      ${k("Leavers", ch.has_data ? ch.leavers.length : "—", ch.has_data ? `${ch.unexplained_leavers.length} not on the turnover tab` : "")}${k("Probation ending", pr.due_30, `${pr.overdue} past the end date`, pr.overdue ? "t-warn" : "")}
-      ${k("Span of control", sp.avg ?? "—", `${sp.too_wide} managers with 15+ reports`)}</div>
-    <div class="panel"><div class="phd"><h2>Changes since the last Basic Sheet</h2><small>${ch.has_data ? `${esc(ch.from)} → ${esc(ch.to)}` : ""}</small></div>
-      ${ch.has_data ? `<div class="grid g3">
-        ${list("Joined", ch.joiners, r => `<tr><td><b>${esc(r.name)}</b><span class="sub">${esc(r.role || "")} · ${esc(r.store || "")}</span></td></tr>`, "Nobody new")}
-        ${list("Left", ch.leavers, r => `<tr><td><b>${esc(r.name)}</b><span class="sub">${esc(r.role || "")} · ${esc(r.store || "")}${ch.unexplained_leavers.some(u => u.id === r.id) ? ` · <span class="t-warn">not on the turnover tab</span>` : ""}</span></td></tr>`, "Nobody left")}
-        ${list("Moved or changed role", [...ch.roles.map(r => ({ ...r, t: "role" })), ...ch.transfers.map(r => ({ ...r, t: "move" }))], r => `<tr><td><b>${esc(r.name)}</b><span class="sub">${r.t === "role" ? `${esc(r.from || "—")} → <b>${esc(r.to)}</b>${r.promotion ? " ⬆ promotion" : ""}` : `${esc(r.from || "—")} → <b>${esc(r.to)}</b> (transfer)`}</span></td></tr>`, "No moves")}
-      </div>${ch.managers.length ? `<small style="color:var(--muted)">${ch.managers.length} people now report to a different manager.</small>` : ""}` : `<div class="empty">${esc(ch.note)}</div>`}</div>
-    <div class="grid g2">
-      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Probation</h2><div class="row"><small>length</small><select class="input sm" id="org-prob">${[3, 6].map(n => `<option value="${n}" ${n === pr.months ? "selected" : ""}>${n} months</option>`).join("")}</select></div></div>
-        <div class="tbl-wrap" style="max-height:360px"><table class="t"><thead><tr><th>Name</th><th>Store</th><th>Joined</th><th>Ends</th><th>Status</th></tr></thead><tbody>
-        ${pr.rows.map(r => `<tr><td><b>${esc(r.name)}</b><span class="sub">${esc(r.role || "")}</span></td><td>${esc(r.store || "")}</td><td class="nw">${fmtDate(r.joined)}</td><td class="nw">${fmtDate(r.ends)}</td>
-          <td><span class="chip ${r.days < 0 ? "bad" : r.days <= 30 ? "warn" : ""}">${esc(r.status)}</span></td></tr>`).join("") || `<tr><td colspan="5"><div class="empty">Nobody near the end of probation (needs joining dates on the Basic Sheet).</div></td></tr>`}</tbody></table></div></div>
-      <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Span of control</h2><small>Direct reports per manager (from the Basic Sheet)</small></div>
-        <div class="tbl-wrap" style="max-height:360px"><table class="t"><thead><tr><th>Manager</th><th>Store</th><th class="n">Direct reports</th><th></th></tr></thead><tbody>
-        ${sp.rows.map(r => `<tr><td><b>${esc(r.manager)}</b><span class="sub">${esc(r.role)}</span></td><td>${esc(r.store)}</td><td class="n">${r.direct_reports}</td><td>${r.flag ? `<span class="chip ${r.flag === "Too wide" ? "warn" : ""}">${r.flag}</span>` : ""}</td></tr>`).join("") || `<tr><td colspan="4"><div class="empty">Needs manager names on the Basic Sheet.</div></td></tr>`}</tbody></table></div></div>
-    </div>
-    <div class="panel flush"><div class="phd" style="padding:14px 16px 0"><h2>Manager effectiveness</h2><small>How each manager's team is doing: leader index 45% · team rating 25% · people leaving 20% · discipline 10%</small></div>
-      <div class="tbl-wrap" style="max-height:420px"><table class="t"><thead><tr><th>Manager</th><th>Store</th><th class="n">Team</th><th class="n">Team index</th><th class="n">Team rating</th><th class="n">Leavers</th><th class="n">DA</th><th>Effectiveness</th><th>Watch</th></tr></thead><tbody>
-      ${d.managers.rows.map(r => `<tr><td><b>${esc(r.manager)}</b><span class="sub">${esc(r.role || "")}</span></td><td>${esc(r.store)}</td><td class="n">${r.team}</td><td class="n">${r.team_index ?? "—"}</td><td class="n">${r.team_rating ?? "—"}</td><td class="n">${r.leavers || ""}</td><td class="n">${r.da || ""}</td>
-        <td><div class="hbarw"><div class="hbarv ${r.band === "Strong" ? "strong" : r.band === "Steady" ? "possible" : "weak"}" style="width:${Math.max(2, r.score)}%"></div><b>${Math.round(r.score)}</b></div></td><td><small>${esc(r.why.join(" · ") || "—")}</small></td></tr>`).join("") || `<tr><td colspan="9"><div class="empty">Needs manager names on the Basic Sheet.</div></td></tr>`}</tbody></table></div></div>
-    <div class="panel"><div class="phd"><h2>Rating calibration and fairness</h2><small>${ca.has_data ? `${ca.n} rated · average ${ca.avg} · ${ca.top_share}% rated 4–5` : "Import Performance Rating to check calibration"}</small></div>
-      ${ca.has_data ? `${ca.flags.map(f => `<div class="alert warn"><span class="ic">•</span><span>${esc(f)}</span></div>`).join("") || `<div class="alert good"><span class="ic">✓</span><span>No calibration or fairness flags.</span></div>`}
-      <div class="grid g3" style="margin-top:10px"><div><h4>Distribution</h4><div id="ch-cal"></div></div>
-        <div><h4>By store</h4><table class="t"><tbody>${ca.by_store.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${x.avg}</td><td class="n"><small>${x.n} rated</small></td></tr>`).join("")}</tbody></table></div>
-        <div><h4>By gender</h4><table class="t"><tbody>${ca.by_gender.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${x.avg}</td><td class="n"><small>${x.n} rated · ${x.share_top}% top</small></td></tr>`).join("") || `<tr><td><small>Gender not on file</small></td></tr>`}</tbody></table>
-        ${ca.by_manager.length ? `<h4>By manager (3+ rated)</h4><table class="t"><tbody>${ca.by_manager.slice(0, 8).map(x => `<tr><td>${esc(x.name)}</td><td class="n">${x.avg}</td><td class="n ${Math.abs(x.gap) >= 0.6 ? "t-warn" : ""}">${x.gap > 0 ? "+" : ""}${x.gap}</td></tr>`).join("")}</tbody></table>` : ""}</div></div>` : ""}</div>`;
-};
 AFTER.organisation = () => {
   const d = DATA.org;
   const sel = $("#org-prob"); if (sel) sel.onchange = async () => { await call("organisation", { probation_months: +sel.value }); render(); };
@@ -3792,4 +3188,14 @@ async function boot(keepPage) {
   window.PNO_ready = true;
 }
 boot(false).catch(e => { $("#app").innerHTML = `<div class="errbox" style="margin:40px">P&O could not start: ${esc(e.message || e)}</div>`; });
+document.addEventListener("change", e => { if (e.target && e.target.id === "h-cross") { S.hire.cross = e.target.checked; drawInternal(); } });
+
+ACT["imp-del"] = b => {
+  const id = +b.dataset.id, name = b.dataset.name || "this file";
+  const m = modal(`<h3>Delete “${esc(name)}” for good?</h3><p style="color:var(--muted);margin:0 0 12px">All of its data is removed from P&O and the space is freed. Unlike Undo, it can't be restored: you would have to upload the file again.</p>
+    <div class="row" style="justify-content:flex-end;gap:6px"><button class="btn" data-act="modal-close">Cancel</button><button class="btn primary danger-fill" id="del-go">Delete for good</button></div>`);
+  $("#del-go", m).onclick = async () => { const g = $("#del-go", m); g.disabled = true; g.textContent = "Deleting…";
+    const r = await call("import_delete", { import_id: id }); closeModal(); toast(`Deleted ${r.file} (${(r.rows || 0).toLocaleString("en-US")} rows)`); S.importSess = null; await afterDataChange(true); };
+};
+ACT["side-mini"] = () => { document.body.classList.toggle("side-mini"); try { localStorage.setItem("pno-side-mini", document.body.classList.contains("side-mini") ? "1" : "0"); } catch (e) { /* no storage */ } updateSide(); };
 })();

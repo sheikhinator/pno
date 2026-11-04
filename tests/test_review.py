@@ -86,7 +86,8 @@ def test_two_tab_app(api):
             errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
             pg.goto(f"http://127.0.0.1:{srv.server_address[1]}/web/index.html"); pg.wait_for_function("window.PNO_ready === true", timeout=60000)
             pg.wait_for_selector(".rtiles", timeout=20000)
-            assert [x.inner_text().strip() for x in pg.locator("#nav button").all()] == ["Review", "Ask P&O AI", "Learning", "Data"]
+            assert [x.inner_text().strip() for x in pg.locator("#nav button").all()] == ["Review", "Hiring", "Learning", "Ask P&O AI"]
+            assert [x.inner_text().strip() for x in pg.locator(".nav-bottom button").all()] == ["Data", "Settings"]
             pg.select_option("#rv-dept", "Consumer Goods"); pg.wait_for_selector("text=Country · CG", timeout=10000)
             pg.select_option("#rv-role", "dept"); time.sleep(0.6)
             pg.locator("tr[data-act=rv-person]").first.click(); pg.wait_for_selector(".pfacts", timeout=10000)
@@ -113,18 +114,18 @@ def test_two_tab_app(api):
             assert pg.locator(".page").inner_text().count("Development course") >= 1
             pg.locator("#nav [data-go=rv]").click(); pg.wait_for_selector(".rtiles", timeout=10000)
             pg.locator("#top [data-act=rv-export]").click(); pg.wait_for_selector(".xfmt", timeout=5000); pg.keyboard.press("Escape"); time.sleep(0.3)
-            pg.evaluate("go('hiring')"); time.sleep(0.5)
-            assert pg.evaluate("window.PNO_state.page") == "rv"                      # hidden modules can't be reached
+            pg.evaluate("go('talent')"); time.sleep(0.5)
+            assert pg.evaluate("window.PNO_state.page") == "rv"                      # removed modules can't be reached
             pg.locator("#top [data-act=present]").click(); time.sleep(0.4); pg.keyboard.press("Escape")
-            pg.locator("#nav [data-go=import]").click(); pg.wait_for_selector(".datatabs", timeout=10000)
+            pg.locator(".nav-bottom [data-go=import]").click(); pg.wait_for_selector(".datatabs", timeout=10000)
             for t in ("health", "brain", "import"):
                 pg.locator(f".datatabs [data-go={t}]").click(); time.sleep(0.8)
                 assert pg.evaluate("window.PNO_state.page") == t and not pg.locator(".errbox").count()
             pg.locator("[data-act=rv-settings]").click(); pg.wait_for_selector("tr[data-ck]", timeout=10000)
-            pg.locator("tr[data-ck=nps] .switch span").click(); pg.locator("[data-act=crit-save]").click(); time.sleep(0.8)
+            pg.locator("tr[data-ck=nps] .switch span").click(); pg.wait_for_function("document.querySelector('#crit-state').textContent.includes('Saved')", timeout=15000)
             pg.locator("#nav [data-go=rv]").click(); pg.wait_for_selector(".rtiles", timeout=10000)
             assert "Customer NPS" not in pg.locator(".rtiles").inner_text()
-            pg.locator("#nav [data-go=import]").click(); pg.wait_for_selector(".datatabs", timeout=10000)
+            pg.locator(".nav-bottom [data-go=import]").click(); pg.wait_for_selector(".datatabs", timeout=10000)
             for t in ("health", "brain", "import"):
                 pg.locator(f".datatabs [data-go={t}]").click(); time.sleep(0.8)
                 assert pg.evaluate("window.PNO_state.page") == t and not pg.locator(".errbox").count()

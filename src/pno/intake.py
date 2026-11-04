@@ -281,3 +281,11 @@ def merge(kind: str, rows: list[dict], extra: list[dict]) -> str:
 def layout_sig(kind: str, columns: list[dict]) -> str:
     heads = sorted({" ".join(str(c.get("header") or "").upper().split()) for c in columns if c.get("header")})
     return kind + "|" + "|".join(heads)[:600] if heads else ""
+
+
+def columns_needed(kind: str) -> dict:
+    """In plain words, the columns a file for this report must have and the ones that make it complete."""
+    spec = NEEDS.get(kind, {"must": [], "want": []})
+    extra = {"sales": ["Store", "Section"], "productivity": ["Store", "Section"], "po_shrink": ["Store", "Section"], "po_da": ["Store"],
+             "po_nps": ["City or store"], "roster": [], "po_role": ["Store"], "po_turnover": [], "attendance": [], "leave": [], "po_shift": ["Store"]}.get(kind, [])
+    return {"must": extra + [label for _, label in spec["must"]], "want": [label for _, label in spec["want"]]}

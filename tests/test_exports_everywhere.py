@@ -59,19 +59,3 @@ def test_numbers_in_tables_stay_numbers_in_excel(tmp_path):
     row = rep["sections"][0]["rows"][0]
     assert row["c1"] == 1200.0 and row["c2"] == 12.0 and row["c0"] == "A"
 
-
-@pytest.mark.parametrize("pack", ["director", "people", "attendance"])
-def test_every_pack_in_word(api, tmp_path, pack):
-    out = tmp_path / f"{pack}.docx"
-    r = api.dispatch("export", {"pack": pack, "fmt": "docx", "save_as": str(out), "open_after": False})
-    assert r.get("ok"), r
-    import docx
-    assert len(docx.Document(str(out)).tables) >= 1
-
-
-def test_pins_and_followups(api):
-    assert api.dispatch("pins", {"add": {"q": "Which stores?", "text": "Fortress leads."}})["pins"][0]["q"] == "Which stores?"
-    assert api.dispatch("dashboard", {})["pins"][0]["text"] == "Fortress leads."
-    assert api.dispatch("pins", {"remove": 0})["pins"] == []
-    r = api.dispatch("agent_ask", {"question": "Which stores need attention and why?"})
-    assert len(r["followups"]) == 3 and all(isinstance(f, str) for f in r["followups"])

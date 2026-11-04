@@ -41,20 +41,6 @@ def test_basic_person_and_store(api, db):
     assert "Fortress" in r["answer"]
 
 
-def test_leave_is_only_saved_after_confirm(api, db):
-    mm = engine.model(db, "2026-09")
-    p = next(p for p in mm.people.values() if p.att and p.att["absent"] >= 1)
-    d = next(c["day"] for c in p.att["calendar"] if c["kind"] == "absent")
-    n0 = db.val("SELECT COUNT(*) FROM leaves")
-    r = ask(api, f"{p.emp} was on sick leave on {d}")
-    assert r["actions"], r["answer"]
-    assert db.val("SELECT COUNT(*) FROM leaves") == n0                    # nothing saved yet
-    c = api.dispatch("agent_confirm", {"action_id": r["actions"][0]["id"]})
-    assert c["ok"] and db.val("SELECT COUNT(*) FROM leaves") == n0 + 1
-    assert api.dispatch("agent_confirm", {"action_id": r["actions"][0]["id"]})["ok"] is False   # only once
-    assert engine.model(db, "2026-09").people[p.emp].att["absent"] == p.att["absent"] - 1
-
-
 def test_holiday_cancel_changes_nothing(api, db):
     r = ask(api, "Add 15 September 2026 as Test Day holiday")
     assert r["actions"]

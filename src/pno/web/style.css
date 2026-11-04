@@ -1220,3 +1220,42 @@ table.t thead tr.pfrow th{background:var(--card);padding-top:4px;padding-bottom:
 .rtable thead th:first-child{z-index:5}
 .rtable tr.click:hover td:first-child{background:var(--card-2)}
 .sl-tbl{max-height:220px}
+
+/* 5.0 live criteria */
+tr[data-ck].off td{opacity:.45}tr[data-ck].off td:nth-child(2){opacity:1}
+.rc-pill{display:inline-block;min-width:38px;text-align:center;padding:2px 8px;border-radius:8px;font-weight:700}
+.rc-pill.good{background:rgba(52,199,89,.16);color:#1d7a35}.rc-pill.warn{background:rgba(255,159,10,.18);color:#a15c00}.rc-pill.bad{background:rgba(255,59,48,.14);color:#c0000f}
+td.up{color:#1d7a35;font-weight:700}td.down{color:#c0000f;font-weight:700}
+
+/* 5.0 hiring by experience */
+.itarget{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border:1px solid var(--line-2);border-radius:12px;background:var(--card)}
+.igroup{margin:14px 0 8px;font-size:14px}.igroup small{color:var(--muted);font-weight:500}
+.iexp{display:block;font-size:12px;color:#1d7a35;margin-top:2px}.iexp.x{color:#a15c00}
+
+/* 5.0 sidebar: daily screens on top, Data and Settings at the bottom, can shrink to icons */
+.nav-bottom{margin-top:auto;padding-top:10px;border-top:1px solid var(--mac-sep, var(--line))}
+.nav-bottom + .side-foot{margin-top:0}
+.side-mini-btn{background:none;border:0;color:var(--side-muted);font-size:11.5px;text-align:left;padding:4px 0;cursor:pointer}
+.side-mini-btn:hover{color:var(--side-ink)}
+body.side-mini .side{width:68px;min-width:68px;padding-left:8px;padding-right:8px}
+body.side-mini .side .brand > div:not(.logo),body.side-mini .nav button span,body.side-mini .side-foot > :not(.side-mini-btn){display:none}
+body.side-mini .nav button{justify-content:center;padding:10px 0}
+body.side-mini .side-mini-btn{text-align:center;font-size:16px}
+body.side-mini .app{grid-template-columns:68px 1fr}
+
+/* 5.0 guided Data page */
+.stepn{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--brand);color:#fff;font-size:12px;font-weight:700;margin-right:8px;vertical-align:1px}
+.slot-need{display:block;font-size:12px;color:var(--muted);line-height:1.4;margin-top:2px}.slot-need b{color:var(--ink);font-weight:600}.slot-need i{font-style:normal}
+.slot-go{font-size:12px;font-weight:700;color:var(--brand)}
+.slot-sep i{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400}
+.slot.click::after{content:none}
+.imp-many .drop{margin-top:10px;padding:18px;border:1.5px dashed var(--line);border-radius:14px;display:grid;gap:8px;text-align:center}
+.ytdnote{margin:10px 2px 0;font-size:12.5px;color:var(--muted)}
+
+.sl-needs{margin:6px 0 12px;padding:10px 12px;border-radius:12px;background:var(--card-2);border:1px solid var(--line-2)}
+.sl-needs>div{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.sl-needs small{color:var(--muted)}
+.sl-more{margin:10px 0;border-top:1px solid var(--line-2);padding-top:8px}.sl-more>summary{cursor:pointer;color:var(--muted);font-size:13px;font-weight:600}
+.rtile.click{cursor:pointer}.rtile.click:hover{outline:2px solid var(--brand);outline-offset:-2px}
+.btn.danger-fill{background:#c0392b;border-color:#c0392b;color:#fff}
+td.nw .btn+.btn{margin-left:4px}
+.slot-need b{display:inline!important;font-size:12px}

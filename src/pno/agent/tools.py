@@ -62,11 +62,6 @@ TOOLS: list[dict] = [
          "series": {"type": "array", "items": {"type": "object", "properties": {
              "name": {"type": "string"}, "values": {"type": "array", "items": {"type": "number"}}}}}},
          "required": ["kind", "title", "labels", "series"]}},
-    {"name": "propose_leave", "description": "Prepare leave entries for the user to confirm (nothing is saved until they click Confirm).",
-     "parameters": {"type": "object", "properties": {"entries": {"type": "array", "items": {"type": "object", "properties": {
-         "who": {"type": "string", "description": "employee number or exact name"}, "from": {"type": "string", "description": "YYYY-MM-DD"},
-         "to": {"type": "string", "description": "YYYY-MM-DD"}, "type": {"type": "string"}}, "required": ["who", "from"]}}},
-         "required": ["entries"]}},
     {"name": "propose_holiday", "description": "Prepare a gazetted holiday for the user to confirm.",
      "parameters": {"type": "object", "properties": {"day": {"type": "string", "description": "YYYY-MM-DD"},
                                                      "name": {"type": "string"}}, "required": ["day", "name"]}},
@@ -109,22 +104,6 @@ TOOLS.insert(1, {"name": "internal_candidates", "description": "Who inside the c
               "of moves, risk). Use for 'who can replace X', 'who is ready for department head at Fortress', 'internal candidates for ...'.",
               "parameters": {"type": "object", "properties": {"role": {"type": "string", "enum": ["store_manager", "department_head", "section_manager", "team_leader"]},
                              "store": {"type": "string"}, "section": {"type": "string"}}, "required": ["role"]}})
-TOOLS.insert(1, {"name": "hr_policy", "description": "Search the HR policy library (leave, attendance, discipline, pay, conduct…) the "
-              "user added, and return the matching clauses with their policy and section. Use for any 'what does the policy say', "
-              "'how many days', 'are we allowed to' question. Quote the clauses and cite the policy name.",
-              "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}})
-TOOLS.insert(1, {"name": "goals_and_notes", "description": "Goals (baseline, target, current, on track / at risk / off track) and "
-              "1:1 / store-visit notes with follow-ups, plus manager effectiveness (how each manager's team is doing). Use for "
-              "'are we on track', 'which goals are behind', 'when did I last meet X', 'which managers need support'.",
-              "parameters": {"type": "object", "properties": {"person": {"type": "string"}}}})
-TOOLS.insert(1, {"name": "organisation", "description": "Organisation health: who joined, left, transferred or was promoted since the last "
-              "Basic Sheet, span of control (direct reports per manager), people ending probation, and rating calibration and fairness "
-              "(by store, manager and gender). Use for 'who joined this month', 'span of control', 'probation', 'are ratings fair'.",
-              "parameters": {"type": "object", "properties": {}}})
-TOOLS.insert(1, {"name": "people_strategy", "description": "Flight risk (who might leave and why), succession (roles with no successor, "
-              "who is ready now), manpower (approved vs actual heads, vacancies) and the action tracker (open and overdue actions). "
-              "Use for 'who might leave', 'succession gaps', 'are we understaffed', 'what actions are overdue'.",
-              "parameters": {"type": "object", "properties": {"store": {"type": "string"}}}})
 TOOLS.insert(1, {"name": "learning", "description": "Learning Studio: list the training courses, or make a new course for a role and "
               "topic with the hours wanted (full lessons, formulas, charts, quizzes, final assessment). Use for 'make a 3-hour course on "
               "shrink for team leaders', 'what training do we have', 'training completion'.",
@@ -264,29 +243,6 @@ class Toolbox:
             {"backfill": {k: c["backfill"].get(k) for k in ("summary", "risk", "status")},
              "chain": [f"{s['seat']} ← {s['by'] or 'hire from outside'}" for s in c["backfill"].get("steps", [])]} for c in r["candidates"]]}
 
-    def t_hr_policy(self, question: str = "", **kw) -> dict:
-        from .. import workplace
-        hits = workplace.search(self.svc.api.db, question, 5)
-        if not hits:
-            n = self.svc.api.db.q1("SELECT COUNT(*) FROM policies")[0]
-            return {"found": False, "note": "No matching clause." if n else "No policies added yet (Policy assistant → Add policies)."}
-        return {"found": True, "clauses": [{"policy": h["policy"], "section": h["heading"], "text": h["text"][:1500]} for h in hits]}
-
-    def t_goals_and_notes(self, person: str = "", **kw) -> dict:
-        from .. import workplace
-        api = self.svc.api
-        g = workplace.goals(api.db)
-        out = {"goals": [{"title": x["title"], "store": x["store"], "baseline": x["baseline"], "target": x["target"], "current": x["current"],
-                          "progress_pct": x["progress"], "state": x["state"], "due": x["due"]} for x in g["rows"] if x["status"] == "open"][:20]}
-        n = workplace.notes(api.db, subject=person) if person else workplace.notes(api.db)
-        out["notes"] = [{"who": r["subject"], "kind": r["kind"], "on": r["met_on"], "notes": (r["body"] or "")[:400], "follow_up": r["follow_up"],
-                         "follow_up_status": r["action_status"]} for r in n["rows"][:12]]
-        ins = api._po()
-        if not ins.empty:
-            m = workplace.manager_effectiveness(ins)
-            out["managers"] = [{k: r[k] for k in ("manager", "store", "team", "team_index", "team_rating", "leavers", "da", "score", "band", "why")} for r in m["rows"][:15]]
-        return out
-
     def t_review(self, store: str = "", dept: str = "", section: str = "", role: str = "", **kw) -> dict:
         from .. import review
         api = self.svc.api
@@ -308,39 +264,6 @@ class Toolbox:
                 "people": [{"name": p["name"], "store": p["store"], "role": p["role"], "area": p["area"], **show(p["cells"], r["people_keys"])} for p in r["people"][:40]],
                 "benchmarks": {C[k]["label"]: f"green from {C[k]['green']}, amber from {C[k]['amber']} ({'higher' if C[k]['better'] == 'up' else 'lower'} is better)"
                                for k in C if C[k]["green"] is not None}}
-
-    def t_organisation(self, **kw) -> dict:
-        r = self.svc.api.api_organisation()
-        ch, sp, pr, ca = r["changes"], r["span"], r["probation"], r["calibration"]
-        out = {"headcount": r["headcount"], "probation": {"ending_30_days": pr["due_30"], "overdue": pr["overdue"], "people": pr["rows"][:15]},
-               "span_of_control": {k: sp[k] for k in ("managers", "avg", "median", "too_wide", "narrow")} | {"widest": sp["rows"][:8]}}
-        out["changes"] = ({k: ch[k] for k in ("from", "to", "headcount_old", "headcount_new", "promotions")} |
-                          {k: ch[k][:15] for k in ("joiners", "leavers", "unexplained_leavers", "transfers", "roles")}) if ch["has_data"] else {"note": ch["note"]}
-        out["calibration"] = {k: ca.get(k) for k in ("n", "avg", "top_share", "distribution", "by_store", "by_gender", "flags")} if ca["has_data"] else {"note": "No ratings imported"}
-        return out
-
-    def t_people_strategy(self, store: str = "", **kw) -> dict:
-        api = self.svc.api
-        from .. import actions as A
-        out: dict = {}
-        r = api.api_po_risk()
-        if r.get("has_data"):
-            risk = [x for x in r["risk"] if not store or store.lower() in (x["store"] or "").lower()]
-            out["flight_risk"] = [{"name": x["name"], "store": x["store"], "role": x["role"], "score": x["score"], "band": x["band"], "reasons": x["reasons"]}
-                                  for x in risk[:12]]
-            cells = [c for c in r["succession"]["cells"] if not store or store.lower() in c["store"].lower()]
-            out["succession_gaps"] = [{"store": c["store"], "role": c["role"], "status": c["status"]} for c in cells if c["status"] in ("No successor", "No one in role")][:15]
-            out["ready_now"] = [{"store": c["store"], "role": c["role"], "successor": c["successors"][0]["name"]} for c in cells if c["status"] == "Ready now" and c["successors"]][:10]
-            top = [x for x in risk if x["band"] != "Low"][:8]
-            if top:
-                self.blocks.append({"type": "chart", "kind": "hbar", "title": "Flight risk (0-100)", "labels": [x["name"] for x in top],
-                                    "series": [{"name": "Risk", "values": [x["score"] for x in top]}]})
-        m = api.api_manpower()
-        out["manpower"] = {k: m[k] for k in ("has_plan", "headcount", "approved", "vacant", "over", "open_vacancies")}
-        a = A.listing(api.db)
-        out["actions"] = {"open": a["counts"]["open"], "in_progress": a["counts"]["in progress"], "overdue": a["overdue"],
-                          "overdue_list": [{"title": x["title"], "owner": x["owner"], "due": x["due"]} for x in a["rows"] if x["overdue"]][:10]}
-        return out
 
     def t_learning(self, make: bool = False, topic: str = "", role: str = "", hours: float = 3, **kw) -> dict:
         L = self.svc.api.learning
@@ -519,26 +442,6 @@ class Toolbox:
         return {"shown": True}
 
     # ---------------------------------------------------------------- proposals (need Confirm)
-    def t_propose_leave(self, entries: list) -> dict:
-        mm = self._mm()
-        items, problems = [], []
-        for e in entries[:200]:
-            p, cands = self.find_person(mm, e.get("who", ""))
-            a = parse_date(e.get("from"))
-            b = parse_date(e.get("to") or e.get("from"))
-            if not p:
-                problems.append(f"{e.get('who')}: not found" + (f" (did you mean {', '.join(self._nm(c) for c in cands[:3])}?)" if cands else ""))
-                continue
-            if not a or not b:
-                problems.append(f"{self._nm(p)}: dates not understood")
-                continue
-            items.append({"emp": p.emp, "name": p.name, "from": min(a, b).isoformat(), "to": max(a, b).isoformat(),
-                          "type": e.get("type") or "Leave"})
-        if items:
-            act = self.svc.new_action("leave", f"Add {len(items)} leave record{'s' if len(items) != 1 else ''}", items)
-            self.actions.append(act)
-        return {"prepared": len(items), "problems": problems, "note": "Waiting for the user to click Confirm."}
-
     def t_propose_holiday(self, day, name) -> dict:
         d = parse_date(day)
         if not d:

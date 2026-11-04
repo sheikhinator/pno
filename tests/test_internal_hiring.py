@@ -84,3 +84,28 @@ def test_assistant_internal_question(api):
     tb = Toolbox(api.agent, "2026-09", {}, False)
     a = basic.answer(tb, "Who could be the next section manager for Bakery at Fortress?")
     assert "Internal talent first" in a and ("|" in a or "Hire from outside" in a)
+
+
+def test_candidates_match_experience_and_format(tmp_path, monkeypatch):
+    """5.0: a CG department head comes from CG (or a supermarket deputy), never a bakery section manager; a hypermarket
+    store manager can be a supermarket store manager or a strong department head; a supermarket seat never takes a hyper SM."""
+    monkeypatch.setenv("PNO_HOME", str(tmp_path / "home"))
+    from pno.api import Api, load_demo
+    from pno.db import Database
+    db = Database(tmp_path / "d.sqlite3")
+    load_demo(db)
+    api = Api(db)
+
+    def cands(**v):
+        r = api.dispatch("hire_save", {"title": "x", **v})
+        vid = r.get("id") or r.get("vacancy", {}).get("id")
+        return api.dispatch("hire_internal", {"vacancy_id": vid})["candidates"]
+
+    dh = cands(role="department_head", store="LAH Packages Mall", department="Consumer Goods")
+    assert dh and all("Consumer Goods" in (c["experience"] or "") or c["designation"] == "Deputy Manager" for c in dh)
+    assert any(c["designation"] == "Deputy Manager" and c["format"] == "Supermarket" for c in dh)
+    sm = cands(role="store_manager", store="LAH Emporium Mall")
+    assert any(c["designation"] == "Store Manager" and c["format"] == "Supermarket" for c in sm)
+    assert any(c["designation"] == "Department Head" for c in sm)
+    ssm = cands(role="store_manager", fmt="Supermarket")
+    assert not any(c["designation"] == "Store Manager" and c["format"] == "Hypermarket" for c in ssm)

@@ -196,6 +196,21 @@ def build_people(seed: int = 7) -> list[Person]:
     # a few awkward cases the real roster has: repeated names and a manager name that is a prefix of another
     for p in people[40:44]:
         p.name = "Muhammad Bilal"
+    # 5.0: supermarket deputy managers and Consumer Goods section managers, so hiring has every rung of the ladder
+    # (added last, with their own random stream, so everyone above keeps the same name and number)
+    rnd2, name2 = random.Random(seed + 99), _Names(random.Random(seed + 99))
+    for fmt, city, sname, _ in STORES:
+        if fmt == "HB":
+            continue
+        bu = f"{fmt} PK {city} {sname}"
+        gm = next(p for p in people if p.bu == bu and p.designation == "Store Manager")
+        if fmt == "SM":
+            p = Person(str(60000000 + 90000 + rnd2.randint(100, 9999)), name2("Male"), bu, "99:Services", "MGM - Management", "Deputy Manager", "12",
+                       "Male", gm.name, date(2026, 8, 1) - timedelta(days=rnd2.randint(700, 3000)), "normal")
+            people.append(p)
+        p = Person(str(60000000 + 80000 + rnd2.randint(100, 9999)), name2("Male"), bu, "01:CGD-FMCG", "CGD - Grocery", "Section Manager", "08",
+                   "Male", gm.name, date(2026, 8, 1) - timedelta(days=rnd2.randint(500, 3000)), "normal")
+        people.append(p)
     return people
 
 
@@ -459,6 +474,10 @@ def po_review_xlsx(people: list[Person], seed: int = 51) -> bytes:
                            r, labels[r], round(r - rnd.random() * 0.4, 2), r, labels[r]])
         since = date(2026, 9, 1) - timedelta(days=rnd.choice([40, 120, 300, 500, 800, 1300]))
         note = rnd.choice(["", "", "", "DOA acting role", "Working as Team Leader but in system he is sales person"])
+        if p.designation in ("Deputy Manager", "Store Manager", "Department Head") and note.startswith("Working as"):
+            note = ""                                    # senior seats aren't 'working as team leader'
+        if p.designation in ("Deputy Manager", "Store Manager") and not p.section.startswith("MGM"):
+            pass
         role.append([i, p.emp, p.bu, p.dept, p.section, p.name, p.designation, since, (f"Leading {p.section.split(' - ')[-1]} since {since:%b-%Y}" + (f" · {note}" if note else ""))])
         start = rnd.randrange(7)
         leave = set(rnd.sample(range(30), rnd.choice([0, 0, 2, 3, 5])))

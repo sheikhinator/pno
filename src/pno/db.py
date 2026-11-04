@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS vacancies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL, role TEXT, category TEXT, store TEXT, section TEXT, grade TEXT,
     headcount INTEGER NOT NULL DEFAULT 1, manager TEXT, jd TEXT, rubric TEXT,   -- rubric: JSON criteria + knock-outs
-    status TEXT NOT NULL DEFAULT 'open', target_date TEXT, notes TEXT, created_at TEXT, closed_at TEXT
+    status TEXT NOT NULL DEFAULT 'open', target_date TEXT, notes TEXT, created_at TEXT, closed_at TEXT,
+    fmt TEXT, department TEXT                   -- Hypermarket | Supermarket; the department the seat leads (Consumer Goods …)
 );
 CREATE TABLE IF NOT EXISTS candidates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

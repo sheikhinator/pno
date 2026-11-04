@@ -175,7 +175,7 @@ def test_running_month_is_not_open_and_general_reports_not_counted(tmp_path, mon
     for m in cal["months"]:
         if m["month"] == cur:
             assert m["running"] and m["future"]
-        assert m["total"] == len([i for i in m["items"] if not i["every"]])
+        assert m["total"] == len([i for i in m["items"] if not i["every"] and not i["optional"]])
 
 
 def test_ai_plan_is_applied_on_a_copy(tmp_path, monkeypatch):
@@ -191,3 +191,16 @@ def test_ai_plan_is_applied_on_a_copy(tmp_path, monkeypatch):
     x = api.dispatch("slot_repair", {"token": r["token"], "kind": "sales", "month": "ytd:2026-09", "use_ai": True})
     assert x["engine"] == "groq" and len(x["steps"]) == 2 and "Fortress" not in seen["p"]
     assert x["check"]["status"] in ("good", "warn")
+
+
+def test_delete_removes_an_import_for_good(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    r = api.dispatch("slot_read", {"kind": "sales", "month": "ytd:2026-09", "paths": [str(_sales(tmp_path))]})
+    api.dispatch("slot_save", {"token": r["token"], "kind": "sales", "month": "ytd:2026-09"})
+    iid = api.db.q1("SELECT id FROM imports WHERE kind='sales'")[0]
+    assert api.db.q1("SELECT COUNT(*) FROM sales WHERE import_id=?", (iid,))[0] > 0
+    out = api.dispatch("import_delete", {"import_id": iid})
+    assert out["ok"] and out["rows"] > 0
+    assert api.db.q1("SELECT COUNT(*) FROM imports WHERE id=?", (iid,))[0] == 0
+    assert api.db.q1("SELECT COUNT(*) FROM sales WHERE import_id=?", (iid,))[0] == 0
+    assert "error" in api.dispatch("import_redo", {"import_id": iid})                 # nothing left to restore

@@ -288,8 +288,8 @@ class Api:
             return {"cancelled": True}
         return self.hiring.add_cvs(paths, vacancy_id, source)
 
-    def api_hire_internal(self, vacancy_id: int) -> dict:
-        return self.hiring.internal_search(int(vacancy_id))
+    def api_hire_internal(self, vacancy_id: int, cross: bool = False) -> dict:
+        return self.hiring.internal_search(int(vacancy_id), bool(cross))
 
     def api_hire_internal_add(self, vacancy_id: int, key: str) -> dict:
         return self.hiring.add_internal(int(vacancy_id), str(key))
@@ -363,7 +363,7 @@ class Api:
         mm = engine.model(self.db, default) if default else None
         counts = {k: self.db.val(f"SELECT COUNT(*) FROM imports WHERE kind=? AND active=1", (k,), 0)
                   for k in ("roster", "attendance", "productivity", "sales", "leave")}
-        return {"version": __version__, "months": months, "month": default, "demo": self.demo, "tour_done": bool(self.db.get_setting("tour_done", False)), "full_mode": bool(self.db.get_setting("full_mode", False)),
+        return {"version": __version__, "months": months, "month": default, "demo": self.demo, "tour_done": bool(self.db.get_setting("tour_done", False)), "full_mode": False,
                 "options": analytics.options(mm, {}) if mm else {"cities": [], "formats": [], "stores": [], "depts": [], "sections": []},
                 "counts": counts, "has_data": any(counts.values()), "hide_names": self._hide(),
                 "theme": self.db.get_setting("theme", "auto"), "ai": self.agent.public_status(), "lock": self.api_lock_status(),
@@ -378,32 +378,8 @@ class Api:
         return analytics.options(engine.model(self.db, month), scope or {})
 
     # ---------------------------------------------------------------- screens
-    def api_dashboard(self, month=None, scope=None, compare=None) -> dict:
-        d = analytics.dashboard(self.db, month, scope or {}, compare, self._hide())
-        d["pins"] = self.db.get_setting("pins", []) or []
-        return d
-
-    def api_people(self, month=None, scope=None, q="", role="", band="", sort="score", desc=True, limit=500, offset=0, flag=""):
-        return analytics.people_list(self.db, month, scope or {}, q, role, band, sort, desc, limit, offset, self._hide(), flag)
-
     def api_person(self, emp: str, month=None) -> dict:
         return analytics.person(self.db, month, str(emp), self._hide())
-
-    def api_stores(self, month=None, scope=None) -> dict:
-        mm = engine.model(self.db, month)
-        return {"month": mm.month, "rows": analytics.store_league(mm, scope or {})}
-
-    def api_store(self, store_id: int, month=None) -> dict:
-        return analytics.store_detail(self.db, month, int(store_id), self._hide())
-
-    def api_attendance(self, month=None, scope=None) -> dict:
-        return analytics.attendance_view(self.db, month, scope or {}, self._hide())
-
-    def api_org(self, month=None, store_id=None, auto=False) -> dict:
-        return analytics.org_chart(self.db, month, store_id, self._hide(), bool(auto))
-
-    def api_compare(self, emps: list, month=None) -> dict:
-        return {"people": [analytics.person(self.db, month, str(e), self._hide()) for e in emps[:4]]}
 
     def api_search(self, q: str, month=None) -> dict:
         mm = engine.model(self.db, month)
@@ -464,9 +440,11 @@ class Api:
 
         def slot(key, kind):
             cl = datahealth.checklist(self.db, key)
-            per = [c for c in cl if not c.get("every")]        # the employee master, roles and ratings serve every period: not counted per month
+            per = [c for c in cl if not c.get("every") and not c.get("optional")]   # master, roles, ratings serve every period; shifts and leave are optional
             ok = sum(1 for c in per if c["status"] in ("ok", "derived"))
-            items = [{"kind": c["kind"], "name": c["name"], "status": c["status"], "label": c["label"], "detail": c["detail"], "every": c.get("every", False)} for c in cl]
+            from . import intake
+            items = [{"kind": c["kind"], "name": c["name"], "status": c["status"], "label": c["label"], "detail": c["detail"], "every": c.get("every", False),
+                      "optional": c.get("optional", False), "needs": intake.columns_needed(c["kind"])} for c in cl]
             running = key == cur                               # the month isn't over yet: nothing to load for it
             if kind == "ytd":
                 return {"month": f"ytd:{key}", "end": key, "ytd": True, "label": f"Jan–{date(y, int(key[5:]), 1):%b} {y} · year to date",
@@ -1050,6 +1028,13 @@ class Api:
     def api_import_undo(self, import_id: int) -> dict:
         return importers.undo(self.db, int(import_id))
 
+    def api_import_delete(self, import_id: int) -> dict:
+        """Delete an uploaded file's data for good (Undo only switches it off)."""
+        out = importers.delete(self.db, int(import_id))
+        self._po_cache = None
+        self.__dict__.pop("_rv_cache", None)
+        return out
+
     def api_import_redo(self, import_id: int) -> dict:
         return importers.redo(self.db, int(import_id))
 
@@ -1061,10 +1046,6 @@ class Api:
                 "hide_names": self._hide(), "theme": self.db.get_setting("theme", "auto"),
                 "weights_history": self.db.get_setting("weights_history", []), "data_dir": str(data_dir()),
                 "db_path": str(self.db.path), "version": __version__}
-
-    def api_full_mode(self, on: bool = False) -> dict:
-        self.db.set_setting("full_mode", bool(on))
-        return {"full_mode": bool(on)}
 
     def api_settings_save(self, weights: dict | None = None, rules: dict | None = None, hide_names=None, theme=None) -> dict:
         if weights is not None:
@@ -1297,194 +1278,9 @@ class Api:
         return {"ok": True}
 
     # ---------------------------------------------------------------- exports
-    def api_export(self, pack: str, fmt: str, month=None, scope=None, emp=None, store_id=None, hide=None, save_as=None,
-                   open_after: bool = True) -> dict:
-        from . import exports
-        hide_names = self._hide() if hide is None else bool(hide)
-        if pack == "hiring":
-            report = self.hiring.report(int(emp or store_id), hide_names)
-        else:
-            report = exports.build_pack(self.db, pack, month, scope or {}, emp=emp, store_id=store_id, hide=hide_names)
-        name = exports.file_name(report, fmt)
-        path = save_as or self.host.save_path(name, fmt)
-        if not path:
-            return {"cancelled": True}
-        exports.render(report, fmt, path)
-        self.db.log("export", f"{pack} {fmt} {path}")
-        if open_after:
-            self.host.open_path(path)
-        return {"ok": True, "path": path, "name": Path(path).name}
-
     # ---------------------------------------------------------------- actions, manpower, today
-    def api_actions(self) -> dict:
-        from . import actions
-        return actions.listing(self.db)
-
-    def api_action_add(self, title: str, owner: str = "", store: str = "", area: str = "", due: str | None = None, priority: str = "Medium",
-                       source: str = "Manual", detail: str = "") -> dict:
-        from . import actions
-        actions.add(self.db, title, owner, store, area, due, priority, source, detail)
-        return actions.listing(self.db)
-
-    def api_action_update(self, action_id: int, **kw) -> dict:
-        from . import actions
-        return actions.update(self.db, int(action_id), **kw)
-
-    def api_action_delete(self, action_id: int) -> dict:
-        from . import actions
-        return actions.delete(self.db, int(action_id))
-
-    def api_actions_from_answer(self, text: str, source: str = "P&O AI") -> dict:
-        from . import actions
-        items = actions.from_text(text)
-        for it in items:
-            actions.add(self.db, it, source=source)
-        return {"added": len(items), **actions.listing(self.db)}
-
-    def api_manpower(self) -> dict:
-        from . import actions
-        return actions.manning(self.db, self._po())
-
-    def api_manpower_save(self, rows: list | None = None, paste: str | None = None) -> dict:
-        from . import actions
-        n = 0
-        if rows:
-            actions.set_manning(self.db, rows)
-            n = len(rows)
-        if paste:
-            n = actions.manning_from_table(self.db, paste)
-        return {"saved": n, **actions.manning(self.db, self._po())}
-
-    def api_today(self) -> dict:
-        from . import actions
-        return actions.today(self)
-
     # ---------------------------------------------------------------- 2.2 policies, notes, goals, managers
-    def api_policies(self) -> dict:
-        from . import workplace
-        return {"policies": workplace.policies(self.db)}
-
-    def _add_policy_paths(self, paths: list[str]) -> dict:
-        from . import workplace
-        from .hiring.cvparse import read_text
-        added, failed = [], []
-        for p in paths:
-            name = Path(p).name
-            try:
-                text = read_text(p)
-                title = re.sub(r"[_-]+", " ", Path(p).stem).strip()
-                workplace.add_policy(self.db, title, text, name)
-                added.append(title)
-            except Exception as e:  # noqa: BLE001 - report each file
-                failed.append({"file": name, "error": str(e)[:200]})
-        self.db.log("policy", f"added {len(added)} policies")
-        return {"added": added, "failed": failed, "policies": workplace.policies(self.db)}
-
-    def api_policy_pick(self) -> dict:
-        paths = self.host.pick_files("policies")
-        return self._add_policy_paths(paths) if paths else {"cancelled": True}
-
-    def api_policy_upload(self, files: list) -> dict:
-        import base64
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            paths = []
-            for f in files[:50]:
-                name = re.sub(r"[^\w.\- ]+", "_", str(f.get("name") or "policy.txt"))[:90]
-                q = Path(tmp) / name
-                q.write_bytes(base64.b64decode(f["b64"]))
-                paths.append(str(q))
-            return self._add_policy_paths(paths)
-
-    def api_policy_paste(self, title: str, text: str, category: str = "") -> dict:
-        from . import workplace
-        workplace.add_policy(self.db, title, text, "", category)
-        return {"policies": workplace.policies(self.db)}
-
-    def api_policy_delete(self, policy_id: int) -> dict:
-        from . import workplace
-        self.db.x("DELETE FROM policies WHERE id=?", (int(policy_id),))
-        return {"policies": workplace.policies(self.db)}
-
-    def api_policy_view(self, policy_id: int) -> dict:
-        r = self.db.q1("SELECT * FROM policies WHERE id=?", (int(policy_id),))
-        if not r:
-            raise ValueError("Policy not found.")
-        return {"id": r["id"], "title": r["title"], "category": r["category"], "passages": json.loads(r["chunks"] or "[]")}
-
-    def api_policy_ask(self, question: str, ai: bool = True) -> dict:
-        from . import workplace
-        return workplace.answer(self.db, self.agent if ai else None, question)
-
-    def api_meetings(self, subject_key: str = "", subject: str = "", store: str = "") -> dict:
-        from . import workplace
-        r = workplace.notes(self.db, subject_key, subject, store)
-        try:
-            ins = self._po()
-            r["overdue_1to1"] = workplace.overdue_one_to_ones(self.db, ins) if not ins.empty else []
-        except Exception:  # noqa: BLE001
-            r["overdue_1to1"] = []
-        return r
-
-    def api_meeting_add(self, subject: str, body: str = "", kind: str = "1:1", store: str = "", subject_key: str = "", follow_up: str = "",
-                     follow_due: str | None = None, mood: int | None = None, when: str | None = None) -> dict:
-        from . import workplace
-        workplace.add_note(self.db, subject, body, kind, store, subject_key, follow_up, follow_due or None, int(mood) if mood else None, when)
-        return self.api_meetings()
-
-    def api_meeting_delete(self, note_id: int) -> dict:
-        from . import workplace
-        workplace.delete_note(self.db, int(note_id))
-        return self.api_meetings()
-
-    def api_goals(self) -> dict:
-        from . import workplace
-        return workplace.goals(self.db)
-
-    def api_goal_add(self, title: str, **kw) -> dict:
-        from . import workplace
-        workplace.add_goal(self.db, title, **{k: v for k, v in kw.items() if k in ("owner", "store", "metric", "unit", "baseline", "target", "due", "level")})
-        return workplace.goals(self.db)
-
-    def api_goal_update(self, goal_id: int, **kw) -> dict:
-        from . import workplace
-        workplace.update_goal(self.db, int(goal_id), **kw)
-        return workplace.goals(self.db)
-
-    def api_goal_delete(self, goal_id: int) -> dict:
-        from . import workplace
-        workplace.delete_goal(self.db, int(goal_id))
-        return workplace.goals(self.db)
-
-    def api_managers(self) -> dict:
-        from . import workplace
-        ins = self._po()
-        return workplace.manager_effectiveness(ins) if not ins.empty else {"rows": [], "managers": 0, "needs_support": 0}
-
     # ---------------------------------------------------------------- 2.4 training needs and workforce forecast
-    def api_training_needs(self, threshold: float = 60) -> dict:
-        from . import planning
-        ins = self._po()
-        if ins.empty:
-            return {"rows": [], "topics": [], "threshold": threshold, "leaders_with_needs": 0, "open_needs": 0, "covered": 0, "empty": True}
-        return planning.training_needs(self.db, ins, float(threshold))
-
-    def api_training_build(self, topic: str, hours: float = 3, due: str | None = None, threshold: float = 60) -> dict:
-        from . import planning
-        tn = planning.training_needs(self.db, self._po(), float(threshold))
-        t = next((x for x in tn["topics"] if x["topic"] == topic), None)
-        if not t:
-            raise ValueError("Nobody needs this topic now.")
-        r = planning.build_for_topic(self, topic, t["people"], hours, due)
-        self.db.log("learning", f"targeted course {topic} for {r['assigned']}")
-        return {**r, **planning.training_needs(self.db, self._po(), float(threshold))}
-
-    def api_forecast(self, months: int = 6, turnover_change: float = 0, hires_per_month: float | None = None, growth_heads: int = 0,
-                     replacement_cost: float | None = None) -> dict:
-        from . import planning
-        ins = self._po()
-        return planning.forecast(self.db, ins, months, float(turnover_change or 0), hires_per_month, int(growth_heads or 0), replacement_cost)
-
     # ---------------------------------------------------------------- 2.7 People Brain and corrections
     def _brain(self):
         from .brain import Brain
@@ -1552,76 +1348,6 @@ class Api:
         return {"path": path}
 
     # ---------------------------------------------------------------- 2.8 employee relations
-    def api_er_cases(self, status: str = "open") -> dict:
-        from . import relations
-        return relations.cases(self.db, status)
-
-    def api_er_case(self, case_id: int) -> dict:
-        from . import relations
-        return relations.case(self.db, int(case_id))
-
-    def api_er_open(self, kind: str, emp: str = "", name: str = "", category: str = "Other", description: str = "", opened_on: str | None = None,
-                    confidential: bool = False) -> dict:
-        from . import relations
-        p = self._brain().people.get(str(emp)) if emp else None
-        f = (p or {}).get("facts", {})
-        g = lambda k: (f.get(k) or {}).get("value", "")  # noqa: E731
-        cid = relations.open_case(self.db, kind, emp, name or (p or {}).get("name", ""), g("store"), g("section"), g("designation"),
-                                  category, description, opened_on, confidential)
-        return relations.case(self.db, cid)
-
-    def api_er_advance(self, case_id: int, stage: str | None = None, note: str = "", outcome: str | None = None, due: str | None = None) -> dict:
-        from . import relations
-        return relations.advance(self.db, int(case_id), stage, note, outcome, due)
-
-    def api_letter_types(self) -> dict:
-        from . import relations
-        return {"types": [{"kind": k, "title": v["title"], "fields": v["fields"]} for k, v in relations.LETTERS.items()],
-                "letters": relations.letters(self.db)}
-
-    def api_letter_defaults(self, kind: str, emp: str, case_id: int | None = None) -> dict:
-        from . import relations
-        return relations.letter_defaults(self, kind, emp, int(case_id) if case_id else None)
-
-    def api_letter_make(self, kind: str, emp: str, name: str, fields: dict, fmt: str = "docx", case_id: int | None = None,
-                        save_as: str | None = None, open_after: bool = True) -> dict:
-        from . import relations
-        title = relations.LETTERS.get(kind, {}).get("title", "Letter")
-        path = save_as or self.host.save_path(re.sub(r"[^\w\- ]+", "", f"{title} - {name}").strip() + f".{fmt}", fmt)
-        if not path:
-            return {"cancelled": True}
-        r = relations.make_letter(self.db, kind, str(emp), name, fields, path, fmt, int(case_id) if case_id else None,
-                                  self.db.get_setting("letter_signatory", "Director, People & Organisation"))
-        if open_after:
-            self.host.open_path(path)
-        return r
-
-    def api_exits(self) -> dict:
-        from . import relations
-        return relations.exits(self.db, self)
-
-    def api_exit_add(self, **kw) -> dict:
-        from . import relations
-        emp = str(kw.get("emp") or "")
-        p = self._brain().people.get(emp) if emp else None
-        f = (p or {}).get("facts", {})
-        g = lambda k: (f.get(k) or {}).get("value", "")  # noqa: E731
-        kw.setdefault("name", (p or {}).get("name", ""))
-        for k in ("store", "section", "designation"):
-            if not kw.get(k):
-                kw[k] = g(k)
-        relations.add_exit(self.db, **{k: v for k, v in kw.items() if k in ("emp", "name", "store", "section", "designation", "leave_date", "main_reason",
-                                                                         "reasons", "manager_score", "culture_score", "pay_score", "growth_score",
-                                                                         "would_return", "recommend", "comments")})
-        return relations.exits(self.db, self)
-
-    def api_people_insights(self) -> dict:
-        from . import people_insights
-        key = ("pi", self.db.version)
-        if getattr(self, "_pi_cache", (None,))[0] != key:
-            self._pi_cache = (key, people_insights.report(self))
-        return self._pi_cache[1]
-
     # ---------------------------------------------------------------- 4.0 review
     def api_review(self, store: str | None = None, dept: str | None = None, section: str | None = None, role: str | None = None) -> dict:
         from . import review
@@ -1655,6 +1381,83 @@ class Api:
     def api_review_person(self, emp: str = "", key: str = "") -> dict:
         from . import review
         return review.person(self, emp, key)
+
+    def api_review_person_export(self, key: str = "", emp: str = "", fmt: str = "xlsx", save_as=None, open_after: bool = True) -> dict:
+        """One person's scores as a table: every criterion's result, its lines, the points out of 10, the weight and what it adds to the score."""
+        from . import exports, review
+        p = review.person(self, emp, key)
+        r, C = p["row"], p["criteria"]
+        cells = {c["key"]: c for c in r["cells"]}
+        parts = {x["key"]: x for x in r.get("parts", [])}
+        rows = []
+        for k, c in cells.items():
+            if k == "score":
+                continue
+            cr = C.get(k, {})
+            pt = parts.get(k)
+            rows.append([cr.get("label") or review.CRITERIA[k]["label"], "" if c.get("value") is None else f"{c['value']:g}",
+                         "" if cr.get("green") is None else f"{cr['green']:g}", "" if cr.get("amber") is None else f"{cr['amber']:g}",
+                         {"good": "On or above benchmark", "warn": "Close", "bad": "Below benchmark"}.get(c.get("status"), "Not scored"),
+                         "" if not pt else f"{pt['points']:.1f}", "" if not pt else f"{pt['weight']:g}", "" if not pt else f"{pt['share']}%",
+                         "" if not pt else f"{pt['points'] * pt['share'] / 100:.2f}",
+                         "" if p.get("peer_median", {}).get(k) is None else f"{p['peer_median'][k]:g}"])
+        sc = cells.get("score", {}).get("value")
+        rows.append(["Score (out of 10)", "" if sc is None else f"{sc:g}", "", "", "", "", "", "100%", "" if sc is None else f"{sc:g}", ""])
+        title = f"Scores · {r['name']}"
+        scope = " · ".join(x for x in (r.get("role"), r.get("store"), r.get("area")) if x)
+        rep = exports.table_report(title, ["Criterion", "Result", "Green from", "Amber from", "Status", "Points /10", "Weight", "Share of score",
+                                           "Adds to score", "Peer median"], rows, scope)
+        return self._save_report(rep, fmt, save_as, open_after, f"scores {r['name']}")
+
+    def api_review_scores_export(self, store: str | None = None, dept: str | None = None, section: str | None = None, role: str | None = None,
+                                 fmt: str = "xlsx", save_as=None, open_after: bool = True) -> dict:
+        """Everyone in the current selection: the points out of 10 on every criterion and the score, as a table."""
+        from . import exports, review
+        d = self.api_review(store, dept, section, role)
+        keys = [k for k in d["people_keys"] if k != "score"] if d.get("people_keys") else [k for k in review.CRITERIA if k != "score"]
+        rows = []
+        for p in d["people"]:
+            parts = {x["key"]: x for x in p.get("parts", [])}
+            sc = next((c["value"] for c in p["cells"] if c["key"] == "score"), None)
+            rows.append([p["name"], p.get("role") or "", p.get("store") or "", "" if sc is None else f"{sc:g}"] +
+                        ["" if k not in parts else f"{parts[k]['points']:.1f}" for k in keys])
+        rows.sort(key=lambda r: -(float(r[3]) if r[3] else -1))
+        rep = exports.table_report(f"Scores · {d.get('label', 'Review')}", ["Person", "Role", "Store", "Score /10"] + [review.CRITERIA[k]["label"] + " (pts /10)" for k in keys],
+                                   rows, d.get("label", ""))
+        return self._save_report(rep, fmt, save_as, open_after, "scores")
+
+    def api_review_preview(self, rows: list, score: dict | None = None) -> dict:
+        """Settings → Criteria, before saving: the scores and the ranking with these weights, next to the current ones."""
+        from . import review
+        cfg, t = review.config(self.db), review.targets(self.db)
+        new_cfg, new_t = {k: dict(v) for k, v in cfg.items()}, {k: dict(v) for k, v in t.items()}
+        for r in rows or []:
+            k = r.get("key")
+            if k in new_cfg:
+                new_cfg[k].update(show=bool(r.get("show", True)), weight=max(0.0, min(100.0, float(r.get("weight") or 0))))
+                try:
+                    g, a = float(r.get("green")), float(r.get("amber"))
+                    new_t[k].update(green=g, amber=a)
+                    new_cfg[k].update(green=g, amber=a)
+                except (TypeError, ValueError):
+                    pass
+        if score:
+            try:
+                new_t["score"] = {"green": float(score["green"]), "amber": float(score["amber"])}
+            except (KeyError, TypeError, ValueError):
+                pass
+        old = self.api_review()["people"]
+        new = review.Review(self, new_cfg, new_t).build(None, None, None, None)["people"]
+        sc = lambda p: next((c["value"] for c in p["cells"] if c["key"] == "score"), None)  # noqa: E731
+        st = lambda p: next((c["status"] for c in p["cells"] if c["key"] == "score"), None)  # noqa: E731
+        rank = lambda ps: {p["key"]: i + 1 for i, p in enumerate(sorted([p for p in ps if sc(p) is not None], key=lambda p: -sc(p)))}  # noqa: E731
+        ro, rn = rank(old), rank(new)
+        before = {p["key"]: sc(p) for p in old}
+        out = sorted([p for p in new if sc(p) is not None], key=lambda p: -sc(p))
+        total = sum(v["weight"] for v in new_cfg.values() if v["show"])
+        return {"people": [{"name": p["name"], "role": p.get("role"), "store": p.get("store"), "old": before.get(p["key"]), "new": sc(p), "status": st(p),
+                            "old_rank": ro.get(p["key"]), "new_rank": rn.get(p["key"])} for p in out],
+                "shares": {k: (round(100 * v["weight"] / total) if total and v["show"] else 0) for k, v in new_cfg.items()}, "total": total}
 
     def api_review_criteria(self, rows: list | None = None, reset: bool = False, score: dict | None = None) -> dict:
         """Settings → Criteria: for each criterion whether it shows on the Review, its weight in the score, and its green / amber lines."""
@@ -1691,9 +1494,9 @@ class Api:
             self.db.set_setting("review_targets", tg)
         self.db.version += 1                           # every screen recalculates with the new criteria
         cfg = review.config(self.db)
-        total = sum(v["weight"] for v in cfg.values())
+        total = sum(v["weight"] for v in cfg.values() if v["show"])
         return {"rows": [{"key": k, "label": review.CRITERIA[k]["label"], "better": review.CRITERIA[k]["better"], "fmt": review.CRITERIA[k]["fmt"],
-                          "count": bool(review.CRITERIA[k].get("count")), **v, "share": round(100 * v["weight"] / total) if total else 0}
+                          "count": bool(review.CRITERIA[k].get("count")), **v, "share": round(100 * v["weight"] / total) if total and v["show"] else 0}
                          for k, v in cfg.items()], "total": total, "score": {"green": review.targets(self.db)["score"]["green"], "amber": review.targets(self.db)["score"]["amber"]}}
 
     def api_review_targets(self, targets: dict | None = None, reset: bool = False) -> dict:
@@ -1740,44 +1543,9 @@ class Api:
         from . import office
         return office.save_synonyms(self.db, field, words)
 
-    def api_hr_calendar(self, month: str | None = None) -> dict:
-        from . import office
-        return office.calendar(self, month)
-
-    def api_weekly_brief(self) -> dict:
-        from . import office
-        return office.weekly_brief(self)
-
-    def api_weekly_brief_export(self, fmt: str = "pdf", save_as: str | None = None, open_after: bool = True) -> dict:
-        from . import office
-        fmt = "docx" if fmt == "docx" else "pdf"
-        path = save_as or self.host.save_path(f"P&O weekly brief {date.today():%Y-%m-%d}.{fmt}", fmt)
-        if not path:
-            return {"cancelled": True}
-        office.brief_file(self, path, fmt)
-        if open_after:
-            self.host.open_path(path)
-        return {"ok": True, "path": path}
-
-    def api_glossary(self) -> dict:
-        from . import office
-        return {"terms": list(office.GLOSSARY)}
-
     def api_tour_done(self, done: bool = True) -> dict:
         self.db.set_setting("tour_done", bool(done))
         return {"ok": True}
-
-    def api_visit_template(self, store: str) -> dict:
-        from . import office
-        return office.visit_template(self, store)
-
-    def api_visit_save(self, store: str, answers: dict, notes: str = "", actions: list | None = None) -> dict:
-        from . import office
-        return office.save_visit(self, store, answers, notes, actions)
-
-    def api_explain(self, term: str) -> dict:
-        from . import office
-        return office.explain(term) or {"term": term, "what": "", "source": "", "good": ""}
 
     def api_people_pick(self, q: str = "") -> dict:
         return {"rows": self._brain().find(q, 15)}
@@ -1827,230 +1595,6 @@ class Api:
         return {"ok": False, "left": 5 - len(self._pin_fails)}
 
     # ---------------------------------------------------------------- 2.3 engagement, recognition, month close
-    def api_engagement(self, survey_id: int | None = None) -> dict:
-        from . import engage
-        return engage.results(self.db, int(survey_id) if survey_id else None)
-
-    def _add_surveys(self, paths: list[str], title: str = "", wave: str = "") -> dict:
-        from . import engage
-        added, failed = [], []
-        for p in paths:
-            try:
-                added.append(engage.add_survey(self.db, p, title if len(paths) == 1 else "", wave))
-            except Exception as e:  # noqa: BLE001
-                failed.append({"file": Path(p).name, "error": str(e)[:200]})
-        self.db.log("survey", f"imported {len(added)} survey file(s)")
-        r = engage.results(self.db, added[-1] if added else None)
-        return {**r, "added": len(added), "failed": failed}
-
-    def api_survey_pick(self, title: str = "", wave: str = "") -> dict:
-        paths = self.host.pick_files("surveys")
-        return self._add_surveys(paths, title, wave) if paths else {"cancelled": True}
-
-    def api_survey_upload(self, files: list, title: str = "", wave: str = "") -> dict:
-        import base64
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            paths = []
-            for f in files[:20]:
-                q = Path(tmp) / re.sub(r"[^\w.\- ]+", "_", str(f.get("name") or "survey.csv"))[:90]
-                q.write_bytes(base64.b64decode(f["b64"]))
-                paths.append(str(q))
-            return self._add_surveys(paths, title, wave)
-
-    def api_survey_delete(self, survey_id: int) -> dict:
-        from . import engage
-        engage.delete_survey(self.db, int(survey_id))
-        return engage.results(self.db)
-
-    def api_survey_template(self, save_as: str | None = None, open_after: bool = True) -> dict:
-        from . import engage
-        path = save_as or self.host.save_path("P&O pulse survey.xlsx", "xlsx")
-        if not path:
-            return {"cancelled": True}
-        stores = sorted({s["name"] for s in self.db.q("SELECT name FROM stores")})
-        try:
-            ins = self._po()
-            stores = ins.stores() or stores
-        except Exception:  # noqa: BLE001
-            pass
-        engage.template_xlsx(path, list(stores))
-        if open_after:
-            self.host.open_path(path)
-        return {"path": path}
-
-    def api_engagement_export(self, survey_id: int | None = None, fmt: str = "pdf", save_as: str | None = None, open_after: bool = True) -> dict:
-        from . import engage, exports
-        r = engage.results(self.db, int(survey_id) if survey_id else None)
-        if not r["has_data"]:
-            raise ValueError("Import survey results first.")
-        sections: list[dict] = [{"type": "heading", "text": f"{r['survey']['title']} · {r['survey']['wave']}"},
-                                {"type": "kpis", "items": [{"label": "Answers", "value": str(r["survey"]["n"])},
-                                                           {"label": "Favourable", "value": f"{r['favourable']}%" if r["favourable"] is not None else "—"},
-                                                           {"label": "eNPS", "value": str(r["enps"]) if r["enps"] is not None else "—"}]}]
-        sections.append({"type": "chart", "kind": "hbar", "title": "Favourable answers by question (%)", "labels": [q["question"][:60] for q in r["questions"]],
-                         "series": [{"name": "Favourable %", "values": [q["favourable"] for q in r["questions"]]}]})
-        sections.append({"type": "table", "title": "Questions", "columns": [("Question", "question", ""), ("Answers", "n", "int"), ("Average", "avg", ""),
-                                                                           ("Favourable %", "favourable", "int"), ("Unfavourable %", "unfavourable", "int")], "rows": r["questions"]})
-        shown = [s for s in r["stores"] if not s["hidden"]]
-        if shown:
-            sections.append({"type": "table", "title": f"By store (only groups of {r['min_group']}+ shown)", "columns": [("Store", "name", ""), ("Answers", "n", "int"),
-                             ("Favourable %", "favourable", "int"), ("eNPS", "enps", "int")], "rows": shown})
-        if r["themes"]:
-            sections.append({"type": "table", "title": "What comments are about", "columns": [("Theme", "theme", ""), ("Comments", "n", "int")],
-                             "rows": [{"theme": t, "n": n} for t, n in r["themes"]]})
-        rep = exports.table_report("Engagement pulse survey", [], [], "Anonymous results")
-        rep.update({"pack": "engagement", "title": "Engagement pulse survey", "subtitle": f"{r['survey']['title']} · anonymous results", "sections": sections[1:],
-                    "month_label": r["survey"]["wave"]})
-        path = save_as or self.host.save_path(exports.file_name(rep, fmt), fmt)
-        if not path:
-            return {"cancelled": True}
-        exports.render(rep, fmt, path)
-        if open_after:
-            self.host.open_path(path)
-        return {"path": path}
-
-    def api_stars(self, month: str | None = None) -> dict:
-        from . import engage
-        ins = self._po()
-        mm = None
-        try:
-            mm = engine.model(self.db, month) if (month or analytics.month_list(self.db)) else None
-        except Exception:  # noqa: BLE001
-            mm = None
-        return engage.stars(ins, mm) if not ins.empty or mm else {"stars": [], "month": month}
-
-    def api_certificates(self, people: list, period: str = "", save_as: str | None = None, open_after: bool = True) -> dict:
-        from . import engage
-        if not people:
-            raise ValueError("Choose who to recognise.")
-        path = save_as or self.host.save_path(f"Recognition certificates {date.today():%b %Y}.pdf", "pdf")
-        if not path:
-            return {"cancelled": True}
-        engage.certificates_pdf(path, people, period or date.today().strftime("%B %Y"))
-        self.db.log("export", f"{len(people)} recognition certificates")
-        if open_after:
-            self.host.open_path(path)
-        return {"path": path, "n": len(people)}
-
-    def api_month_close(self, month: str, lock: bool = True, save_as: str | None = None, open_after: bool = True, hide: bool | None = None) -> dict:
-        """The whole month in one zip: Director pack, P&O review, people ranking, one report per store, data health; then lock."""
-        import tempfile
-        import zipfile
-        from . import datahealth, exports
-        from .po.insights import Insights
-        from .po.store import PoStore
-        h = datahealth.report(self.db, Insights(PoStore(self.db), view={"type": "latest"}), month)
-        path = save_as or self.host.save_path(f"P&O month close {month}.zip", "zip")
-        if not path:
-            return {"cancelled": True}
-        hide_names = self._hide() if hide is None else bool(hide)
-        made, skipped = [], []
-        months = {m["value"] for m in analytics.month_list(self.db)}
-        mm_month = month if month in months else None
-        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z, tempfile.TemporaryDirectory() as tmp:
-            def put(name, rep, fmt):
-                f = Path(tmp) / f"{name}.{fmt}"
-                exports.render(rep, fmt, str(f))
-                z.write(f, f.name if "/" not in name else name + "." + fmt)
-                made.append(f"{name}.{fmt}")
-            for pack, fmt in (("director", "pdf"), ("po", "pdf"), ("people", "xlsx"), ("attendance", "xlsx")):
-                try:
-                    put(exports.PACKS[pack], exports.build_pack(self.db, pack, mm_month, {}, hide=hide_names), fmt)
-                except Exception as e:  # noqa: BLE001 - a pack with no data is skipped, not fatal
-                    skipped.append(f"{exports.PACKS[pack]}: {str(e)[:120]}")
-            if mm_month:
-                mm = engine.model(self.db, mm_month)
-                for sid, st in sorted(mm.stores.items(), key=lambda kv: kv[1]["name"]):
-                    if not any(p.store_id == sid for p in mm.people.values()):
-                        continue
-                    safe = re.sub(r"[^\w\- ()]+", "", f"{st['name']} ({st.get('format') or sid})")
-                    try:
-                        rep = exports.build_pack(self.db, "store", mm_month, {"store_id": sid}, store_id=sid, hide=hide_names)
-                        f = Path(tmp) / f"{safe}.pdf"
-                        exports.render(rep, "pdf", str(f))
-                        z.write(f, f"Stores/{safe}.pdf")
-                        made.append(f"Stores/{safe}.pdf")
-                    except Exception as e:  # noqa: BLE001
-                        skipped.append(f"{st['name']}: {str(e)[:120]}")
-            rows = [{"report": c["name"], "status": c["status"], "detail": c.get("label") or ""} for c in h["checklist"]]
-            put("Data health", exports.table_report(f"Data health · {h['month_label']} · {h['score']}/100", ["Report", "Status", "Detail"],
-                                                   [[r["report"], r["status"], r["detail"]] for r in rows]), "pdf")
-        if lock:
-            datahealth.set_lock(self.db, month, True)
-        self.db.log("month close", f"{month}: {len(made)} files")
-        if open_after:
-            self.host.open_path(path)
-        return {"path": path, "files": made, "skipped": skipped, "locked": lock, "score": h["score"]}
-
-    def api_organisation(self, probation_months: int | None = None) -> dict:
-        from . import org_health
-        if probation_months:
-            self.db.set_setting("probation_months", max(1, min(12, int(probation_months))))
-        from . import workplace
-        ins = self._po()
-        r = org_health.report(self.db, ins)
-        r["managers"] = workplace.manager_effectiveness(ins) if not ins.empty else {"rows": [], "managers": 0, "needs_support": 0}
-        return r
-
-    def api_data_request(self, month: str, lang: str = "en") -> dict:
-        from . import datahealth, org_health
-        from .po.insights import Insights
-        from .po.store import PoStore
-        h = datahealth.report(self.db, Insights(PoStore(self.db), view={"type": "latest"}), month)
-        missing = [c["name"] + (f" (we only have {c['label']})" if c["status"] == "older" else "") for c in h["checklist"] if c["status"] in ("missing", "older", "stale")]
-        return {"missing": missing, "text": org_health.request_message(self.db, h["month"], missing, lang) if missing else ""}
-
-    def api_export_batch(self, pack: str = "store", fmt: str = "pdf", month=None, hide=None, save_as=None, open_after: bool = True) -> dict:
-        """One report per store (or per manager), zipped, ready to send to each store manager."""
-        import io
-        import tempfile
-        import zipfile
-        from . import exports
-        hide_names = self._hide() if hide is None else bool(hide)
-        mm = engine.model(self.db, month)
-        stores = sorted(mm.stores.items(), key=lambda kv: kv[1]["name"])
-        stores = [(sid, st) for sid, st in stores if any(p.store_id == sid for p in mm.people.values())]
-        if not stores:
-            raise ValueError("No stores with people in this month.")
-        path = save_as or self.host.save_path(f"P&O {exports.PACKS.get(pack, pack)} per store {mm.month}.zip", "zip")
-        if not path:
-            return {"cancelled": True}
-        n = 0
-        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z, tempfile.TemporaryDirectory() as tmp:
-            for sid, st in stores:
-                rep = exports.build_pack(self.db, pack, month, {"store_id": sid}, store_id=sid, hide=hide_names)
-                dup = sum(1 for _, o in stores if o["name"] == st["name"]) > 1
-                safe = re.sub(r"[^\w\- ()]+", "", st["name"] + (f" ({st.get('format') or sid})" if dup else "")) or f"store-{sid}"
-                f = Path(tmp) / f"{safe}.{fmt}"
-                exports.render(rep, fmt, str(f))
-                z.write(f, f.name)
-                n += 1
-        self.db.log("export", f"batch {pack} {fmt} x{n} {path}")
-        if open_after:
-            self.host.open_path(path)
-        return {"ok": True, "path": path, "name": Path(path).name, "files": n}
-
-    def api_po_risk(self) -> dict:
-        from .po.people_risk import flight_risk, succession
-        ins = self._po()
-        if ins.empty:
-            return {"has_data": False}
-        return {"has_data": True, "risk": flight_risk(ins), "succession": succession(ins), "window": ins.leaver_window}
-
-    def api_pins(self, add: dict | None = None, remove: int | None = None) -> dict:
-        """Answers pinned from the AI chat to the Overview."""
-        from .db import now as _now
-        pins = self.db.get_setting("pins", []) or []
-        if add:
-            pins.insert(0, {"q": str(add.get("q", ""))[:200], "text": str(add.get("text", ""))[:6000], "at": _now()})
-            pins = pins[:12]
-        if remove is not None and 0 <= int(remove) < len(pins):
-            pins.pop(int(remove))
-        if add or remove is not None:
-            self.db.set_setting("pins", pins)
-        return {"pins": pins}
-
     def api_export_table(self, title: str, columns: list, rows: list, fmt: str = "xlsx", scope: str = "", save_as=None, open_after: bool = True) -> dict:
         """Any table on any screen, as Excel, PDF or Word, in the corporate style."""
         from . import exports
@@ -2144,18 +1688,6 @@ class Api:
         self.db.set_setting("po_view", view)
         return self.api_po_period()
 
-    def api_po_review(self, metric: str = "sales_vs_budget") -> dict:
-        from .po.insights import PACK_LABELS
-        ins = self._po()
-        if ins.empty:
-            return {"has_data": False, "period": self._po_period(ins)}
-        h = ins.headline()
-        stores, sections, values = ins.section_matrix(metric)
-        return {"has_data": True, "period": self._po_period(ins), "headline": h, "stores": ins.store_scorecard(), "alerts": ins.alerts(40),
-                "heat": {"metric": metric, "stores": stores, "sections": sections,
-                         "values": [[values.get((st, sec)) for sec in sections] for st in stores]},
-                "sources": [{"kind": PACK_LABELS.get(k, k), "source": v} for k, v in sorted(ins.sources.items())]}
-
     def _leader_row(self, ins, leader, ranks) -> dict:
         from .po.format import leader_name
         from .po.insights import tenure_text
@@ -2164,68 +1696,6 @@ class Api:
                 "leads": leader.section_text, "role": leader.designation, "system_role": leader.system_designation, "score": leader.score, "business": leader.business,
                 "rating": leader.latest_rating, "rating_label": leader.rating_label, "in_role": tenure_text(leader.months_in_role),
                 "months_in_role": leader.months_in_role, "talent": ins.TALENT_NAMES.get(box) if box else None}
-
-    def api_po_leaders(self, q: str = "", store: str = "") -> dict:
-        from .po.format import leader_name
-        ins = self._po()
-        if ins.empty:
-            return {"has_data": False, "period": self._po_period(ins)}
-        all_leaders = ins.leaders()
-        ranks = {l.key: i + 1 for i, l in enumerate(x for x in all_leaders if x.score is not None)}
-        rows = ins.find_leader(q) if q.strip() else all_leaders
-        if store:
-            rows = [l for l in rows if l.store == store]
-        boxes = {}
-        for l in all_leaders:
-            b = ins.talent_box(l)
-            if b:
-                boxes.setdefault(b, []).append({"key": l.key, "name": leader_name(l), "store": l.store, "score": l.score})
-        talent = [{"col": c, "row": r, "name": ins.TALENT_NAMES[(c, r)], "leaders": sorted(boxes.get((c, r), []), key=lambda x: -(x["score"] or 0))}
-                  for r in (2, 1, 0) for c in (0, 1, 2)]
-        bench = [{"severity": f["severity"], "reason": f["reason"], **self._leader_row(ins, f["leader"], ranks)} for f in ins.bench()]
-        return {"has_data": True, "period": self._po_period(ins), "leaders": [self._leader_row(ins, l, ranks) for l in rows], "talent": talent, "bench": bench,
-                "stores": sorted({l.store for l in all_leaders if l.store}), "weights": ins.weights,
-                "scored": len(ranks), "total": len(all_leaders)}
-
-    def api_po_leader(self, key: str) -> dict:
-        from .po.format import leader_profile_html
-        ins = self._po()
-        leader = next((l for l in ins.leaders() if l.key == key), None)
-        if not leader:
-            raise ValueError("Leader not found.")
-        from .po.format import leader_name
-        return {"key": key, "html": leader_profile_html(ins, leader), "name": leader_name(leader), "store": leader.store or "", "emp": leader.employee_id or ""}
-
-    def api_po_turnover(self) -> dict:
-        from .po import privacy
-        ins = self._po()
-        if ins.empty or not ins.has("po_turnover"):
-            return {"has_data": False, "period": self._po_period(ins)}
-        t = ins.turnover_summary()
-        recent = sorted((r for r in ins.rows("po_turnover") if r.get("date")), key=lambda r: r["date"], reverse=True)[:40]
-        return {"has_data": True, "period": self._po_period(ins), **t, "as_of": ins.as_of,
-                "recent": [{"date": r["date"], "name": privacy.name(r["employee_name"], r.get("employee_id") or r["employee_name"]),
-                            "store": r["store"], "section": r["section"], "type": r["exit_type"], "reason": r["reason"]} for r in recent]}
-
-    def api_po_shifts(self, store: str = "") -> dict:
-        from .po import canon, privacy
-        ins = self._po()
-        if ins.empty or not ins.has("po_shift"):
-            return {"has_data": False, "period": self._po_period(ins)}
-        r = ins.roster_summary()
-        known = [s[0] for s in canon._STORES]
-        stores = sorted(r["stores"], key=lambda n: (known.index(n) if n in known else 99, n))
-        store = store if store in stores else (stores[0] if stores else "")
-        rows = [x for x in ins.rows("po_shift") if x["store"] == store]
-        people: dict = {}
-        for x in rows:
-            p = people.setdefault(x["employee_id"], {"emp": x["employee_id"], "name": privacy.name(x["employee_name"], x["employee_id"]),
-                                                       "section": x["section"], "designation": x["designation"], "days": {}})
-            p["days"][x["date"]] = x["shift"]
-        grid = sorted(people.values(), key=lambda p: (canon.department(p["section"]), p["section"], p["name"]))
-        return {"has_data": True, "period": self._po_period(ins), "stores": stores, "store": store, "days": r["days"], "people": r["people"], "mix": dict(r["mix"]),
-                "grid": [{**p, "days": [p["days"].get(d, "Not rostered") for d in r["days"]]} for p in grid],
-                "gaps": r["gaps"], "leave": [{"name": privacy.name(n, n), "store": s, "days": d} for n, s, d in r["leave"]]}
 
     # ---------------------------------------------------------------- Data explorer (any other table)
     def api_datasets(self) -> dict:
@@ -2295,63 +1765,6 @@ class Api:
                                         ai_description=str(data.get("about") or "")[:300])
             except Exception:  # noqa: BLE001 - labelling is optional
                 continue
-
-    def api_po_nps(self, city: str = "") -> dict:
-        from statistics import mean
-        ins = self._po()
-        rows = [r for r in ins.rows("po_nps") if r.get("nps") is not None and r.get("year")]
-        if not rows:
-            return {"has_data": False, "period": self._po_period(ins)}
-        years = sorted({r["year"] for r in rows})
-        latest, prev = years[-1], (years[-2] if len(years) > 1 else None)
-        cities = sorted({r["city"] for r in rows})
-        sections = [s for s in ("Beverages", "DPH", "Grocery", "OPSS", "Bakery", "Butchery", "Fishery", "Deli", "Fruits & Vegetables",
-                                "Light Household", "Heavy Household", "Textile", "Myli") if any(r["section"] == s for r in rows)]
-        sections += sorted({r["section"] for r in rows} - set(sections))
-
-        def avg(items):
-            vals = [r["nps"] for r in items]
-            return round(mean(vals), 1) if vals else None
-
-        def pick(c=None, sec=None, y=None):
-            return [r for r in rows if (c is None or r["city"] == c) and (sec is None or r["section"] == sec) and (y is None or r["year"] == y)]
-
-        matrix = [[avg(pick(c, sec, latest)) for sec in sections] for c in cities]
-        change = [[(lambda a, b: None if a is None or b is None else round(a - b, 1))(avg(pick(c, sec, latest)), avg(pick(c, sec, prev)) if prev else None)
-                   for sec in sections] for c in cities]
-        scope = city if city in cities else ""
-        cats = []
-        for cat in sorted({r["category"] for r in pick(scope or None)}):
-            now_ = avg([r for r in pick(scope or None, None, latest) if r["category"] == cat])
-            before = avg([r for r in pick(scope or None, None, prev) if r["category"] == cat]) if prev else None
-            sec = next((r["section"] for r in rows if r["category"] == cat), "")
-            if now_ is not None or before is not None:
-                cats.append({"category": cat, "section": sec, "nps": now_, "prev": before,
-                             "change": None if now_ is None or before is None else round(now_ - before, 1)})
-        ranked = sorted([c for c in cats if c["nps"] is not None], key=lambda c: -c["nps"])
-        movers = sorted([c for c in cats if c["change"] is not None], key=lambda c: c["change"])
-        overall = avg(pick(scope or None, None, latest))
-        overall_prev = avg(pick(scope or None, None, prev)) if prev else None
-        insights = []
-        if overall is not None:
-            insights.append(f"{'Overall' if not scope else scope} NPS {latest}: **{overall:+.0f}**" +
-                            (f", {overall - overall_prev:+.0f} vs {prev}." if overall_prev is not None else "."))
-        if ranked:
-            insights.append(f"Best: **{ranked[0]['category']}** ({ranked[0]['nps']:+.0f}); weakest: **{ranked[-1]['category']}** ({ranked[-1]['nps']:+.0f}).")
-        if movers:
-            insights.append(f"Biggest drop: **{movers[0]['category']}** ({movers[0]['change']:+.0f}); biggest gain: **{movers[-1]['category']}** ({movers[-1]['change']:+.0f}).")
-        neg = [c["category"] for c in ranked if c["nps"] < 0]
-        if neg:
-            insights.append(f"{len(neg)} categor{'y has' if len(neg) == 1 else 'ies have'} more detractors than promoters: {', '.join(neg[:5])}.")
-        missing = [c for c in cities if not any(r["city"] == c for r in pick(None, None, latest))]
-        if missing:
-            insights.append(f"No {latest} survey yet for: {', '.join(missing)}.")
-        by_city = [{"city": c, "nps": avg(pick(c, None, latest)), "prev": avg(pick(c, None, prev)) if prev else None,
-                    "stores": [st for st in ins.stores() if __import__("pno.po.canon", fromlist=["x"]).store_city(st) == c]} for c in cities]
-        return {"has_data": True, "period": self._po_period(ins), "years": years, "latest": latest, "prev": prev, "cities": cities, "city": scope, "sections": sections,
-                "matrix": matrix, "change": change, "categories": cats, "best": ranked[:5], "worst": ranked[-5:][::-1],
-                "drops": movers[:5], "gains": movers[-5:][::-1], "overall": overall, "overall_prev": overall_prev,
-                "by_city": by_city, "insights": insights}
 
     def api_po_weights(self, weights: dict | None = None, reset: bool = False) -> dict:
         from .po.insights import DEFAULT_WEIGHTS, WEIGHT_LABELS

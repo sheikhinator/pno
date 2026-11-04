@@ -1,4 +1,5 @@
-"""Click through every screen and button of the real interface in Chromium (demo data), failing on any JS error.
+"""5.0: click through every screen of the app (Review, Hiring, Learning, Ask P&O AI, Data, Settings) on the demo data in
+Chromium, failing on any JavaScript error, error toast or error box.
 
 Runs when Playwright and a Chromium are available (CI and development); skipped otherwise.
 """
@@ -18,6 +19,13 @@ pw = pytest.importorskip("playwright.sync_api")
 CHROME = next((p for p in [os.environ.get("PNO_CHROMIUM"), "/opt/pw-browsers/chromium", shutil.which("chromium"),
                            shutil.which("chrome"), shutil.which("google-chrome")] if p and Path(p).exists()), None)
 
+SALES = ("Department\tSection\tCode\tStore Type\tStore Short Name\tBudget\tNet Sales\n"
+         "Consumer Goods\tCGD - Beverages\tS011\tHypermarket\t651 LAH Fortress\t462,300,119\t917,679,535\n"
+         "Consumer Goods\tCGD - Beverages\tS011\tHypermarket\t654 KCH Lucky One\t909,098,806\t1,255,593,961\n"
+         "Consumer Goods\tCGD - Beverages\t\t\t\t1,371,398,925\t2,173,273,496\n"
+         "Fresh Food\tFFD - Bakery\tS054\tHypermarket\t651 LAH Fortress\t250,125,343\t256,186,030\n"
+         "Fresh Food\tFFD - Bakery\tS054\tHypermarket\t654 KCH Lucky One\t238,567,878\t222,499,111\n")
+
 
 @pytest.fixture(scope="module")
 def app(tmp_path_factory):
@@ -25,12 +33,14 @@ def app(tmp_path_factory):
     os.environ["PNO_HOME"] = str(home / "data")
     os.environ["HOME"] = str(home)
     os.environ["USERPROFILE"] = str(home)
-    from pno.api import load_demo
+    from pno.api import Api, load_demo
     from pno.db import Database
     from pno.devserver import make_server
     db = Database(home / "pno.sqlite3")
     load_demo(db)
-    db.set_setting("full_mode", True)        # these tests walk every module of the full toolkit
+    api = Api(db)
+    api.dispatch("hire_save", {"title": "Department Head · Consumer Goods", "role": "department_head", "store": "LAH Packages Mall",
+                               "department": "Consumer Goods"})
     srv = make_server(db, 0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_address[1]}/web/index.html", srv, home
@@ -59,352 +69,118 @@ def test_click_everything(app):
                 page.evaluate("document.querySelectorAll('.toast.err').forEach(t=>t.remove())")
             assert not page.locator(".errbox").count(), page.locator(".errbox").first.inner_text()
 
-        def go(name):
-            page.evaluate(f"go('{name}')")
-            settle()
+        def nav(k):
+            page.locator(f".side nav [data-go={k}]").click()
+            settle(0.8)
+            assert page.evaluate("window.PNO_state.page") == k
 
-        def close_sheet():
-            page.keyboard.press("Escape")
-            time.sleep(0.6)
+        def saved():
+            page.wait_for_selector(".toast >> text=saved", timeout=30000)
+            page.evaluate("document.querySelectorAll('.toast').forEach(t=>t.remove())")
 
         page.goto(url)
         page.wait_for_function("window.PNO_ready === true", timeout=30000)
+        page.wait_for_selector(".rtiles", timeout=30000)
         settle(1)
 
-        # ---------------------------------------------------------------- home
-        assert page.locator(".kpi").count() == 5
-        page.locator(".kpi").first.click()
-        settle()
-        page.wait_for_selector("[data-page=people]", timeout=8000)
-        go("home")
-        page.locator("#ch-league .hit").first.click()
-        settle()
-        page.wait_for_function("[...document.querySelectorAll('.crumbs')].some(c => c.innerText.includes('›'))", timeout=10000)
-        page.locator("[data-act=scope-clear]").click()
-        settle()
-        page.locator("#ch-dist .hit").nth(3).click()
-        settle()
-        page.wait_for_selector("[data-page=people]", timeout=8000)
-        go("home")
-        page.locator(".plist .prow").first.click()
-        page.wait_for_selector(".sheet.on .sheet-head")
-        for tab in ["attendance", "history", "team", "leave", "overview"]:
-            page.locator(f"[data-act=sheet-tab][data-tab={tab}]").click()
-            time.sleep(0.3)
-        page.locator("[data-act=sheet-tab][data-tab=leave]").click()
-        page.fill("#pl-from", "2026-09-10")
-        page.fill("#pl-to", "2026-09-11")
-        page.locator("[data-act=pl-add]").click()
-        page.wait_for_selector("[data-act=pl-del]")
-        page.locator("[data-act=pl-del]").first.click()
-        page.wait_for_function("!document.querySelector('[data-act=pl-del]')", timeout=15000)
-        page.fill("#pn-text", "Discussed attendance")
-        page.locator("[data-act=pn-add]").click()
-        page.wait_for_selector("[data-act=pn-del]")
-        page.locator("[data-act=pn-del]").first.click()
-        time.sleep(0.3)
-        page.locator(".sheet [data-act=export]").click()
-        page.wait_for_selector(".modal.on")
-        page.locator("#fmtseg [data-fmt=xlsx]").click()
-        page.locator("#exp-go").click()
-        page.wait_for_selector(".toast >> text=Saved", timeout=30000)
-        close_sheet()
-        settle()
-        page.locator(".alert").first.click()
-        settle()
-        go("home")
+        # ---------------------------------------------------------------- sidebar
+        assert [x.inner_text().strip() for x in page.locator("#nav button").all()] == ["Review", "Hiring", "Learning", "Ask P&O AI"]
+        assert [x.inner_text().strip() for x in page.locator(".nav-bottom button").all()] == ["Data", "Settings"]
+        page.locator("[data-act=side-mini]").click(); time.sleep(0.3)
+        assert page.evaluate("document.body.classList.contains('side-mini')")
+        page.locator("[data-act=side-mini]").click(); time.sleep(0.3)
 
-        # ---------------------------------------------------------------- filters, month, compare
-        page.select_option("select[data-scope=city]", "LAH")
-        settle()
-        page.locator("[data-act=more-filters]").click()
-        page.select_option("select[data-scope=format]", "HM")
-        settle()
-        page.locator("select[data-scope=store_id]").select_option(index=1)
-        settle()
-        if page.locator("select[data-scope=dept] option").count() > 1:      # some stores have no departments this month
-            page.locator("select[data-scope=dept]").select_option(index=1)
-            settle()
-        assert "›" in page.locator(".crumbs").inner_text()
-        page.locator("[data-act=scope-up]").first.click()
-        settle()
-        page.locator("[data-act=scope-clear]").click()
-        settle()
-        page.select_option("#month", "2026-08")
-        settle()
-        page.select_option("#month", "2026-09")
-        settle()
-        page.locator("#compare").select_option(index=1)
-        settle()
+        # ---------------------------------------------------------------- review
+        page.locator(".rtile.click[data-k=sales]").first.click(); settle()       # a tile ranks the people on it
+        page.wait_for_selector("th.sorted", timeout=20000)
+        for sel in ("#rv-store", "#rv-dept", "#rv-role"):
+            page.locator(sel).select_option(index=1); settle(0.7)
+        page.locator("[data-act=rv-clear]").click(); settle(0.7)
+        page.locator("tr[data-act=rv-drill]").first.click(); settle(0.8)
+        page.locator("[data-act=rv-clear]").click(); settle(0.7)
+        for b in page.locator("[data-act=pv-slot]").all()[:3]:
+            b.click(); settle(0.8)
+        page.locator("[data-act=rv-sort][data-k=score]").click(); settle()
+        page.locator("[data-pf=score]").select_option("good"); settle()
+        page.locator("[data-act=rv-pfclear]").click(); settle()
+        head = page.locator(".rtable thead").last.bounding_box()["y"]
+        page.locator(".rpanel .tbl-wrap").last.evaluate("e => e.scrollTop = 600"); time.sleep(0.3)
+        assert abs(page.locator(".rtable thead").last.bounding_box()["y"] - head) < 2                      # headers stay frozen
+        page.locator("[data-act=rv-scores]").click(); saved()
+        page.locator("tr[data-act=rv-person]").first.click(); page.wait_for_selector(".pfacts", timeout=10000)
+        for b in page.locator(".modal [data-act=rv-ptab]").all():
+            b.click(); time.sleep(0.3)
+        page.locator(".modal [data-act=rv-pscores][data-f=xlsx]").click(); saved()
+        page.locator(".modal [data-act=rv-pscores][data-f=pdf]").click(); saved()
+        page.locator(".modal [data-act=rv-course]").click()
+        page.wait_for_function("window.PNO_state.page === 'learning'", timeout=30000); settle(1)
+        nav("rv")
+        page.locator("#top [data-act=rv-export]").click(); page.wait_for_selector(".xfmt", timeout=5000)
+        page.locator(".xf:has(input[value=xlsx])").click()
+        page.locator("#xf-go").click(); page.wait_for_selector(".toast", timeout=90000)
+        page.keyboard.press("Escape"); time.sleep(0.3)
+        page.locator("#top [data-act=present]").click(); time.sleep(0.4); page.keyboard.press("Escape"); time.sleep(0.3)
+        page.evaluate("go('talent')"); time.sleep(0.4)
+        assert page.evaluate("window.PNO_state.page") == "rv"                        # removed modules can't be reached
 
-        # ---------------------------------------------------------------- search
-        name = page.evaluate("document.querySelector('.plist .prow b').textContent")
-        page.fill("#q", name[:6])
-        page.wait_for_selector(".sugg button", timeout=5000)
-        page.keyboard.press("Enter")
-        page.wait_for_selector(".sheet.on")
-        close_sheet()
+        # ---------------------------------------------------------------- hiring
+        nav("hiring")
+        page.locator("[data-act=h-open]").first.click(); settle(0.8)
+        page.locator("[data-act=h-vtab][data-t=internal]").first.click(); settle(0.5)
+        page.wait_for_selector(".itarget", timeout=60000)
+        names = page.locator(".icand .sub").all_inner_texts()
+        assert names and not any("Bakery" in n and "Section Manager" in n for n in names)                  # experience must match
+        page.locator(".itarget .switch span").click(); page.wait_for_function("document.querySelector('#h-cross') && document.querySelector('#h-cross').checked", timeout=30000)
+        settle(1.5)
+        page.locator("[data-act=int-more]").first.click(); page.wait_for_selector(".modal", timeout=5000)
+        page.keyboard.press("Escape"); time.sleep(0.3)
+        page.locator("[data-act=int-add]").first.click(); settle(1)
+        for t in ("pipe", "bank", "stats", "vac"):
+            page.locator(f"[data-act=h-tab][data-tab={t}]").first.click(); settle(0.6)
 
-        # ---------------------------------------------------------------- people
-        go("people")
-        page.fill("#pq", "muhammad")
-        time.sleep(0.9)
-        settle()
-        page.fill("#pq", "")
-        time.sleep(0.9)
-        settle()
-        for role in ["MANAGERS", "GM", "DH", "SM", "CCO", "HBM", "STAFF", ""]:
-            page.locator(f"[data-act=role][data-role='{role}']").click()
-            settle(0.2)
-        for b in ["excellent", "warn", ""]:
-            page.locator(f"[data-act=band][data-band='{b}']").click()
-            settle(0.2)
-        for key in ["name", "store", "attendance", "absent", "fixes", "role", "score"]:
-            page.locator(f"th[data-key={key}]").click()
-            settle(0.2)
-        page.locator("[data-sel]").nth(0).click()
-        settle(0.2)
-        page.locator("[data-sel]").nth(1).click()
-        settle(0.2)
-        page.locator("[data-act=compare]").click()
-        page.wait_for_selector(".modal.on")
-        page.locator("[data-act=clear-sel]").click()
-        settle()
-        page.locator("tr.click").first.click()
-        page.wait_for_selector(".sheet.on")
-        close_sheet()
-        page.locator("[data-act=export][data-pack=people]").click()
-        page.wait_for_selector(".modal.on")
-        page.locator("[data-act=modal-close]").click()
-        time.sleep(0.4)
-
-        # ---------------------------------------------------------------- performance
-        go("performance")
-        for role in ["GM", "DH", "CCO", "HBM", "STAFF", "SM"]:
-            page.locator(f"[data-act=perf-role][data-role={role}]").click()
-            settle(0.3)
-        page.locator("#ch-perf .hit").first.click()
-        page.wait_for_selector(".sheet.on")
-        close_sheet()
-
-        # ---------------------------------------------------------------- stores
-        go("stores")
-        page.locator(".scard").nth(2).click()
-        settle()
-        assert page.locator("[data-page=store]").count()
-        page.locator("[data-act=export][data-pack=store]").click()
-        page.wait_for_selector(".modal.on")
-        page.locator("#exp-go").click()
-        page.wait_for_selector(".toast >> text=Saved", timeout=30000)
-        page.locator("[data-act=focus-store]").click()
-        settle(0.8)
-        page.locator("[data-act=scope-clear]").click()
-        settle()
-
-        # ---------------------------------------------------------------- attendance
-        go("attendance")
-        for tab in ["long", "low", "store", "register", "fixes"]:
-            page.locator(f"[data-act=att-tab][data-tab={tab}]").click()
-            settle(0.3)
-        page.locator("[data-act=export][data-pack=attendance]").click()
-        page.wait_for_selector(".modal.on")
-        page.locator("#fmtseg [data-fmt=pptx]").click()
-        page.locator("#exp-go").click()
-        page.wait_for_selector(".toast >> text=Saved", timeout=30000)
-
-        # ---------------------------------------------------------------- org
-        go("org")
-        page.locator("[data-act=tree-all]").click()
-        time.sleep(0.3)
-        page.locator(".node[data-person]").first.click()
-        page.wait_for_selector(".sheet.on")
-        close_sheet()
-        page.locator(".page select[data-scope=store_id]").select_option(index=2)
-        settle()
+        # ---------------------------------------------------------------- learning
+        nav("learning")
+        if page.locator("[data-act=l-open]").count():
+            page.locator("[data-act=l-open]").first.click(); settle(0.8)
 
         # ---------------------------------------------------------------- ask
-        go("ask")
-        page.locator("[data-act=ask-sugg]").first.click()
-        page.wait_for_selector(".amsg .ameta", timeout=30000)
-        settle()
-        person = page.evaluate("Object.values(document.querySelectorAll('.amsg td')).map(t=>t.textContent)[1]") or ""
-        page.fill("#askq", "Top 5 section managers")
-        page.keyboard.press("Enter")
-        page.wait_for_function("document.querySelectorAll('.amsg .ameta').length >= 2", timeout=30000)
-        page.fill("#askq", "Who was absent the most this month?")
+        nav("ask")
+        page.fill("#askq", "Which stores are below budget?")
         page.locator("[data-act=ask-send]").click()
-        page.wait_for_function("document.querySelectorAll('.amsg .ameta').length >= 3", timeout=30000)
-        page.fill("#askq", "Add 23 September 2026 as Eid holiday")
-        page.locator("[data-act=ask-send]").click()
-        page.wait_for_selector("[data-act=confirm]", timeout=30000)
-        page.locator("[data-act=confirm]").first.click()
-        page.wait_for_selector(".chip >> text=Saved", timeout=15000)
-        page.fill("#askq", "Add 24 September 2026 as Test holiday")
-        page.locator("[data-act=ask-send]").click()
-        page.wait_for_selector("[data-act=cancel]", timeout=30000)
-        page.locator("[data-act=cancel]").first.click()
-        page.wait_for_selector(".chip >> text=Cancelled", timeout=15000)
-        page.locator("[data-act=ask-clear]").click()
-        settle()
-        assert person is not None
+        page.wait_for_function("document.querySelector('.umsg') && document.querySelector('.amsg') && !document.querySelector('.amsg .thinking')", timeout=90000)
 
-        # ---------------------------------------------------------------- import (upload, preview, commit, undo, redo)
-        go("import")
-        from pno import demo
-        f = home / "MTD Productivity Oct 2026.xlsx"
-        f.write_bytes(demo.productivity_xlsx(__import__("datetime").date(2026, 10, 1)))
-        page.set_input_files("#filein", str(f))
-        page.wait_for_selector("[data-act=import-commit]", timeout=20000)
-        page.locator("[data-act=import-commit]").click()
-        page.wait_for_selector("[data-act=undo]", timeout=20000)
-        settle()
-        page.locator("[data-act=undo]").first.click()
-        settle(0.8)
-        page.locator("[data-act=redo]").first.click()
-        settle(0.8)
-        page.locator("[data-act=paste]").click()
-        page.wait_for_selector("#paste-t")
-        page.fill("#paste-t", "Employee No\tEmployee Name\tLeave Type\tFrom Date\tTo Date\tStatus\n"
-                  f"{srv.api.db.val('SELECT emp_no FROM roster LIMIT 1')}\tX\tSick Leave\t2026-09-03\t2026-09-04\tApproved\n")
-        page.locator("#paste-go").click()
-        page.wait_for_selector("[data-act=import-commit]")
-        page.locator("[data-act=import-cancel]").click()
-        settle()
+        # ---------------------------------------------------------------- data
+        nav("import")
+        for t in ("health", "brain", "import"):
+            page.locator(f".datatabs [data-go={t}]").click(); settle(0.8)
+        page.locator(".slot.click[data-kind=sales]").first.click(); time.sleep(0.6)
+        if page.locator("#sl-rep").count():
+            page.locator("#sl-rep").click(); time.sleep(0.5)
+        assert page.locator(".sl-needs").count()
+        page.locator("[data-x=paste]").first.click()
+        page.locator(".sl-paste textarea").first.fill(SALES)
+        page.locator("[data-x=read]").first.click()
+        page.wait_for_selector(".sl-v", timeout=30000)
+        assert "store sales" in page.locator(".sl-v").first.inner_text().lower()
+        page.locator("#sl-save").click(); saved()
+        settle(1)
+        page.locator(".slot.click[data-kind=po_shrink]").first.click(); time.sleep(0.6)
+        page.keyboard.press("Escape"); time.sleep(0.3)
+        n = page.evaluate("document.querySelectorAll('[data-act=imp-del]').length")
+        page.locator("details.panel.flush summary").last.click(); time.sleep(0.3)
+        page.locator("[data-act=imp-del]").first.click(); page.locator("#del-go").click()
+        page.wait_for_selector(".toast >> text=Deleted", timeout=60000); settle(1)
+        assert page.evaluate("document.querySelectorAll('[data-act=imp-del]').length") == n - 1
 
         # ---------------------------------------------------------------- settings
-        go("settings")
-        page.fill("[data-w=SM][data-p=sales]", "30")
-        page.locator("[data-act=weights-save]").click()
-        settle(0.8)
-        page.locator("[data-act=weights-reset]").click()
-        settle(0.8)
-        page.locator("[data-act=set-tab][data-tab=ai]").click()
-        settle()
-        for mode in ["basic", "offline", "groq", "gemini", "openrouter", "auto"]:
-            page.locator(f".seg [data-act=ai-mode][data-mode={mode}]").click()
-            settle(0.4)
-        for p in ["groq", "gemini", "openrouter"]:
-            assert page.locator(f"#key-{p}").count() and page.locator(f"#model-{p}").count()
-        page.locator("[data-act=prov-test][data-p=gemini]").click()
-        time.sleep(0.8)
-        page.evaluate("document.querySelectorAll('.toast.err').forEach(t=>t.remove())")   # no key in tests: expected message
-        page.locator("[data-act=set-tab][data-tab=stores]").click()
-        settle()
-        if page.locator("[data-act=alias-ok]").count():
-            page.locator("[data-act=alias-ok]").first.click()
-            settle(0.8)
-        page.locator("[data-act=set-tab][data-tab=sections]").click()
-        settle()
-        inp = page.locator("[data-secmap]").first
-        inp.fill("S054, S050")
-        inp.dispatch_event("change")
-        settle(0.8)
-        if page.locator("[data-act=sec-reset]").count():
-            page.locator("[data-act=sec-reset]").first.click()
-            settle(0.6)
-        page.locator("[data-act=set-tab][data-tab=holidays]").click()
-        settle()
-        page.locator("[data-act=hol-defaults]").click()
-        settle(0.6)
-        page.fill("#hol-day", "2026-09-17")
-        page.fill("#hol-name", "Test Day")
-        page.locator("[data-act=hol-add]").click()
-        settle(0.6)
-        page.locator("[data-act=hol-del]").first.click()
-        settle(0.6)
-        page.locator("[data-act=set-tab][data-tab=leave]").click()
-        settle()
-        page.fill("#lv-emp", srv.api.db.val("SELECT emp_no FROM roster LIMIT 1 OFFSET 5"))
-        page.fill("#lv-from", "2026-09-15")
-        page.fill("#lv-to", "2026-09-16")
-        page.locator("[data-act=lv-add]").click()
-        settle(0.6)
-        page.locator("[data-act=lv-del]").first.click()
-        settle(0.6)
-        page.locator("[data-act=set-tab][data-tab=data]").click()
-        settle()
-        page.locator("[data-act=set-tab][data-tab=look]").click()
-        settle()
-        page.locator("[data-act=theme][data-theme=dark]").click()
-        settle(0.5)
-        page.locator("#hide-names").dispatch_event("click")
-        time.sleep(0.4)
-        page.locator("#hide-names").dispatch_event("click")
-        time.sleep(0.4)
-        page.locator("[data-act=theme][data-theme=auto]").click()
-        settle(0.5)
+        nav("settings")
+        for t in ("ai", "stores", "backups", "data", "look", "bench"):
+            page.locator(f"[data-act=set-tab][data-tab={t}]").click(); settle(0.6)
+        w = page.locator("tr[data-ck=sales] [data-cf=weight]")
+        w.fill("40"); w.dispatch_event("input")
+        page.wait_for_function("document.querySelector('#crit-state').textContent.includes('Saved')", timeout=30000)
+        assert page.locator("#crit-prev table").count()
+        page.locator("[data-act=tg-reset]").click(); settle()
 
-        # ---------------------------------------------------------------- demo mode and present mode
-        page.locator("[data-act=set-tab][data-tab=data]").click()
-        settle()
-        page.locator("[data-act=demo-on]").first.click()
-        page.wait_for_selector(".demo-pill", timeout=60000)
-        settle(1)
-        page.locator(".demo-pill").click()
-        page.wait_for_function("!document.querySelector('.demo-pill')", timeout=30000)
-        settle(1)
-        go("home")
-        page.locator("[data-act=present]").first.click()
-        time.sleep(0.6)
-        page.keyboard.press("ArrowDown")
-        time.sleep(0.4)
-        page.keyboard.press("ArrowUp")
-        page.keyboard.press("Escape")
-        time.sleep(0.4)
-        assert not page.evaluate("document.body.classList.contains('present')")
-        for name in ["home", "people", "performance", "stores", "attendance", "org", "ask", "import", "settings"]:
-            go(name)
-        errors += [f"js: {e}" for e in page.evaluate("window.PNO_errors")]
         browser.close()
-    assert not errors, "\n".join(errors)
-
-
-SAMPLE = """ms => new Promise(res => { const out = []; const t0 = performance.now();
-  (function f(){ const s = document.querySelectorAll('.sheet');
-    out.push([s.length, s.length ? getComputedStyle(s[s.length - 1]).transform : 'gone']);
-    if (performance.now() - t0 < ms) requestAnimationFrame(f); else res(out); })(); })"""
-
-
-def test_profile_panel_stays_open_while_moving_between_people(app):
-    """Clicking a manager or team member inside an open profile swaps the content; the panel never slides away."""
-    url, srv, home = app
-    with pw.sync_playwright() as p:
-        try:
-            browser = p.chromium.launch(executable_path=CHROME) if CHROME else p.chromium.launch()
-        except Exception as e:
-            pytest.skip(f"Chromium not available: {e}")
-        page = browser.new_page(viewport={"width": 1366, "height": 768})
-        page.goto(url)
-        page.wait_for_function("window.PNO_ready === true", timeout=30000)
-        page.evaluate("go('people')")
-        page.wait_for_selector("[data-act=role][data-role=SM]")
-        page.locator("[data-act=role][data-role=SM]").click()
-        page.wait_for_selector("[data-page=people] [data-person]")
-        page.locator("[data-page=people] [data-person]").first.click()
-        page.wait_for_selector(".sheet.on .sheet-head")
-        time.sleep(0.7)
-        first = page.locator(".sheet-head h2").inner_text()
-        for target in [".sheet-head [data-person]", ".sheet .prow[data-person]"]:
-            if target.endswith(".prow[data-person]"):
-                page.locator("[data-act=sheet-tab][data-tab=team]").click()
-                page.wait_for_selector(target)
-            before = page.locator(".sheet-head h2").inner_text()
-            page.locator(target).first.click()
-            frames = page.evaluate(SAMPLE, 700)
-            assert all(n == 1 and t in ("none", "matrix(1, 0, 0, 1, 0, 0)") for n, t in frames), frames
-            page.wait_for_function(f"document.querySelector('.sheet-head h2').innerText !== {before!r}")
-        assert page.locator("[data-act=sheet-back]").count()
-        page.locator("[data-act=sheet-back]").click()
-        page.wait_for_function("!document.querySelector('.sheet.swapping')")
-        page.locator("[data-act=sheet-back]").click()
-        page.wait_for_function(f"document.querySelector('.sheet-head h2').innerText === {first!r}")
-        assert not page.locator("[data-act=sheet-back]").count()
-        # close, then reopen while it is still sliding out: one panel, fully open
-        page.keyboard.press("Escape")
-        time.sleep(0.1)
-        page.locator("[data-page=people] [data-person]").nth(1).click()
-        page.wait_for_selector(".sheet.on .sheet-head")
-        time.sleep(0.8)
-        assert page.locator(".sheet").count() == 1 and page.locator(".scrim").count() == 1
-        assert not page.evaluate("window.PNO_errors").__len__()
-        browser.close()
+    assert not errors, errors
