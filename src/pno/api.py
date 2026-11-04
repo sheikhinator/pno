@@ -1382,9 +1382,46 @@ class Api:
         from . import review
         return review.person(self, emp, key)
 
-    def api_review_person_export(self, key: str = "", emp: str = "", fmt: str = "xlsx", save_as=None, open_after: bool = True) -> dict:
-        """One person's scores as a table: every criterion's result, its lines, the points out of 10, the weight and what it adds to the score."""
+    def api_review_person_criteria(self, key: str = "", emp: str = "", rows: list | None = None, reset: bool = False) -> dict:
+        """Save criteria for one person only (their own weights and green / amber lines), or put them back on the standard ones."""
+        from . import review
+        if not key and emp:
+            p = review.person(self, emp, "")
+            key = p["row"]["key"]
+        allc = self.db.get_setting("person_criteria", {}) or {}
+        if reset or not rows:
+            allc.pop(str(key), None)
+        else:
+            own = {}
+            for r in rows:
+                k = r.get("key")
+                if k not in review.CRITERIA or k == "score":
+                    continue
+                w = max(0.0, min(100.0, float(r.get("weight") or 0)))
+                g, a = r.get("green"), r.get("amber")
+                e = {"show": bool(r.get("show", True)) and w > 0, "weight": w}
+                if g not in (None, "") and a not in (None, ""):
+                    g, a = float(g), float(a)
+                    up = review.CRITERIA[k]["better"] == "up"
+                    if (up and a > g) or (not up and a < g):
+                        raise ValueError(f"{review.CRITERIA[k]['label']}: amber must be {'below' if up else 'above'} green.")
+                    e.update(green=g, amber=a)
+                own[k] = e
+            if sum(1 for e in own.values() if e["show"]) < 3:
+                raise ValueError("Keep at least three criteria switched on.")
+            allc[str(key)] = own
+        self.db.set_setting("person_criteria", allc)
+        self.db.version += 1
+        self.__dict__.pop("_rv_cache", None)
+        return {"ok": True, "custom": str(key) in allc, "people": len(allc)}
+
+    def api_review_person_export(self, key: str = "", emp: str = "", fmt: str = "xlsx", rows: list | None = None, save_as=None,
+                                 open_after: bool = True) -> dict:
+        """One person's scores as a table: every criterion's result, its lines, the points out of 10, the weight and what it adds to the score.
+        With `rows` (the person sheet's what-if), the scores with those criteria, next to the current ones."""
         from . import exports, review
+        if rows:
+            return self._what_if_export(key, emp, rows, fmt, save_as, open_after)
         p = review.person(self, emp, key)
         r, C = p["row"], p["criteria"]
         cells = {c["key"]: c for c in r["cells"]}
@@ -1409,6 +1446,41 @@ class Api:
                                            "Adds to score", "Peer median"], rows, scope)
         return self._save_report(rep, fmt, save_as, open_after, f"scores {r['name']}")
 
+    def _what_if_export(self, key: str, emp: str, rows: list, fmt: str, save_as, open_after: bool) -> dict:
+        from . import exports, review
+        p = review.person(self, emp, key)
+        r = p["row"]
+        rv = review.Review(self)
+        cfg = {k: dict(v) for k, v in (rv.person_setup(r["key"]) or (rv.cfg, rv.t))[0].items()}
+        t = {k: dict(v) for k, v in (rv.person_setup(r["key"]) or (rv.cfg, rv.t))[1].items()}
+        for x in rows:
+            k = x.get("key")
+            if k in cfg:
+                cfg[k].update(show=bool(x.get("show", True)), weight=float(x.get("weight") or 0))
+                if x.get("green") not in (None, "") and x.get("amber") not in (None, ""):
+                    t[k] = {"green": float(x["green"]), "amber": float(x["amber"])}
+        now = next((c["value"] for c in r["cells"] if c["key"] == "score"), None)
+        new, parts = review.Review._compute(r["cells"], cfg, t)
+        pp = {x["key"]: x for x in parts}
+        peers = [s for s in p.get("peer_scores", []) if s is not None]
+        rank = lambda v: None if v is None else 1 + sum(1 for s in peers if s > v)  # noqa: E731
+        out = []
+        for c in r["cells"]:
+            k = c["key"]
+            if k == "score" or c["value"] is None:
+                continue
+            q = review.points(k, c["value"], t)
+            x = pp.get(k)
+            out.append([review.CRITERIA[k]["label"], f"{c['value']:g}", "Yes" if x else "No", f"{cfg[k]['weight']:g}",
+                        "" if t[k]["green"] is None else f"{t[k]['green']:g}", "" if t[k]["amber"] is None else f"{t[k]['amber']:g}",
+                        "" if q is None else f"{q:.1f}", f"{x['share']}%" if x else "", f"{x['points'] * x['share'] / 100:.2f}" if x else ""])
+        out.append(["Score (out of 10)", "", "", "", "", "", "", "", "" if new is None else f"{new:g}"])
+        note = (f"Score now {now if now is not None else '—'} → what if {new if new is not None else '—'}; place among {len(peers) + 1} "
+                f"{r.get('role') or 'peers'}: #{rank(now) or '—'} → #{rank(new) or '—'}")
+        rep = exports.table_report(f"What if · {r['name']}", ["Criterion", "Result", "Counts", "Weight", "Green from", "Amber from", "Points /10",
+                                                               "Share of score", "Adds to score"], out, note)
+        return self._save_report(rep, fmt, save_as, open_after, f"what-if {r['name']}")
+
     def api_review_scores_export(self, store: str | None = None, dept: str | None = None, section: str | None = None, role: str | None = None,
                                  fmt: str = "xlsx", save_as=None, open_after: bool = True) -> dict:
         """Everyone in the current selection: the points out of 10 on every criterion and the score, as a table."""
@@ -1419,7 +1491,7 @@ class Api:
         for p in d["people"]:
             parts = {x["key"]: x for x in p.get("parts", [])}
             sc = next((c["value"] for c in p["cells"] if c["key"] == "score"), None)
-            rows.append([p["name"], p.get("role") or "", p.get("store") or "", "" if sc is None else f"{sc:g}"] +
+            rows.append([p["name"] + (" (custom criteria)" if p.get("custom") else ""), p.get("role") or "", p.get("store") or "", "" if sc is None else f"{sc:g}"] +
                         ["" if k not in parts else f"{parts[k]['points']:.1f}" for k in keys])
         rows.sort(key=lambda r: -(float(r[3]) if r[3] else -1))
         rep = exports.table_report(f"Scores · {d.get('label', 'Review')}", ["Person", "Role", "Store", "Score /10"] + [review.CRITERIA[k]["label"] + " (pts /10)" for k in keys],
@@ -1497,7 +1569,19 @@ class Api:
         total = sum(v["weight"] for v in cfg.values() if v["show"])
         return {"rows": [{"key": k, "label": review.CRITERIA[k]["label"], "better": review.CRITERIA[k]["better"], "fmt": review.CRITERIA[k]["fmt"],
                           "count": bool(review.CRITERIA[k].get("count")), **v, "share": round(100 * v["weight"] / total) if total and v["show"] else 0}
-                         for k, v in cfg.items()], "total": total, "score": {"green": review.targets(self.db)["score"]["green"], "amber": review.targets(self.db)["score"]["amber"]}}
+                         for k, v in cfg.items()], "total": total, "score": {"green": review.targets(self.db)["score"]["green"], "amber": review.targets(self.db)["score"]["amber"]},
+                "custom": self._custom_people()}
+
+    def _custom_people(self) -> list[dict]:
+        """People scored on criteria of their own (person sheet → What if → Save)."""
+        own = self.db.get_setting("person_criteria", {}) or {}
+        if not own:
+            return []
+        try:
+            names = {l.key: (l.name, l.designation, l.store) for l in self._po().leaders()}
+        except Exception:  # noqa: BLE001
+            names = {}
+        return [{"key": k, "name": names.get(k, (k, "", ""))[0], "role": names.get(k, ("", "", ""))[1], "store": names.get(k, ("", "", ""))[2]} for k in own]
 
     def api_review_targets(self, targets: dict | None = None, reset: bool = False) -> dict:
         from . import review

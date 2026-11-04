@@ -253,23 +253,59 @@ class Review:
         row["measured"] = sum(1 for c in row["cells"] if c["value"] is not None and c["key"] != "score")
         return row
 
-    def score_row(self, row: dict) -> None:
-        """Score = weighted average of each criterion's points (0-10 against its benchmark), using the weights in Settings."""
+    def _custom(self) -> dict:
+        if not hasattr(self, "_pc"):
+            self._pc = self.api.db.get_setting("person_criteria", {}) or {}
+        return self._pc
+
+    @staticmethod
+    def _compute(cells: list[dict], cfg: dict, t: dict) -> tuple[float | None, list[dict]]:
         parts = []
-        for c in row["cells"]:
-            cf = self.cfg.get(c["key"], {})
+        for c in cells:
+            if c["key"] == "score":
+                continue
+            cf = cfg.get(c["key"], {})
             w = cf.get("weight", 0) if cf.get("show", True) else 0      # a criterion switched off doesn't count
-            pt = points(c["key"], c["value"], self.t) if w > 0 else None
+            pt = points(c["key"], c["value"], t) if w > 0 else None
             if pt is not None:
                 parts.append({"key": c["key"], "label": CRITERIA[c["key"]]["label"], "points": pt, "weight": w})
         total = sum(p["weight"] for p in parts)
         sc = round(sum(p["points"] * p["weight"] for p in parts) / total, 1) if total and len(parts) >= 3 else None
         for p in parts:
             p["share"] = round(100 * p["weight"] / total) if total else 0
+        return sc, parts
+
+    def person_setup(self, key: str) -> tuple[dict, dict] | None:
+        """The criteria saved for one person (their own weights and lines), merged over the standard ones."""
+        own = self._custom().get(str(key)) if key else None
+        if not own:
+            return None
+        cfg = {k: dict(v) for k, v in self.cfg.items()}
+        t = {k: dict(v) for k, v in self.t.items()}
+        for k, v in own.items():
+            if k in cfg:
+                cfg[k].update(show=bool(v.get("show", True)), weight=float(v.get("weight") or 0))
+                if v.get("green") is not None and v.get("amber") is not None:
+                    t[k] = {"green": float(v["green"]), "amber": float(v["amber"])}
+        return cfg, t
+
+    def score_row(self, row: dict) -> None:
+        """Score = weighted average of each criterion's points (0-10 against its benchmark), using the weights in Settings —
+        or the person's own criteria when some were saved for them (marked 'custom')."""
+        std, std_parts = self._compute(row["cells"], self.cfg, self.t)
+        own = self.person_setup(row.get("key"))
+        cfg, t = own if own else (self.cfg, self.t)
+        sc, parts = (self._compute(row["cells"], cfg, t) if own else (std, std_parts))
         row["parts"] = parts
+        row["custom"] = bool(own)
+        if own:
+            row["std_score"] = std
+            for c in row["cells"]:                      # their own lines colour their results too
+                if c["key"] != "score" and c["value"] is not None and not (CRITERIA[c["key"]].get("count") and c.get("status") == "neutral"):
+                    c["status"] = status(c["key"], c["value"], t)
         # points for every measured criterion, weighted or not (the person sheet's what-if uses them)
-        row["points"] = {c["key"]: points(c["key"], c["value"], self.t) for c in row["cells"]
-                         if c["key"] != "score" and c["value"] is not None and points(c["key"], c["value"], self.t) is not None}
+        row["points"] = {c["key"]: points(c["key"], c["value"], t) for c in row["cells"]
+                         if c["key"] != "score" and c["value"] is not None and points(c["key"], c["value"], t) is not None}
         for c in row["cells"]:
             if c["key"] == "score":
                 c["value"], c["status"] = sc, status("score", sc, self.t)
@@ -447,11 +483,14 @@ def person(api, emp: str = "", key: str = "") -> dict:
         vs = [v for v in vs if v is not None]
         bench[c["key"]] = round(median(vs), 1) if len(vs) >= 3 else None
     a = next((r for r in rv.att() if r["emp"] == str(l.employee_id)), None)
-    return {"row": row, "criteria": {k: {"label": v["label"], "fmt": v["fmt"], "better": v["better"], "count": bool(v.get("count")), **rv.t[k]}
-                                     for k, v in CRITERIA.items()}, "peer_median": bench,
+    own = rv.person_setup(row.get("key"))
+    eff_cfg, eff_t = own if own else (rv.cfg, rv.t)
+    return {"row": row, "criteria": {k: {"label": v["label"], "fmt": v["fmt"], "better": v["better"], "count": bool(v.get("count")), **eff_t[k]}
+                                     for k, v in CRITERIA.items()}, "peer_median": bench, "custom": bool(own),
+            "standard": {k: {"weight": v["weight"], "show": v["show"], "green": rv.t[k]["green"], "amber": rv.t[k]["amber"]} for k, v in rv.cfg.items()},
             "peers": len(peers), "ratings": ratings, "trend": trend, "components": comps,
             "peer_scores": [next((x["value"] for x in p["cells"] if x["key"] == "score"), None) for p in peers if p.get("key") != row.get("key")],
-            "weights": {k: {"weight": v["weight"], "show": v["show"]} for k, v in rv.cfg.items()},
+            "weights": {k: {"weight": v["weight"], "show": v["show"]} for k, v in eff_cfg.items()},
             "facts": {"Employee number": l.employee_id, "Store": l.store, "Role": l.designation + (" (acting)" if l.acting else ""),
                       "Area": row["area"], "In role": f"{l.months_in_role} months" if l.months_in_role is not None else "—",
                       "With the company": f"{l.months_service // 12} yrs {l.months_service % 12} m" if l.months_service else "—",

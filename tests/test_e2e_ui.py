@@ -110,6 +110,18 @@ def test_click_everything(app):
         page.locator("tr[data-act=rv-person]").first.click(); page.wait_for_selector(".pfacts", timeout=10000)
         for b in page.locator(".modal [data-act=rv-ptab]").all():
             b.click(); time.sleep(0.3)
+        # what if: change this person's criteria, export it, save it for them, then put them back
+        time.sleep(0.8)
+        if not page.locator("#wif .wif-r").count():                                 # too few results for a score: try someone else
+            page.keyboard.press("Escape"); time.sleep(0.3)
+            page.locator("tr[data-act=rv-person]").nth(2).click(); page.wait_for_selector("#wif .wif-r", timeout=15000)
+        page.locator("#wif .wif-r").nth(0).locator("[data-w='+']").click()
+        page.locator("#wif .wif-r").nth(1).locator(".switch span").click()
+        assert page.locator("#wif-new").inner_text().strip() not in ("", "—")
+        page.locator("#wif-exp").click(); page.locator(".wif-pop [data-f=xlsx]").click(); saved()
+        page.locator("#wif-save").click(); page.wait_for_selector(".modal .ctag", timeout=30000)
+        page.wait_for_selector("#wif-std", timeout=10000); page.locator("#wif-std").click()
+        page.wait_for_function("document.querySelector('.modal') && !document.querySelector('.modal .ctag')", timeout=30000)
         page.locator(".modal [data-act=rv-pscores][data-f=xlsx]").click(); saved()
         page.locator(".modal [data-act=rv-pscores][data-f=pdf]").click(); saved()
         page.locator(".modal [data-act=rv-course]").click()

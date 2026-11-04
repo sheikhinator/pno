@@ -2134,7 +2134,7 @@ PAGES.rv = async () => {
       ${nf ? `<button class="btn sm ghost" data-act="rv-pfclear">Clear ${nf} filter${nf > 1 ? "s" : ""}</button>` : ""}<button class="btn sm" data-act="rv-scores" title="Every person's points out of 10 on every criterion">⬇ All scores · Excel</button></div>
       ${d.people.length ? `<div class="tbl-wrap"><table class="t rtable"><thead><tr><th>Person</th>${pk.map(k => `<th class="n sortable ${F.sort === k ? "sorted" : ""} ${k === "score" ? "rscore-h" : ""}" data-act="rv-sort" data-k="${k}" title="${esc(C[k].label + " · " + rvBench(k))}">${esc(C[k].short)}${F.sort === k ? (F.desc ? " ↓" : " ↑") : ""}</th>`).join("")}</tr>
         <tr class="pfrow"><th><input class="pfq" id="rv-pq" placeholder="Search name, role, store…" value="${esc(PF.q)}"></th>${pk.map(k => `<th class="n">${fsel(k)}</th>`).join("")}</tr></thead><tbody>
-      ${ppl.map(p => `<tr class="click" data-act="rv-person" data-emp="${esc(p.emp)}" data-key="${esc(p.key)}"><td class="rwho"><div class="rwho-in"><div><b>${esc(p.name)}</b>${p.acting ? ` <span class="chip">acting</span>` : ""}<span class="sub">${esc(p.role)} · ${esc(p.area)}${F.store ? "" : " · " + esc(p.store)}</span></div>
+      ${ppl.map(p => `<tr class="click" data-act="rv-person" data-emp="${esc(p.emp)}" data-key="${esc(p.key)}"><td class="rwho"><div class="rwho-in"><div><b>${esc(p.name)}</b>${p.acting ? ` <span class="chip">acting</span>` : ""}${p.custom ? ` <span class="chip ctag mini" title="Scored on criteria saved for this person · standard score ${p.std_score ?? "—"}">custom</span>` : ""}<span class="sub">${esc(p.role)} · ${esc(p.area)}${F.store ? "" : " · " + esc(p.store)}</span></div>
           <button class="lcourse" data-act="rv-course" data-key="${esc(p.key)}" data-name="${esc(p.name)}" title="Build a development course for ${esc(p.name)} from their results">🎓</button></div></td>
         ${pk.map(k => { const c = cellOf(p, k); return k === "score" ? `<td class="n rc rscore ${c.status}">${RVF(k, c.value)}</td>` : `<td class="n rc ${c.status}">${RVF(k, c.value)}</td>`; }).join("")}</tr>`).join("") || `<tr><td colspan="${pk.length + 1}"><div class="empty">No one matches these filters.</div></td></tr>`}</tbody></table></div>
       <div class="rlegend"><span class="good">On or above benchmark</span><span class="warn">Close</span><span class="bad">Below benchmark</span><span class="na">— not measured for this role</span></div>`
@@ -2175,7 +2175,7 @@ async function rvPerson(emp, key, tab = "results") {
       <div><h4 class="ih">Timeline</h4>${(R.timeline || []).length ? `<div class="tline">${R.timeline.slice().reverse().map(t => `<div class="tl"><span class="tl-ic">•</span><div><small>${esc(String(t.date || "").slice(0, 10))}</small><div>${esc(t.what)}</div></div></div>`).join("")}</div>` : `<small class="muted">Nothing recorded yet.</small>`}</div></div>`,
     att: `<div class="pfacts">${[["Presence", att.presence != null ? att.presence + "%" : "—"], ["Days worked", att.worked ?? "—"], ["Absent", att.absent ?? "—"], ["Leave", att.leave ?? "—"], ["Avg. hours", att.avg_hours ?? (att.avg_minutes ? (att.avg_minutes / 60).toFixed(1) : "—")], ["Longest absence", att.longest_absence ?? "—"], ["Punch fixes", att.fixes ?? "—"], ["Month", att.month || "—"]].map(([k, v]) => `<div><small>${k}</small><b>${esc(String(v))}</b></div>`).join("")}</div>`,
   };
-  const m = modal(`<div class="row" style="justify-content:space-between;align-items:flex-start"><div><h3 style="margin:0">${esc(r.name)}</h3><small class="muted">${esc(r.role)} · ${esc(r.area)} · ${esc(r.store)}</small></div>
+  const m = modal(`<div class="row" style="justify-content:space-between;align-items:flex-start"><div><h3 style="margin:0">${esc(r.name)}${p.custom ? ` <span class="chip ctag">custom criteria</span>` : ""}</h3><small class="muted">${esc(r.role)} · ${esc(r.area)} · ${esc(r.store)}${p.custom ? ` · standard score ${r.std_score ?? "—"}` : ""}</small></div>
       <div class="pscore ${sc.status}"><b>${RVF("score", sc.value)}</b><small>score / 10</small></div></div>
     <div class="pfacts">${Object.entries(p.facts).map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(String(v ?? "—"))}</b></div>`).join("")}</div>
     <div class="seg ptabs">${tabs.map(([k, l]) => `<button data-act="rv-ptab" data-t="${k}" aria-pressed="${tab === k}">${l}</button>`).join("")}</div>
@@ -2214,7 +2214,8 @@ function rvWhatIf(p, m) {
   const calc = () => { const on = keys.filter(k => st[k].on && st[k].w > 0 && pt(k) != null), tw = on.reduce((t, k) => t + st[k].w, 0);
     return { tw, on, v: on.length >= 3 && tw ? Math.round(10 * on.reduce((t, k) => t + pt(k) * st[k].w, 0) / tw) / 10 : null }; };
   const u = k => ({ pct0: "%", pct1: "%", pct1s: "%", pp2s: " pts" }[C[k].fmt] || "");
-  box.innerHTML = `<div class="wif-h"><div><h4>What if? · criteria for ${esc(r.name)}</h4><small>Switch criteria on or off, change their weight and where green and amber start. The score, the colours and the place update as you go.</small></div></div>
+  box.innerHTML = `<div class="wif-h"><div><h4>What if? · criteria for ${esc(r.name)}</h4><small>Switch criteria on or off, change their weight and where green and amber start. The score, the colours and the place update as you go.</small></div>
+      ${p.custom ? `<div class="wif-saved"><span class="chip ctag">custom criteria saved</span><small>standard score ${r.std_score ?? "—"}</small><button class="btn sm" id="wif-std">Back to standard</button></div>` : ""}</div>
     <div class="wif-strip"><div class="wif-k"><small>Score</small><div class="wif-sc"><span class="rc-pill ${cls(sc0)}">${sc0 ?? "—"}</span><span class="wif-arrow">→</span><span class="rc-pill big" id="wif-new"></span><span class="wif-d" id="wif-d"></span></div></div>
       <div class="wif-k"><small>Place among ${n} ${esc(r.role || "")}s</small><div class="wif-rank" id="wif-rank"></div></div>
       <div class="wif-act"><button class="btn sm ghost" id="wif-reset">Reset</button>
@@ -2231,6 +2232,11 @@ function rvWhatIf(p, m) {
   const draw = () => {
     const { tw, v } = calc(), d = v != null && sc0 != null ? Math.round(10 * (v - sc0)) / 10 : null;
     const nv = $("#wif-new", box); nv.textContent = v == null ? "—" : v.toFixed(1); nv.className = `rc-pill big ${cls(v)}`;
+    const dirty = keys.some(k => st[k].w !== base[k].w || (st[k].on && st[k].w > 0) !== (base[k].on && base[k].w > 0) || +st[k].g !== +base[k].g || +st[k].a !== +base[k].a);
+    $("#wif-save", box).disabled = !dirty; $("#wif-reset", box).disabled = !dirty;
+    const bad = keys.filter(k => st[k].g != null && st[k].a != null && (C[k].better === "down" ? +st[k].a < +st[k].g : +st[k].a > +st[k].g));
+    $$(".wif-r", box).forEach(row => row.classList.toggle("bad-lines", bad.includes(row.dataset.k)));
+    if (bad.length) $("#wif-save", box).disabled = true;
     $("#wif-d", box).innerHTML = d == null ? "<small>needs at least three criteria</small>" : d === 0 ? "<span class='muted'>no change</span>" : `<span class="${d > 0 ? "t-good" : "t-bad"}">${d > 0 ? "▲ +" : "▼ "}${d}</span>`;
     const r0 = rankOf(sc0), r1 = rankOf(v);
     $("#wif-rank", box).innerHTML = r1 == null ? "—" : `<b>#${r0 ?? "—"}</b> → <b class="${r0 && r1 < r0 ? "t-good" : r0 && r1 > r0 ? "t-bad" : ""}">#${r1}</b> <small>of ${n}</small>`;
@@ -2255,8 +2261,12 @@ function rvWhatIf(p, m) {
   const payload = () => keys.map(k => ({ key: k, show: st[k].on && st[k].w > 0, weight: st[k].w, green: st[k].g, amber: st[k].a }));
   $$("button", pop).forEach(b => b.onclick = async () => { pop.hidden = true;
     const x = await call("review_person_export", { key: m.dataset.key, emp: m.dataset.emp, fmt: b.dataset.f, rows: payload() }); if (!x.cancelled) toast("What-if scores saved"); });
-  $("#wif-save", box).onclick = async () => { await call("review_person_criteria", { key: m.dataset.key, emp: m.dataset.emp, rows: payload() });
-    toast(`Custom criteria saved for ${r.name}`); closeModal(); render(); };
+  const reopen = async msg => { toast(msg); const emp = m.dataset.emp, key = m.dataset.key; closeModal(); await render(); rvPerson(emp, key, "results"); };
+  $("#wif-save", box).onclick = async () => { const b = $("#wif-save", box); b.disabled = true;
+    try { await call("review_person_criteria", { key: m.dataset.key, emp: m.dataset.emp, rows: payload() }); } catch (e) { b.disabled = false; return; }
+    reopen(`Saved: ${r.name} is now scored on these criteria everywhere`); };
+  if ($("#wif-std", box)) $("#wif-std", box).onclick = async () => { await call("review_person_criteria", { key: m.dataset.key, emp: m.dataset.emp, reset: true });
+    reopen(`${r.name} is back on the standard criteria`); };
   $("#wif-all", box).onclick = async () => {
     const rows = Object.entries(p.weights).map(([k, w]) => ({ key: k, show: k in st ? st[k].on && st[k].w > 0 : w.show, weight: k in st ? st[k].w : w.weight,
       green: k in st ? st[k].g : (C[k] || {}).green ?? "", amber: k in st ? st[k].a : (C[k] || {}).amber ?? "" }));
@@ -2365,6 +2375,8 @@ SETTINGS.bench = async () => {
     <div class="scorecol"><b>Score colours</b><span>Green from</span><input class="input sm num" type="number" min="0" max="10" step="0.1" id="sc-g" value="${t.score.green}"><span>Amber from</span><input class="input sm num" type="number" min="0" max="10" step="0.1" id="sc-a" value="${t.score.amber}"><small class="muted">out of 10 · below amber is red</small></div>
     <div class="row" style="justify-content:space-between;margin-top:12px"><small class="muted">Total weight ${t.total}: each weight's share of the score is shown beside it.</small>
       <div class="row" style="gap:6px"><span class="crit-state muted" id="crit-state">Changes save by themselves</span><button class="btn" data-act="tg-reset">Reset to defaults</button></div></div></div>
+    ${(t.custom || []).length ? `<div class="panel"><div class="phd"><h2>People with their own criteria</h2><small>set on their person sheet (What if → Save); everyone else uses the criteria above</small></div>
+      <div class="ccust">${t.custom.map(c => `<div><b>${esc(c.name)}</b><small>${esc([c.role, c.store].filter(Boolean).join(" · "))}</small><button class="btn sm" data-act="cust-std" data-key="${esc(c.key)}">Back to standard</button></div>`).join("")}</div></div>` : ""}
     <div class="panel flush"><div class="phd"><h2>Live preview</h2><small>scores and ranking with the settings above · ▲▼ how far each person moved</small></div>
       <div class="tbl-wrap" style="max-height:420px" id="crit-prev"><p class="muted" style="padding:14px 16px">Change a weight, switch a criterion off or move a line to see the effect.</p></div></div>`;
 };
@@ -3272,5 +3284,6 @@ ACT["imp-del"] = b => {
   $("#del-go", m).onclick = async () => { const g = $("#del-go", m); g.disabled = true; g.textContent = "Deleting…";
     const r = await call("import_delete", { import_id: id }); closeModal(); toast(`Deleted ${r.file} (${(r.rows || 0).toLocaleString("en-US")} rows)`); S.importSess = null; await afterDataChange(true); };
 };
+ACT["cust-std"] = async b => { await call("review_person_criteria", { key: b.dataset.key, reset: true }); toast("Back on the standard criteria"); render(); };
 ACT["side-mini"] = () => { document.body.classList.toggle("side-mini"); try { localStorage.setItem("pno-side-mini", document.body.classList.contains("side-mini") ? "1" : "0"); } catch (e) { /* no storage */ } updateSide(); };
 })();

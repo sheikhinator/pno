@@ -196,3 +196,31 @@ def test_growth_ignores_closed_lines(api):
     v = api.dispatch("review", {"dept": "Consumer Goods"})
     t = {x["key"]: x["value"] for x in v["tiles"]}
     assert t.get("growth") is not None
+
+
+def test_criteria_for_one_person(tmp_path, monkeypatch):
+    """5.1: criteria saved for one person score them everywhere (marked custom); others are untouched; Back to standard undoes it."""
+    monkeypatch.setenv("PNO_HOME", str(tmp_path / "home"))
+    from pno.api import Api, load_demo
+    from pno.db import Database
+    db = Database(tmp_path / "c.sqlite3")
+    load_demo(db)
+    api = Api(db)
+    sc = lambda p: next(c["value"] for c in p["cells"] if c["key"] == "score")  # noqa: E731
+    ppl = api.dispatch("review", {})["people"]
+    me, other = ppl[2], ppl[3]
+    rows = [{"key": "sales", "weight": 60, "show": True}, {"key": "productivity", "weight": 0}, {"key": "oos", "weight": 0},
+            {"key": "attendance", "weight": 10}, {"key": "rating", "weight": 10}, {"key": "waste", "weight": 5}]
+    x = api.dispatch("review_person_export", {"key": me["key"], "fmt": "xlsx", "rows": rows, "save_as": str(tmp_path / "w.xlsx"), "open_after": False})
+    assert x.get("ok") and (tmp_path / "w.xlsx").stat().st_size
+    assert "error" in api.dispatch("review_person_criteria", {"key": me["key"], "rows": [{"key": "sales", "weight": 10, "green": 90, "amber": 95}]})
+    api.dispatch("review_person_criteria", {"key": me["key"], "rows": rows})
+    after = {p["key"]: p for p in api.dispatch("review", {})["people"]}
+    assert after[me["key"]]["custom"] and after[me["key"]]["std_score"] == sc(me)
+    assert not after[other["key"]]["custom"] and sc(after[other["key"]]) == sc(other)
+    assert {x["key"] for x in after[me["key"]]["parts"]}.isdisjoint({"productivity", "oos"})
+    pp = api.dispatch("review_person", {"key": me["key"]})
+    assert pp["custom"] and pp["weights"]["sales"]["weight"] == 60
+    api.dispatch("review_person_criteria", {"key": me["key"], "reset": True})
+    back = next(p for p in api.dispatch("review", {})["people"] if p["key"] == me["key"])
+    assert not back["custom"] and sc(back) == sc(me)
