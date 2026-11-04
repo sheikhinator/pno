@@ -96,7 +96,6 @@ def offline_check(model: str, log_path: str) -> int:
 
 def smoke_test(out=print) -> bool:
     """Parsers → engine → every screen's data → every export, on a throwaway database."""
-    from . import exports
     from .api import Api, load_demo
     from .db import Database
 
@@ -111,29 +110,38 @@ def smoke_test(out=print) -> bool:
             out(f"init failed: {init}")
             return False
         month = init["month"]
-        for m in ("dashboard", "people", "stores", "attendance", "org"):
-            r = api.dispatch(m, {"month": month} if m == "org" else {"month": month, "scope": {}})
+        def bad(what, r):
             if isinstance(r, dict) and r.get("error"):
-                out(f"{m} failed: {r['error']}")
+                out(f"{what} failed: {r['error']}")
+                db.close()
+                return True
+            return False
+        rv = api.dispatch("review", {})
+        if bad("review", rv):
+            return False
+        key = rv["people"][0]["key"]
+        for m, kw in (("review_person", {"key": key}), ("review_criteria", {}), ("import_calendar", {}), ("data_health", {}),
+                      ("review_preview", {"rows": [{"key": "sales", "show": True, "weight": 30}]})):
+            if bad(m, api.dispatch(m, kw)):
                 return False
-        for pack in exports.PACKS:
-            for fmt in ("pdf", "pptx", "xlsx"):
-                kw = {}
-                if pack == "dept":
-                    kw["scope"] = {"dept": api.dispatch("options", {"month": month})["depts"][0]["value"]}
-                if pack == "scorecard":
-                    kw["emp"] = api.dispatch("people", {"month": month, "scope": {}})["rows"][0]["emp"]
-                if pack == "store":
-                    kw["store_id"] = api.dispatch("stores", {"month": month, "scope": {}})["rows"][0]["store_id"]
-                path = str(Path(tmp) / f"{pack}.{fmt}")
-                r = api.dispatch("export", {"pack": pack, "fmt": fmt, "month": month, "save_as": path,
-                                            "open_after": False, **kw})
-                if r.get("error") or not Path(path).stat().st_size:
-                    out(f"export {pack} {fmt} failed: {r}")
-                    return False
+        v = api.dispatch("hire_save", {"title": "Department Head · Consumer Goods", "role": "department_head", "department": "Consumer Goods"})
+        vid = v.get("id") or (v.get("vacancy") or {}).get("id")
+        if bad("hire_save", v) or bad("hire_internal", api.dispatch("hire_internal", {"vacancy_id": vid})):
+            return False
+        for fmt in ("pdf", "pptx", "docx", "xlsx"):
+            path = str(Path(tmp) / f"review.{fmt}")
+            r = api.dispatch("review_export", {"fmt": fmt, "save_as": path, "open_after": False, "ai": False})
+            if bad(f"review export {fmt}", r) or not Path(path).stat().st_size:
+                return False
+        for m, kw in (("review_person_export", {"key": key, "fmt": "xlsx"}), ("review_person_export", {"key": key, "fmt": "pdf"}),
+                      ("review_scores_export", {"fmt": "xlsx"})):
+            path = str(Path(tmp) / f"{m}.{kw['fmt']}")
+            if bad(m, api.dispatch(m, {**kw, "save_as": path, "open_after": False})) or not Path(path).stat().st_size:
+                return False
         a = api.dispatch("agent_ask", {"question": "Who are the top 3 performers?", "month": month})
         if a.get("error"):
             out(f"assistant failed: {a['error']}")
+            db.close()
             return False
         db.close()
     out("smoke test passed")
