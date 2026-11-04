@@ -2164,7 +2164,8 @@ async function rvPerson(emp, key, tab = "results") {
     results: `<div class="grid pgrid"><div class="tbl-wrap"><table class="t rtable"><thead><tr><th>Criterion</th><th class="n">Result</th><th class="n">Green from</th><th class="n">Peers</th><th class="n">Points</th><th class="n">Weight</th></tr></thead><tbody>${rows}</tbody></table>
         <small class="muted">Peers: median of the ${p.peers} leaders at the same level. Points: 0-10 against the criterion's lines.</small></div>
       <div><h4 class="ih">What the score is made of</h4><div id="pp-comp"></div>${p.remarks ? `<h4 class="ih">Remarks</h4><div class="il">${esc(p.remarks)}</div>` : ""}
-        ${(R.insights || []).length ? `<h4 class="ih">Observations</h4>${R.insights.slice(0, 6).map(i => `<div class="il">${esc(typeof i === "string" ? i : i.text || "")}</div>`).join("")}` : ""}</div></div>`,
+        ${(R.insights || []).length ? `<h4 class="ih">Observations</h4>${R.insights.slice(0, 6).map(i => `<div class="il">${esc(typeof i === "string" ? i : i.text || "")}</div>`).join("")}` : ""}</div></div>
+      <div class="wif" id="wif"></div>`,
     profile: `<div class="grid g2" style="gap:16px"><div><table class="t"><thead><tr><th>Detail</th><th>Value</th><th>Source</th></tr></thead><tbody>${factRows || `<tr><td colspan="3"><div class="empty">No details recorded.</div></td></tr>`}</tbody></table>
         ${r.emp ? `<button class="btn sm" style="margin-top:8px" data-act="rv-fix">Correct a detail…</button>` : ""}</div>
       <div>${(R.reports || []).length ? `<h4 class="ih">Reports to them (${R.reports.length})</h4>${R.reports.slice(0, 12).map(x => `<div class="il">${esc(x.name)} · ${esc(x.designation || "")}</div>`).join("")}` : ""}
@@ -2185,8 +2186,54 @@ async function rvPerson(emp, key, tab = "results") {
   if (cp) { if (p.components.length) Charts.hbar(cp, { labels: p.components.map(c => `${c.label} (${c.share}%)`), values: p.components.map(c => c.value), max: 10, fmt: "score",
       colors: p.components.map(c => c.value >= 7 ? "#16A34A" : c.value >= 5 ? "#F59E0B" : "#DC2626") });
     else cp.innerHTML = `<small class="muted">Fewer than three criteria measured: no score yet.</small>`; }
+  if ($("#wif", m)) rvWhatIf(p, m);
   const rt = $("#pp-rat", m);
   if (rt) Charts.columns(rt, { labels: p.ratings.map(x => x.cycle || ""), series: [{ name: "Rating", values: p.ratings.map(x => x.rating), colors: p.ratings.map(x => x.rating >= 4 ? "#16A34A" : x.rating >= 3 ? "#F59E0B" : "#DC2626") }], height: 170, fmt: "score" });
+}
+/* what if: this person's score with other criteria and weights (nothing is saved unless asked) */
+function rvWhatIf(p, m) {
+  const box = $("#wif", m), r = p.row, C = p.criteria, pts = r.points || {};
+  const keys = Object.keys(pts).filter(k => C[k]);
+  if (keys.length < 3) { box.innerHTML = ""; return; }
+  const base = {}; keys.forEach(k => { const w = p.weights[k] || { weight: 0, show: true }; base[k] = { on: w.show && w.weight > 0, w: w.weight }; });
+  const st = JSON.parse(JSON.stringify(base));
+  const sc0 = (r.cells.find(c => c.key === "score") || {}).value;
+  const peers = (p.peer_scores || []).filter(x => x != null), n = peers.length + 1;
+  const rankOf = v => v == null ? null : 1 + peers.filter(x => x > v).length;
+  const g = (C.score || {}).green ?? 7, a = (C.score || {}).amber ?? 5;
+  const cls = v => v == null ? "" : v >= g ? "good" : v >= a ? "warn" : "bad";
+  const calc = () => { const on = keys.filter(k => st[k].on && st[k].w > 0), tw = on.reduce((t, k) => t + st[k].w, 0);
+    return { tw, v: on.length >= 3 && tw ? Math.round(10 * on.reduce((t, k) => t + pts[k] * st[k].w, 0) / tw) / 10 : null }; };
+  box.innerHTML = `<div class="wif-h"><div><h4>What if?</h4><small>Change what counts for ${esc(r.name.split(" ")[0])} and how much. Only this view changes; nothing is saved unless you press “Use for everyone”.</small></div>
+      <div class="row" style="gap:6px"><button class="btn sm ghost" id="wif-reset">Reset</button><button class="btn sm" id="wif-all">Use for everyone</button></div></div>
+    <div class="wif-b"><div class="wif-list">${keys.map(k => `<div class="wif-r" data-k="${k}"><label class="switch sm"><input type="checkbox" ${st[k].on ? "checked" : ""}><span></span></label>
+        <div class="wif-n"><b>${esc(C[k].label)}</b><small>${RVF(k, r.cells.find(c => c.key === k).value)} · <span class="pt ${pts[k] >= 7 ? "good" : pts[k] >= 5 ? "warn" : "bad"}">${pts[k].toFixed(1)}/10</span></small></div>
+        <input type="range" min="0" max="40" step="1" value="${st[k].w}"><b class="wif-w">${st[k].w}</b><span class="wif-s"></span></div>`).join("")}</div>
+      <div class="wif-card"><small>Score · now → what if</small><div class="wif-sc"><span class="rc-pill ${cls(sc0)}" id="wif-old">${sc0 ?? "—"}</span><span class="wif-arrow">→</span><span class="rc-pill big" id="wif-new"></span></div>
+        <div class="wif-d" id="wif-d"></div><small>Place among ${n} ${esc(r.role || "")}s</small><div class="wif-rank" id="wif-rank"></div><div class="wif-bars" id="wif-bars"></div></div></div>`;
+  const draw = () => {
+    const { tw, v } = calc(), d = v != null && sc0 != null ? Math.round(10 * (v - sc0)) / 10 : null;
+    const nv = $("#wif-new", box); nv.textContent = v == null ? "—" : v.toFixed(1); nv.className = `rc-pill big ${cls(v)}`;
+    $("#wif-d", box).innerHTML = d == null ? "<small>needs at least three criteria</small>" : d === 0 ? "<span class='muted'>no change</span>" : `<span class="${d > 0 ? "t-good" : "t-bad"}">${d > 0 ? "▲ +" : "▼ "}${d}</span>`;
+    const r0 = rankOf(sc0), r1 = rankOf(v);
+    $("#wif-rank", box).innerHTML = r1 == null ? "—" : `<b>#${r0 ?? "—"}</b> → <b class="${r0 && r1 < r0 ? "t-good" : r0 && r1 > r0 ? "t-bad" : ""}">#${r1}</b> <small>of ${n}</small>`;
+    $$(".wif-r", box).forEach(row => { const k = row.dataset.k, on = st[k].on && st[k].w > 0, sh = on && tw ? Math.round(100 * st[k].w / tw) : 0;
+      row.classList.toggle("off", !on); $(".wif-w", row).textContent = st[k].w; $("input[type=checkbox]", row).checked = on;
+      $(".wif-s", row).innerHTML = on ? `${sh}% · +${(pts[k] * sh / 100).toFixed(2)}` : "off"; });
+    const used = keys.filter(k => st[k].on && st[k].w > 0), add = k => pts[k] * st[k].w / (tw || 1), top = Math.max(...used.map(add), 0.01);
+    $("#wif-bars", box).innerHTML = `<small class="wif-bt">What makes up the score</small>` + used.sort((x, y) => add(y) - add(x)).map(k =>
+      `<div><small>${esc(C[k].label)}</small><span><i style="width:${Math.max(3, 100 * add(k) / top)}%" class="${pts[k] >= 7 ? "good" : pts[k] >= 5 ? "warn" : "bad"}"></i></span><b>${add(k).toFixed(2)}</b></div>`).join("");
+  };
+  $$(".wif-r", box).forEach(row => { const k = row.dataset.k;
+    $("input[type=checkbox]", row).onchange = e => { st[k].on = e.target.checked; if (st[k].on && !st[k].w) { st[k].w = 5; $("input[type=range]", row).value = 5; } draw(); };
+    $("input[type=range]", row).oninput = e => { st[k].w = +e.target.value; if (st[k].w > 0) { st[k].on = true; $("input[type=checkbox]", row).checked = true; } draw(); }; });
+  $("#wif-reset", box).onclick = () => { keys.forEach(k => { st[k] = { ...base[k] }; const row = $(`.wif-r[data-k="${k}"]`, box); $("input[type=checkbox]", row).checked = st[k].on; $("input[type=range]", row).value = st[k].w; }); draw(); };
+  $("#wif-all", box).onclick = async () => {
+    const rows = Object.entries(p.weights).map(([k, w]) => ({ key: k, show: k in st ? st[k].on : w.show, weight: k in st ? st[k].w : w.weight,
+      green: (C[k] || {}).green ?? "", amber: (C[k] || {}).amber ?? "" }));
+    await call("review_criteria", { rows }); toast("These weights now count for everyone"); closeModal(); render();
+  };
+  draw();
 }
 async function rvUpdate() {
   let sess;

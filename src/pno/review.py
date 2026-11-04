@@ -267,6 +267,9 @@ class Review:
         for p in parts:
             p["share"] = round(100 * p["weight"] / total) if total else 0
         row["parts"] = parts
+        # points for every measured criterion, weighted or not (the person sheet's what-if uses them)
+        row["points"] = {c["key"]: points(c["key"], c["value"], self.t) for c in row["cells"]
+                         if c["key"] != "score" and c["value"] is not None and points(c["key"], c["value"], self.t) is not None}
         for c in row["cells"]:
             if c["key"] == "score":
                 c["value"], c["status"] = sc, status("score", sc, self.t)
@@ -446,6 +449,8 @@ def person(api, emp: str = "", key: str = "") -> dict:
     a = next((r for r in rv.att() if r["emp"] == str(l.employee_id)), None)
     return {"row": row, "criteria": {k: {"label": v["label"], "fmt": v["fmt"], **rv.t[k]} for k, v in CRITERIA.items()}, "peer_median": bench,
             "peers": len(peers), "ratings": ratings, "trend": trend, "components": comps,
+            "peer_scores": [next((x["value"] for x in p["cells"] if x["key"] == "score"), None) for p in peers if p.get("key") != row.get("key")],
+            "weights": {k: {"weight": v["weight"], "show": v["show"]} for k, v in rv.cfg.items()},
             "facts": {"Employee number": l.employee_id, "Store": l.store, "Role": l.designation + (" (acting)" if l.acting else ""),
                       "Area": row["area"], "In role": f"{l.months_in_role} months" if l.months_in_role is not None else "—",
                       "With the company": f"{l.months_service // 12} yrs {l.months_service % 12} m" if l.months_service else "—",
