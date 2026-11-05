@@ -14,9 +14,9 @@ from po_fixture import make_po_workbook
 @pytest.fixture()
 def api(tmp_path, monkeypatch):
     monkeypatch.setenv("PNO_HOME", str(tmp_path / "home"))
+    from pno.api import load_demo
     db = Database(tmp_path / "pno.sqlite3")
-    a = importers.analyze_path(make_po_workbook(tmp_path / "po.xlsx"))
-    importers.commit(db, a, {"*": {"month": "2026-09", "as_of": "2026-09-30"}})
+    load_demo(db)                                     # 6.0: leaders come from the master sheet
     return Api(db)
 
 

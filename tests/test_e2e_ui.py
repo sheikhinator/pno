@@ -163,23 +163,26 @@ def test_click_everything(app):
 
         # ---------------------------------------------------------------- data
         nav("import")
-        for t in ("health", "brain", "import"):
+        for t in ("health", "import"):
             page.locator(f".datatabs [data-go={t}]").click(); settle(0.8)
-        page.locator(".slot.click[data-kind=sales]").first.click(); time.sleep(0.6)
-        if page.locator("#sl-rep").count():
-            page.locator("#sl-rep").click(); time.sleep(0.5)
-        assert page.locator(".sl-needs").count()
-        page.locator("[data-x=paste]").first.click()
-        page.locator(".sl-paste textarea").first.fill(SALES)
-        page.locator("[data-x=read]").first.click()
-        page.wait_for_selector(".sl-v", timeout=30000)
-        assert "store sales" in page.locator(".sl-v").first.inner_text().lower()
-        page.locator("#sl-save").click(); saved()
-        settle(1)
-        page.locator(".slot.click[data-kind=po_shrink]").first.click(); time.sleep(0.6)
-        page.keyboard.press("Escape"); time.sleep(0.3)
+        # the master sheet: pick the period, paste it, check, save; it shows on the Review
+        page.locator("[data-act=m-type][data-t=mtd]").click(); settle(0.4)
+        page.select_option("#m-month", index=0); settle(0.4)
+        page.locator("[data-act=m-paste]").click()
+        from pno import demo
+        page.fill("#m-text", demo.master_tsv("2026-10", False).decode("utf-8"))
+        page.locator("[data-act=m-readtext]").click()
+        page.wait_for_selector("[data-act=m-save]", timeout=60000)
+        assert page.locator(".mcov > div").count() == 8
+        page.locator("[data-act=m-save]").click(); saved(); settle(1)
+        assert page.locator("text=on the Review").count()
+        page.locator("[data-act=m-show]").first.click(); settle(0.8)
+        page.locator("[data-act=m-health]").first.click(); settle(1)
+        assert page.evaluate("window.PNO_state.page") == "health"
+        page.locator(".mcov > div.click").last.click(); settle(0.6)
+        page.locator("#h-sheet").select_option(index=0); settle(0.6)
+        page.locator(".datatabs [data-go=import]").click(); settle(0.8)
         n = page.evaluate("document.querySelectorAll('[data-act=imp-del]').length")
-        page.locator("details.panel.flush summary").last.click(); time.sleep(0.3)
         page.locator("[data-act=imp-del]").first.click(); page.locator("#del-go").click()
         page.wait_for_selector(".toast >> text=Deleted", timeout=60000); settle(1)
         assert page.evaluate("document.querySelectorAll('[data-act=imp-del]').length") == n - 1

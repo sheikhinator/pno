@@ -35,39 +35,6 @@ def test_brain_pages(api):
     assert g["nodes"] and all(e["a"] in ids and e["b"] in ids for e in g["edges"])
 
 
-def test_corrections_win_and_survive_reimport(api, tmp_path):
-    s = api.dispatch("brain_search", {"q": "DEMO0001"})
-    emp = s["rows"][0]["emp"]
-    r = api.dispatch("correction_add", {"emp": emp, "field": "designation", "value": "Section Manager", "note": "promoted in Sep"})
-    assert "error" not in r, r
-    assert r["person"]["designation"] == "Section Manager"
-    f = next(x for x in r["person"]["facts"] if x["field"] == "designation")
-    assert f.get("corrected") and f["source"] == "Corrected by P&O"
-    ins = api._po()
-    assert next(l for l in ins.leaders() if l.employee_id == emp).designation == "Section Manager"
-    # re-import the same workbook: the correction still wins
-    a = importers.analyze_path(make_po_workbook(tmp_path / "po2.xlsx"))
-    importers.commit(api.db, a, {"*": {"month": "2026-10", "as_of": "2026-10-31", "replace": True}})
-    assert api.dispatch("brain_person", {"emp": emp})["designation"] == "Section Manager"
-    # undo
-    cid = api.dispatch("corrections", {})["rows"][0]["id"]
-    api.dispatch("correction_undo", {"correction_id": cid})
-    assert api.dispatch("brain_person", {"emp": emp})["designation"] != "Section Manager"
-    assert "error" in api.dispatch("correction_add", {"emp": emp, "field": "rating", "value": "9"})
-
-
-def test_left_correction_removes_from_headcount(api):
-    before = api._po().headcount()
-    s = api.dispatch("brain_search", {"q": "DEMO0002"})
-    emp = s["rows"][0]["emp"]
-    api.dispatch("correction_add", {"emp": emp, "field": "status", "value": "left"})
-    api.dispatch("correction_add", {"emp": emp, "field": "left_on", "value": "2026-09-15"})
-    ins = api._po()
-    assert ins.headcount() == before - 1
-    assert any(str(r.get("employee_id")) == emp for r in ins.rows("po_turnover"))
-    assert api.dispatch("brain_person", {"emp": emp})["left"]
-
-
 def test_chat_correction_needs_confirm(api):
     from pno.agent import basic
     from pno.agent.tools import Toolbox

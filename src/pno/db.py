@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS vacancies (
     status TEXT NOT NULL DEFAULT 'open', target_date TEXT, notes TEXT, created_at TEXT, closed_at TEXT,
     fmt TEXT, department TEXT                   -- Hypermarket | Supermarket; the department the seat leads (Consumer Goods …)
 );
+CREATE TABLE IF NOT EXISTS master_rows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_id INTEGER NOT NULL,
+    emp TEXT,
+    payload TEXT NOT NULL                       -- one leader's row of the master sheet (JSON)
+);
+CREATE INDEX IF NOT EXISTS ix_master_rows_imp ON master_rows(import_id);
 CREATE TABLE IF NOT EXISTS candidates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT, email TEXT, phone TEXT, city TEXT, file_name TEXT, file_path TEXT, file_hash TEXT,

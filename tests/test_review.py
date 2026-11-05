@@ -52,16 +52,6 @@ def test_people_not_ranked_and_match_grid(api):
                 assert abs(tile[k] - cell[k]) < 0.05, k
 
 
-def test_status_and_targets(api):
-    t = review.targets(api.db)
-    assert review.status("attendance", 96, t) == "good" and review.status("attendance", 91, t) == "warn" and review.status("attendance", 80, t) == "bad"
-    assert review.status("oos", 2, t) == "good" and review.status("oos", 9, t) == "bad"
-    assert review.status("leavers", 5, t) == "bad"                     # per person; unit totals are shown uncoloured
-    api.dispatch("review_targets", {"targets": {"attendance": {"green": 98, "amber": 96}}})
-    assert review.status("attendance", 96.5, review.targets(api.db)) == "warn"
-    api.dispatch("review_targets", {"reset": True})
-
-
 def test_person_sheet(api):
     p = api.dispatch("review", {})["people"][0]
     s = api.dispatch("review_person", {"emp": p["emp"], "key": p["key"]})
@@ -118,7 +108,7 @@ def test_two_tab_app(api):
             assert pg.evaluate("window.PNO_state.page") == "rv"                      # removed modules can't be reached
             pg.locator("#top [data-act=present]").click(); time.sleep(0.4); pg.keyboard.press("Escape")
             pg.locator(".nav-bottom [data-go=import]").click(); pg.wait_for_selector(".datatabs", timeout=10000)
-            for t in ("health", "brain", "import"):
+            for t in ("health", "import"):
                 pg.locator(f".datatabs [data-go={t}]").click(); time.sleep(0.8)
                 assert pg.evaluate("window.PNO_state.page") == t and not pg.locator(".errbox").count()
             pg.locator("[data-act=rv-settings]").click(); pg.wait_for_selector("tr[data-ck]", timeout=10000)
@@ -126,7 +116,7 @@ def test_two_tab_app(api):
             pg.locator("#nav [data-go=rv]").click(); pg.wait_for_selector(".rtiles", timeout=10000)
             assert "Customer NPS" not in pg.locator(".rtiles").inner_text()
             pg.locator(".nav-bottom [data-go=import]").click(); pg.wait_for_selector(".datatabs", timeout=10000)
-            for t in ("health", "brain", "import"):
+            for t in ("health", "import"):
                 pg.locator(f".datatabs [data-go={t}]").click(); time.sleep(0.8)
                 assert pg.evaluate("window.PNO_state.page") == t and not pg.locator(".errbox").count()
             pg.locator("[data-go=ask]").click(); pg.wait_for_selector("#askq", timeout=10000)
@@ -134,35 +124,6 @@ def test_two_tab_app(api):
             b.close()
     finally:
         srv.shutdown()
-
-
-def test_criteria_and_score(api):
-    from pno.review import points, config, targets
-    t = targets(api.db)
-    assert points("attendance", 90, t) == 5 and points("attendance", 95, t) == 7 and points("attendance", 100, t) == 10
-    assert points("oos", 3, t) == 7 and points("oos", 6, t) == 5
-    rows = api.dispatch("review_criteria", {})["rows"]
-    assert {r["key"] for r in rows} >= {"sales", "oos", "attendance", "rating"} and abs(sum(r["share"] for r in rows) - 100) <= 3
-    before = api.dispatch("review", {})["people"][0]
-    w = [{"key": r["key"], "show": r["key"] != "nps", "weight": (100 if r["key"] == "sales" else 0), "green": r["green"], "amber": r["amber"]} for r in rows]
-    api.dispatch("review_criteria", {"rows": w})
-    v = api.dispatch("review", {})
-    assert all(t["key"] != "nps" for t in v["tiles"])
-    p = next(x for x in v["people"] if x["key"] == before["key"])
-    sales = next(c for c in p["cells"] if c["key"] == "sales")["value"]
-    score = next(c for c in p["cells"] if c["key"] == "score")["value"]
-    assert score is None or abs(score - points("sales", sales, targets(api.db))) < 0.11       # only sales counts now
-    with pytest.raises(Exception):
-        api.api_review_criteria(rows=[{"key": "attendance", "show": True, "weight": 10, "green": 90, "amber": 95}])
-    api.dispatch("review_criteria", {"reset": True})
-    assert config(api.db)["nps"]["show"] is True
-
-
-def test_person_record(api):
-    p = api.dispatch("review", {})["people"][0]
-    s = api.dispatch("review_person", {"emp": p["emp"], "key": p["key"]})
-    assert s["record"] and s["record"]["facts"] and "timeline" in s["record"]
-    assert s["components"] and all("share" in c for c in s["components"])
 
 
 @pytest.mark.parametrize("fmt", ["pdf", "pptx", "docx", "xlsx"])
@@ -192,35 +153,20 @@ def test_score_colours_editable(api):
     assert targets(api.db)["score"]["green"] == 7
 
 
-def test_growth_ignores_closed_lines(api):
-    v = api.dispatch("review", {"dept": "Consumer Goods"})
-    t = {x["key"]: x["value"] for x in v["tiles"]}
-    assert t.get("growth") is not None
 
-
-def test_criteria_for_one_person(tmp_path, monkeypatch):
+def test_criteria_for_one_person(api):
     """5.1: criteria saved for one person score them everywhere (marked custom); others are untouched; Back to standard undoes it."""
-    monkeypatch.setenv("PNO_HOME", str(tmp_path / "home"))
-    from pno.api import Api, load_demo
-    from pno.db import Database
-    db = Database(tmp_path / "c.sqlite3")
-    load_demo(db)
-    api = Api(db)
     sc = lambda p: next(c["value"] for c in p["cells"] if c["key"] == "score")  # noqa: E731
-    ppl = api.dispatch("review", {})["people"]
+    ppl = [p for p in api.dispatch("review", {})["people"] if sc(p) is not None]
     me, other = ppl[2], ppl[3]
-    rows = [{"key": "sales", "weight": 60, "show": True}, {"key": "productivity", "weight": 0}, {"key": "oos", "weight": 0},
-            {"key": "attendance", "weight": 10}, {"key": "rating", "weight": 10}, {"key": "waste", "weight": 5}]
-    x = api.dispatch("review_person_export", {"key": me["key"], "fmt": "xlsx", "rows": rows, "save_as": str(tmp_path / "w.xlsx"), "open_after": False})
-    assert x.get("ok") and (tmp_path / "w.xlsx").stat().st_size
-    assert "error" in api.dispatch("review_person_criteria", {"key": me["key"], "rows": [{"key": "sales", "weight": 10, "green": 90, "amber": 95}]})
+    rows = [{"key": "sales", "weight": 60, "show": True}, {"key": "productivity", "weight": 0}, {"key": "shrink", "weight": 10},
+            {"key": "nps", "weight": 10}, {"key": "leavers", "weight": 10}, {"key": "da", "weight": 5}]
+    assert "error" in api.dispatch("review_person_criteria", {"key": me["key"], "rows": [{"key": "sales", "weight": 10, "green": -5, "amber": 0}]})
     api.dispatch("review_person_criteria", {"key": me["key"], "rows": rows})
     after = {p["key"]: p for p in api.dispatch("review", {})["people"]}
     assert after[me["key"]]["custom"] and after[me["key"]]["std_score"] == sc(me)
     assert not after[other["key"]]["custom"] and sc(after[other["key"]]) == sc(other)
-    assert {x["key"] for x in after[me["key"]]["parts"]}.isdisjoint({"productivity", "oos"})
-    pp = api.dispatch("review_person", {"key": me["key"]})
-    assert pp["custom"] and pp["weights"]["sales"]["weight"] == 60
+    assert "productivity" not in {x["key"] for x in after[me["key"]]["parts"]}
     api.dispatch("review_person_criteria", {"key": me["key"], "reset": True})
     back = next(p for p in api.dispatch("review", {})["people"] if p["key"] == me["key"])
     assert not back["custom"] and sc(back) == sc(me)

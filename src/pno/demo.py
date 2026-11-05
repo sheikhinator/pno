@@ -559,3 +559,37 @@ def build(seed: int = 7) -> Demo:
         last = (m.replace(month=m.month + 1) - timedelta(days=1))
         demo.files[f"200-10-05 Country Performance {last:%d-%b-%Y}.xlsx"] = bo_sales_xlsx(last)
     return demo
+
+
+def master_rows(people: list[Person], month: str, ytd: bool, seed: int = 61) -> list[list]:
+    """6.0: the master sheet for the demo leaders (one row each), with a few figures not filled yet, like the real one."""
+    rnd = random.Random(seed + (0 if ytd else 7) + int(month[-2:]))
+    head = ["Sr", "Employee No", "Employee Name", "DOJ", "Grade", "BU", "Section", "Designation", "Sales vs bud.", "Productvity", "Shrink",
+            "Stock days", "Leavers", "DA cases", "NPS", "Rating"]
+    out = [head]
+    leads = [p for p in people if p.designation in ("Section Manager", "Team Leader", "Department Head", "Store Manager", "Deputy Manager", "Supervisor")]
+    shared: dict[tuple, list] = {}
+    for i, p in enumerate(leads, 1):
+        key = (p.bu, p.section)
+        if key not in shared or p.designation in ("Store Manager", "Deputy Manager", "Department Head"):
+            sales = rnd.gauss(2, 12 if ytd else 15)
+            prod = rnd.gauss(3, 15)
+            shr = rnd.gauss(0.1, 0.8) if "Bakery" not in p.section else rnd.gauss(4, 4)
+            days = rnd.gauss(112, 18)
+            shared[key] = [sales, prod, shr, days]
+        sales, prod, shr, days = shared[key]
+        top = p.designation in ("Store Manager", "Deputy Manager")
+        cell = lambda v, f: "" if rnd.random() < 0.08 else f(v)  # noqa: E731
+        pct = lambda v: f"({abs(v):.1f}%)" if v < 0 else f"{v:.1f}%"  # noqa: E731
+        arrow = lambda v: f"▲ {v:.0f}%" if v >= 0 else f"▼ {v:.0f}%"  # noqa: E731
+        rating = rnd.choice([2, 3, 3, 3, 4, 4, 5]) if rnd.random() > 0.25 else "—"
+        out.append([i, p.emp, p.name, p.joining.strftime("%m/%d/%Y"), p.grade, p.bu, p.section, p.designation,
+                    cell(sales, pct), cell(prod, arrow), "" if top else cell(shr, lambda v: f"{v:.2f}%"), "" if top else cell(days, lambda v: f"{v:.0f}%"),
+                    rnd.choice([0, 0, 1, 1, 2, 3]) * (6 if top else 1), "#N/A" if rnd.random() < 0.08 else rnd.choice([0, 0, 0, 1, 2]) * (3 if top else 1),
+                    "—" if rnd.random() < 0.15 else rnd.randint(-10, 90), 0 if top else rating])
+    return out
+
+
+def master_tsv(month: str = "2026-09", ytd: bool = True) -> bytes:
+    rows = master_rows(build_people(), month, ytd)
+    return "\n".join("\t".join(str(c) for c in r) for r in rows).encode("utf-8")

@@ -110,10 +110,10 @@ const NAV_FULL = [["home", "Overview", "home"], ["review", "Business review", "r
   ["hiring", "Hiring", "hiring"], ["learning", "Learning Studio", "learning"], ["manpower", "Manpower", "manpower"], ["forecast", "Workforce plan", "forecast"], ["organisation", "Organisation", "organisation"], ["goals", "Goals", "goals"], ["notes", "1:1s & visits", "notes"], ["relations", "Employee relations", "relations"], ["calendar", "HR calendar", "calendar"], ["brief", "Weekly brief", "brief"], ["engagement", "Engagement", "engagement"], ["recognition", "Recognition", "recognition"], ["ask", "Ask P&O AI", "ask"], ["policies", "Policy assistant", "policies"], ["actions", "Actions", "actions"], ["import", "Import data", "import"], ["health", "Data health", "health"], ["settings", "Settings", "settings"]];
 const NAV_SIMPLE = [["rv", "Review", "review"], ["hiring", "Hiring", "hiring"], ["learning", "Learning", "learning"], ["ask", "Ask P&O AI", "ask"]];
 const NAV_BOTTOM = [["import", "Data", "import"], ["settings", "Settings", "settings"]];
-const DATA_PAGES = ["import", "health", "brain"];
-const dataTabs = page => `<div class="seg datatabs">${[["import", "Import & history"], ["health", "Data health"], ["brain", "People records & corrections"]].map(([k, l]) => `<button data-go="${k}" aria-pressed="${page === k}">${l}</button>`).join("")}</div>`;
+const DATA_PAGES = ["import", "health"];
+const dataTabs = page => `<div class="seg datatabs">${[["import", "Master sheet"], ["health", "Data health"]].map(([k, l]) => `<button data-go="${k}" aria-pressed="${page === k}">${l}</button>`).join("")}</div>`;
 let NAV = NAV_SIMPLE;
-let ALLOWED = new Set(["rv", "hiring", "ask", "learning", "settings", "import", "health", "brain"]);
+let ALLOWED = new Set(["rv", "hiring", "ask", "learning", "settings", "import", "health"]);
 // the full toolkit (every 2.x/3.x module) stays in the app, switched off; Settings → Appearance turns it on
 function applyMode() {
   NAV = NAV_SIMPLE; NAV_GROUP = {};
@@ -791,32 +791,27 @@ const CHAT_ACTS = {
 /* data health: is everything in for the month, and can the numbers be trusted? */
 const HSTAT = { ok: ["In", "good"], derived: ["Worked out", "info"], older: ["Older period only", "warn"], stale: ["Old", "warn"], missing: ["Missing", "bad"] };
 PAGES.health = async () => {
-  const d = DATA.health = await API.call("data_health", { month: S.healthMonth || null });
-  S.healthMonth = d.month;
-  const ring = (v) => { const r = 34, c = 2 * Math.PI * r, tone = v >= 85 ? "var(--good)" : v >= 60 ? "var(--warn)" : "var(--bad)";
-    return `<svg class="hring" viewBox="0 0 84 84" width="96" height="96"><circle cx="42" cy="42" r="${r}" fill="none" stroke="var(--bg-2)" stroke-width="9"/>
-      <circle cx="42" cy="42" r="${r}" fill="none" stroke="${tone}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - v / 100)}" transform="rotate(-90 42 42)" class="hring-arc"/>
-      <text x="42" y="47" text-anchor="middle" font-size="22" font-weight="800" fill="var(--ink)">${v}</text></svg>`; };
-  const lvl = { bad: ["!", "bad"], warn: ["•", "warn"], info: ["i", ""] };
-  const months = d.months.length ? d.months : [{ value: d.month, label: d.month_label }];
-  return `<div class="ph"><div><h1>Data health</h1><p>Is everything for the month in, and can the numbers be trusted? Fix what is listed here before presenting.</p></div>
-      <div class="row"><label class="pv-l">Month<select class="input sm" id="h-month">${months.map(m => `<option value="${m.value}" ${m.value === d.month ? "selected" : ""}>${esc(m.label)}</option>`).join("")}</select></label>
-      <button class="btn ${d.locked ? "" : "ghost"}" data-act="h-lock" data-locked="${d.locked ? 0 : 1}" title="A locked month cannot be changed by later imports">${d.locked ? "🔒 Locked · unlock" : "🔓 Lock month"}</button></div></div>
-    <div class="grid hgrid">
-      <div class="panel hhealth"><div class="row" style="gap:18px;align-items:center">${ring(d.score)}<div><span class="kpi-l">Data health · ${esc(d.month_label)}</span>
-        <h2 style="margin:4px 0">${esc(d.verdict)}</h2><small style="color:var(--muted)">${d.ready} of ${d.expected} reports in · ${d.checks.length} thing${d.checks.length === 1 ? "" : "s"} to check</small></div></div></div>
-      <div class="panel"><div class="phd"><h2>Monthly checklist</h2><div class="row"><button class="btn sm" data-act="h-request">✉ Ask for missing reports</button><button class="btn sm" data-act="month-close">✓ Close the month</button><button class="btn sm primary" data-go="import">${ic("import", 14)}Import missing</button></div></div>
-        <div class="hlist">${d.checklist.map(c => `<div class="hrow"><span class="chip ${HSTAT[c.status][1]}">${HSTAT[c.status][0]}</span><b>${esc(c.name)}</b>
-          <small>${esc(c.label || "")}${c.detail && c.detail !== "latest is " + c.label ? ` · ${esc(c.detail)}` : ""}</small></div>`).join("")}</div></div></div>
-    <div class="panel"><div class="phd"><h2>Checks</h2><small>Reconciliation across tabs, store names, conflicting files, totals and outliers</small></div>
-      ${d.checks.length ? d.checks.map((c, i) => `<details class="hcheck ${lvl[c.level][1]}"><summary><span class="ic">${lvl[c.level][0]}</span><span><b>${esc(c.area)}</b> · ${esc(c.message)}</span>
-        ${c.go ? `<button class="btn sm" data-go="${c.go}" ${c.tab ? `data-tab="${c.tab}"` : ""}>Open</button>` : ""}</summary>
-        ${c.items.length ? `<ul>${c.items.map(x => `<li>${esc(x)}</li>`).join("")}${c.count > c.items.length ? `<li style="color:var(--muted)">… and ${c.count - c.items.length} more</li>` : ""}</ul>` : ""}</details>`).join("")
-        : `<div class="empty">✓ Nothing to fix. The data agrees across every tab.</div>`}</div>
-    <details class="panel hdict"><summary><h2 style="margin:0;display:inline">Measure dictionary</h2> <small style="color:var(--muted)">what every figure means, where it comes from and how it works across MTD and YTD</small></summary>
-      <div class="tbl-wrap" style="margin-top:10px"><table class="t"><thead><tr><th>Measure</th><th>How it is worked out</th><th>From</th><th>Across periods</th></tr></thead>
-      <tbody>${d.measures.map(m => `<tr><td><b>${esc(m.name)}</b></td><td>${esc(m.formula)}</td><td>${esc(m.source)}</td><td><small>${esc(m.periods)}</small></td></tr>`).join("")}</tbody></table></div></details>`;
+  const H = await API.call("master_health", { import_id: S.healthId || null });
+  if (H.empty) return `<div class="ph"><div><h1>Data health</h1><p>No master sheet loaded yet.</p></div></div><div class="panel"><div class="empty">Add the master sheet on the first tab.</div></div>`;
+  S.healthId = H.id;
+  const col = p => p >= 95 ? "good" : p >= 60 ? "warn" : "bad";
+  const bar = (p, extra = "") => `<span class="mbar"><i style="width:${p}%" class="${col(p)}"></i></span><b>${p}%</b>${extra}`;
+  const f = S.healthF || "";
+  const gaps = H.gaps.filter(g => !f || g.missing.includes(f));
+  return `<div class="ph"><div><h1>Data health</h1><p>How complete the master sheet is, and exactly who is missing what. Missing figures show as “—” and don't count in anyone's score until they are filled.</p></div>
+      <label class="dx-l" style="min-width:240px">Sheet<select class="input" id="h-sheet">${H.periods.map(p => `<option value="${p.id}" ${p.id === H.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></label></div>
+    <div class="grid g3"><div class="panel hbig"><small>Filled</small><b class="${col(H.filled_pct)}">${H.filled_pct}%</b><small>${H.people} leaders · ${esc(H.file)}</small></div>
+      <div class="panel" style="grid-column:span 2"><div class="phd"><h2>By measure</h2><small>click one to list who is missing it</small></div>
+        <div class="mcov">${H.measures.map(m => `<div class="click ${f === m.label ? "on" : ""}" data-act="h-f" data-f="${esc(m.label)}"><small>${esc(m.label)}</small>${bar(m.pct)}<small class="muted">${m.of - m.filled} missing</small></div>`).join("")}</div></div></div>
+    <div class="grid g2"><div class="panel flush"><div class="phd" style="padding:14px 16px"><h2>By store</h2></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Store</th><th class="n">Leaders</th><th>Filled</th></tr></thead><tbody>
+        ${H.stores.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${x.people}</td><td class="mcell">${bar(x.pct)}</td></tr>`).join("")}</tbody></table></div></div>
+      <div class="panel flush"><div class="phd" style="padding:14px 16px"><h2>By role</h2></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Role</th><th class="n">Leaders</th><th>Filled</th></tr></thead><tbody>
+        ${H.roles.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${x.people}</td><td class="mcell">${bar(x.pct)}</td></tr>`).join("")}</tbody></table></div></div></div>
+    <div class="panel flush"><div class="phd" style="padding:14px 16px"><h2>Who is missing what${f ? ` · ${esc(f)}` : ""}</h2><small>${gaps.length} leader${gaps.length === 1 ? "" : "s"}${f ? ` · <a href="#" data-act="h-f" data-f="">show all</a>` : ""}</small></div>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Name</th><th>Employee No</th><th>Store</th><th>Role</th><th>Missing</th></tr></thead><tbody>
+      ${gaps.map(g => `<tr><td><b>${esc(g.name)}</b></td><td>${esc(g.emp)}</td><td>${esc(g.store)}</td><td>${esc(g.designation)}</td><td>${g.missing.map(m => `<span class="chip ${m === f ? "warn" : ""}">${esc(m)}</span>`).join(" ")}</td></tr>`).join("") || `<tr><td colspan="5"><div class="empty">Nothing missing 🎉</div></td></tr>`}</tbody></table></div></div>`;
 };
+
 AFTER.health = () => { const m = $("#h-month"); if (m) m.onchange = () => { S.healthMonth = m.value; render(); }; };
 const HEALTH_ACTS = {};
 HEALTH_ACTS["h-request"] = async () => {
@@ -878,46 +873,37 @@ function impSheetCard(f, r, sess) {
   </div>`;
 }
 PAGES.import = async () => {
-  const yr = S.impYear || +(String(S.impMonth || S.month || new Date().toISOString()).replace("ytd:", "")).slice(0, 4);
-  const [h, cal] = await Promise.all([API.call("imports"), API.call("import_calendar", { year: yr })]);
-  DATA.cal = cal;
-  const cur = cal.today;
-  if (S.impMonth && !cal.months.some(m => m.month === S.impMonth && !m.future)) S.impMonth = null;
-  S.impMonth = S.impMonth || (cal.months.filter(m => !m.future && m.ok < m.total)[0] || cal.months.filter(m => !m.future).slice(-1)[0] || {}).month || cur;
-  const mon = cal.months.find(m => m.month === S.impMonth) || cal.months[0];
-  const sess = S.importSess;
-  const found = new Set(sess ? sess.files.flatMap(f => f.results.map(r => r.kind_hint || r.kind)) : []);
-  const tiles = cal.months.map(m => { const pct = m.total ? m.ok / m.total : 0; const cls = m.future ? "fut" : pct >= 0.99 ? "full" : pct >= 0.5 ? "part" : pct > 0 ? "low" : "none";
-    return `<button class="mtile ${cls} ${m.ytd ? "ytd" : ""} ${m.month === S.impMonth ? "on" : ""}" data-act="imp-month" data-m="${m.month}" ${m.future ? "disabled" : ""}>${m.ytd ? `<em>Year to date</em>` : ""}<b>${m.short}</b><span class="mring" style="--p:${Math.round(pct * 100)}"></span><small>${m.running ? "running" : m.future ? "—" : `${m.ok}/${m.total}`}</small>${m.locked ? `<i title="Locked">🔒</i>` : ""}</button>`; }).join("");
-  const need = it => it.needs ? `<span class="slot-need"><b>Columns:</b> ${it.needs.must.map(esc).join(" · ")}${it.needs.want.length ? ` <i>· better with ${it.needs.want.map(esc).join(", ")}</i>` : ""}</span>` : "";
-  const slotRow = it => { const st = found.has(it.kind) ? ["Ready to save", "info"] : IMP_STATUS[it.status] || ["", ""];
-    const add = ["missing", "older"].includes(it.status);
-    return `<div class="slot click ${found.has(it.kind) ? "found" : it.status}" data-act="slot" data-kind="${it.kind}" data-name="${esc(it.name)}" data-st="${it.status}">
-      <div class="slot-ic">${KIND_ICON[it.kind] || "📄"}</div><div class="slot-b"><b>${esc(it.name)}</b>${add ? need(it) : `<small>${esc(it.label || it.detail || "")}</small>`}</div>
-      <span class="chip ${st[1]}">${st[0]}</span><span class="slot-go">${add ? "Add" : "View"}</span></div>`; };
-  const grp = (t, list, note) => list.length ? `<div class="slot-sep">${t}${note ? ` <i>${note}</i>` : ""}</div>${list.map(slotRow).join("")}` : "";
-  const per = mon.items.filter(it => !it.every && !it.optional), every = mon.items.filter(it => it.every), opt = mon.items.filter(it => it.optional && !it.every);
-  const left = per.filter(it => ["missing", "older"].includes(it.status)).length;
-  const nres = sess ? sess.files.reduce((a, f) => a + f.results.length, 0) : 0;
-  return `<div class="ph"><div><h1>Data</h1><p>Three steps: pick the period · click a report below · give it a file or paste the cells. P&O cleans it, checks it and shows you before anything is saved.</p></div></div>
-    ${S.init.unsure_stores ? `<div class="banner">🏬 ${S.init.unsure_stores} store name${S.init.unsure_stores > 1 ? "s were" : " was"} matched with less certainty. <button class="btn sm" data-go="settings" data-tab="stores">Check store names</button></div>` : ""}
-    <div class="panel icald"><div class="phd"><h2><span class="stepn">1</span>Period</h2>
-      ${cal.months[0] && cal.months[0].ytd ? `<label class="ytdend">Year to date runs to <select id="ytd-end" class="input sm">${cal.ytd_end_choices.map(m => `<option value="${m}" ${m === cal.months[0].end ? "selected" : ""}>${new Date(m + "-01").toLocaleString("en", { month: "long" })}</option>`).join("")}</select></label>` : ""}<div class="row"><button class="btn sm ghost" data-act="imp-year" data-y="${yr - 1}">‹ ${yr - 1}</button><b>${yr}</b><button class="btn sm ghost" data-act="imp-year" data-y="${yr + 1}" ${yr + 1 > +cur.slice(0, 4) ? "disabled" : ""}>${yr + 1} ›</button></div></div>
-      <div class="mtiles">${tiles}</div>${mon.ytd ? `<p class="ytdnote">The year-to-date load: sales, productivity, shrinkage, NPS and DA from January to ${esc(mon.short.split("–")[1] || "")} in one go. Every month after it is loaded on its own.</p>` : ""}</div>
-    <div class="panel"><div class="phd"><h2><span class="stepn">2</span>Reports for ${esc(mon.label)}</h2><small>${left ? `${left} still needed · click one to add it` : "everything needed is in ✓"}</small></div>
-      <div class="slots">${grp("Needed for this period", per)}${grp("Every period", every, "the employee master, roles and ratings: load once, update when they change")}${grp("Optional", opt, "not counted")}</div></div>
-    <details class="panel imp-many" ${sess ? "open" : ""}><summary class="phd" style="cursor:pointer"><h2 style="display:inline">Have several files at once?</h2> <small>drop them all here and P&O sorts out which is which</small></summary>
-      <div class="drop" id="drop"><div class="row" style="justify-content:center"><button class="btn primary" data-act="pick">${ic("file", 16)}Choose files</button><button class="btn" data-act="paste">${ic("paste", 16)}Paste cells</button></div>
-        <small style="color:var(--muted)">or drag files here · Excel, CSV, text, HTML or PDF · nothing is saved until you press Save</small>
-        <input type="file" id="filein" multiple hidden accept=".xlsx,.xls,.xlsm,.xlsb,.ods,.csv,.txt,.tsv,.htm,.html,.pdf"></div>
-    ${sess ? `<div class="phd" style="margin-top:12px"><h2>Check and save</h2><div class="tools"><button class="btn" data-act="import-cancel">Cancel</button><button class="btn primary" data-act="import-commit" ${nres ? "" : "disabled"}>Save ${nres} table${nres === 1 ? "" : "s"}</button></div></div>
-      <div class="isheets">${sess.files.map(f => f.results.length ? f.results.map(r => impSheetCard(f, r, sess)).join("") : `<div class="iiss bad"><span>✕</span><div><b>${esc(f.file)}</b>: no table could be read.${f.skipped.length ? ` <small>${esc(f.skipped.join(", "))}</small>` : ""}</div></div>`).join("")}</div>
-      ${(sess.errors || []).map(e => `<div class="errbox">${esc(e.file)}: ${esc(e.error)}</div>`).join("")}` : ""}</details>
-    <details class="panel flush"><summary class="phd" style="padding:14px 16px;cursor:pointer"><h2 style="display:inline">Everything loaded so far</h2> <small>${h.rows.filter(r => r.active).length} files · Undo removes a file's data; Restore brings it back</small></summary><div class="tbl-wrap" style="max-height:520px"><table class="t"><thead><tr><th>When</th><th>Report</th><th>File</th><th>Period</th><th class="n">Rows</th><th>Summary</th><th></th></tr></thead>
-    <tbody>${h.rows.map(r => `<tr style="${r.active ? "" : "opacity:.5"}"><td>${esc(r.created_at.replace("T", " ").slice(0, 16))}</td><td><span class="chip">${KIND_ICON[r.kind] || ""} ${esc(r.kind_label || r.kind)}</span></td><td>${esc(r.file_name)}</td>
-      <td class="nw">${r.period_label ? `<span class="chip ${r.period_type === "ytd" ? "gold" : r.period_type === "mtd" ? "info" : ""}">${esc(r.period_label)}</span>` : esc(r.as_of || r.month || "")}</td><td class="n">${r.rows.toLocaleString("en-US")}</td><td>${esc(r.summary)}</td>
-      <td class="n nw">${r.active ? `<button class="btn sm" data-act="undo" data-id="${r.id}" title="Switch it off; can be restored">${ic("undo", 13)}Undo</button>` : `<button class="btn sm" data-act="redo" data-id="${r.id}">Restore</button>`}<button class="btn sm danger" data-act="imp-del" data-id="${r.id}" data-name="${esc(r.file_name)}" title="Delete for good: frees the space, can't be restored">🗑 Delete</button></td></tr>`).join("")}</tbody></table></div></details>`;
+  const L = await API.call("master_list");
+  const M = S.master = S.master || {};
+  const t = new Date(), last = new Date(t.getFullYear(), t.getMonth() - 1, 1);
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  M.type = M.type || "ytd"; M.month = M.month || iso(last);
+  const months = Array.from({ length: 18 }, (_, i) => iso(new Date(t.getFullYear(), t.getMonth() - 1 - i, 1)));
+  const ml = m => new Date(m + "-01").toLocaleString("en", { month: "long", year: "numeric" });
+  const r = M.read;
+  const lv = { good: ["✓", "good"], warn: ["!", "warn"], bad: ["✕", "bad"], info: ["i", "info"] };
+  return `<div class="ph"><div><h1>Data</h1><p>One upload: the master sheet. Pick its period, add the file or paste the cells, check, save. Each period is kept on its own; the Review shows the one you pick.</p></div></div>
+    <div class="panel"><div class="phd"><h2><span class="stepn">1</span>Which period is this sheet?</h2></div>
+      <div class="mperiod"><div class="seg">${[["ytd", "Year to date"], ["mtd", "One month"]].map(([k, l]) => `<button data-act="m-type" data-t="${k}" aria-pressed="${M.type === k}">${l}</button>`).join("")}</div>
+        <label class="dx-l">${M.type === "ytd" ? "January to" : "Month"}<select class="input" id="m-month">${months.map(m => `<option value="${m}" ${m === M.month ? "selected" : ""}>${ml(m)}</option>`).join("")}</select></label>
+        <span class="mperiod-l">${M.type === "ytd" ? `Year to date · Jan–${esc(new Date(M.month + "-01").toLocaleString("en", { month: "short" }))} ${M.month.slice(0, 4)}` : esc(ml(M.month))}</span></div></div>
+    <div class="panel"><div class="phd"><h2><span class="stepn">2</span>Add the master sheet</h2><small>Excel, CSV or pasted cells · columns: Employee No, Name, DOJ, Grade, BU, Section, Designation, Sales vs bud., Productivity, Shrink, Stock days, Leavers, DA cases, NPS, Rating</small></div>
+      <div class="drop" id="drop"><div class="row" style="justify-content:center"><button class="btn primary" data-act="m-pick">${ic("file", 16)}Choose file</button><button class="btn" data-act="m-paste">${ic("paste", 16)}Paste cells</button></div>
+        <small style="color:var(--muted)">or drag the file here · nothing is saved until you press Save</small><input type="file" id="m-file" hidden accept=".xlsx,.xls,.xlsm,.xlsb,.ods,.csv,.txt,.tsv,.htm,.html"></div>
+      <div class="sl-paste" id="m-pastebox" hidden><textarea class="input" rows="8" id="m-text" placeholder="Copy the whole sheet in Excel (with the title row) and paste here."></textarea><div class="row" style="justify-content:flex-end;margin-top:8px"><button class="btn primary" data-act="m-readtext">Check it</button></div></div>
+      ${r ? `<div class="sl-v ${(lv[r.status] || lv.info)[1]}" style="margin-top:14px"><span>${(lv[r.status] || lv.info)[0]}</span><div><b>${esc(r.headline)}</b>${r.file ? `<small>${esc(r.file)} · ${esc(r.sheet || "")}</small>` : ""}</div>
+          ${r.token && r.status !== "bad" ? `<button class="btn primary" style="margin-left:auto" data-act="m-save">Save as ${esc(r.label)}</button>` : ""}</div>
+        <ul class="sl-checks">${r.checks.map(c => `<li class="${(lv[c.level] || lv.info)[1]}"><span>${(lv[c.level] || lv.info)[0]}</span>${esc(c.text)}</li>`).join("")}</ul>
+        ${r.coverage ? `<div class="mcov">${r.coverage.measures.map(m => `<div><small>${esc(m.label)}</small><span class="mbar"><i style="width:${m.pct}%" class="${m.pct >= 95 ? "good" : m.pct >= 60 ? "warn" : "bad"}"></i></span><b>${m.pct}%</b></div>`).join("")}</div>` : ""}
+        ${r.preview && r.preview.length ? `<details class="sl-more"><summary>First rows as read</summary><div class="tbl-wrap" style="max-height:300px"><table class="t"><thead><tr><th>Emp</th><th>Name</th><th>Store</th><th>Section</th><th>Role</th><th class="n">Sales</th><th class="n">Prod.</th><th class="n">Shrink</th><th class="n">Stock d.</th><th class="n">Leavers</th><th class="n">DA</th><th class="n">NPS</th><th class="n">Rating</th></tr></thead>
+          <tbody>${r.preview.map(x => `<tr><td>${esc(x.emp)}</td><td>${esc(x.name)}</td><td>${esc(x.store)}</td><td>${esc(x.section)}</td><td>${esc(x.designation)}</td>${["sales", "productivity", "shrink", "stock_days", "leavers", "da", "nps", "rating"].map(k => `<td class="n">${x[k] ?? "—"}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>` : ""}` : ""}</div>
+    <div class="panel flush"><div class="phd" style="padding:14px 16px"><h2>Loaded sheets</h2><small>each period on its own · Undo switches one off (it can be restored) · Delete removes it for good</small></div>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Period</th><th>File</th><th>Loaded</th><th class="n">Leaders</th><th class="n">Filled</th><th></th></tr></thead><tbody>
+      ${L.rows.map(x => `<tr style="${x.active ? "" : "opacity:.5"}"><td><b>${esc(x.label)}</b>${x.on_screen ? ` <span class="chip good">on the Review</span>` : ""}</td><td>${esc(x.file)}</td><td>${esc(x.at)}</td><td class="n">${x.rows}</td>
+        <td class="n">${x.filled == null ? "—" : `<span class="chip ${x.filled >= 95 ? "good" : x.filled >= 60 ? "warn" : "bad"}">${x.filled}%</span>`}</td>
+        <td class="n nw">${x.active ? `${x.on_screen ? "" : `<button class="btn sm" data-act="m-show" data-t="${x.type}" data-to="${x.to}">Show</button>`}<button class="btn sm" data-act="m-health" data-id="${x.id}">What's missing</button><button class="btn sm" data-act="undo" data-id="${x.id}">${ic("undo", 13)}Undo</button>` : `<button class="btn sm" data-act="redo" data-id="${x.id}">Restore</button>`}<button class="btn sm danger" data-act="imp-del" data-id="${x.id}" data-name="${esc(x.file)} (${esc(x.label)})">🗑 Delete</button></td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">No master sheet yet. Add one above.</div></td></tr>`}</tbody></table></div></div>`;
 };
+
 function impReplace(file) {
   const s = S.importSess; if (!s) return;
   const i = s.files.findIndex(f => f.file === file.file);
@@ -957,27 +943,14 @@ document.addEventListener("change", async e => {
   catch (err) { render(); }
 });
 AFTER.import = () => {
-  const ye = $("#ytd-end"); if (ye) ye.onchange = async () => { await call("ytd_baseline", { month: ye.value }); S.impMonth = null; render(); };
-  const drop = $("#drop"), fi = $("#filein"), page = $(".page");
+  const drop = $("#drop"), page = $(".page");
   if (!drop) return;
   [drop, page].forEach(el => { if (!el) return;
     ["dragenter", "dragover"].forEach(ev => el.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
     ["dragleave", "drop"].forEach(ev => el.addEventListener(ev, () => drop.classList.remove("over")));
-    el.addEventListener("drop", e => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.files.length && !window.qt) uploadFiles(e.dataTransfer.files); }); });
-  fi.onchange = () => { if (fi.files.length) uploadFiles(fi.files); };
+    el.addEventListener("drop", async e => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.files.length && !window.qt) masterRead({ files: await masterFiles(e.dataTransfer.files) }); }); });
 };
-async function uploadFiles(fileList) {
-  const files = [];
-  for (const f of fileList) {
-    const buf = await f.arrayBuffer();
-    let bin = ""; const bytes = new Uint8Array(buf);
-    for (let i = 0; i < bytes.length; i += 32768) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768));
-    files.push({ name: f.name, b64: btoa(bin) });
-  }
-  toast(`Reading ${files.length} file${files.length > 1 ? "s" : ""}…`);
-  S.importSess = await call("import_upload", { files, month: S.impMonth || null });
-  render();
-}
+async function uploadFiles(fileList) { if (S.page !== "import") go("import"); S.master = S.master || {}; masterRead({ files: await masterFiles(fileList) }); }
 window.PNO_drop = async paths => {
   if (S.page === "ask") { S.attach.push(...paths); drawChat(); return; }
   if (S.page === "hiring" && S.hire.vid) { toast(`Reading ${paths.length} CV${paths.length > 1 ? "s" : ""}…`); hireAfterAdd(await call("hire_add_paths", { paths, vacancy_id: S.hire.vid })); return; }
@@ -2078,11 +2051,12 @@ const RVF = (k, v) => {
   if (v == null) return `<span class="na">—</span>`;
   const f = (DATA.rv && DATA.rv.criteria[k] || {}).fmt;
   return f === "pct0" ? `${v.toFixed(0)}%` : f === "pct1" ? `${v.toFixed(1)}%` : f === "pct1s" ? `${v > 0 ? "+" : ""}${v.toFixed(1)}%`
+    : f === "pct0s" ? `${v > 0 ? "+" : ""}${v.toFixed(0)}%` : f === "pct2s" ? `${v > 0 ? "+" : ""}${v.toFixed(2)}%`
     : f === "pp2s" ? `${v > 0 ? "+" : ""}${v.toFixed(2)}` : f === "dec1" ? v.toFixed(1) : String(Math.round(v));
 };
 const rvBench = (k, unit) => { const c = DATA.rv.criteria[k]; if (c.green == null) return "No benchmark: shown for information";
   if (unit && ["leavers", "da"].includes(k)) return "Total for the group · each person is judged on their own";
-  const u = { pct0: "%", pct1: "%", pct1s: "%", pp2s: " pts" }[c.fmt] || "";
+  const u = { pct0: "%", pct1: "%", pct1s: "%", pct0s: "%", pct2s: "%", pp2s: " pts" }[c.fmt] || "";
   return c.better === "up" ? `Green ${c.green}${u} or more · amber ${c.amber}${u} or more` : `Green ${c.green}${u} or less · amber ${c.amber}${u} or less`; };
 PAGES.rv = async () => {
   const F = S.rv;
@@ -2213,7 +2187,7 @@ function rvWhatIf(p, m) {
   const pt = k => wifPoints(C[k], val[k], st[k].g, st[k].a);
   const calc = () => { const on = keys.filter(k => st[k].on && st[k].w > 0 && pt(k) != null), tw = on.reduce((t, k) => t + st[k].w, 0);
     return { tw, on, v: on.length >= 3 && tw ? Math.round(10 * on.reduce((t, k) => t + pt(k) * st[k].w, 0) / tw) / 10 : null }; };
-  const u = k => ({ pct0: "%", pct1: "%", pct1s: "%", pp2s: " pts" }[C[k].fmt] || "");
+  const u = k => ({ pct0: "%", pct1: "%", pct1s: "%", pct0s: "%", pct2s: "%", pp2s: " pts" }[C[k].fmt] || "");
   box.innerHTML = `<div class="wif-h"><div><h4>What if? · criteria for ${esc(r.name)}</h4><small>Switch criteria on or off, change their weight and where green and amber start. The score, the colours and the place update as you go.</small></div>
       ${p.custom ? `<div class="wif-saved"><span class="chip ctag">custom criteria saved</span><small>standard score ${r.std_score ?? "—"}</small><button class="btn sm" id="wif-std">Back to standard</button></div>` : ""}</div>
     <div class="wif-strip"><div class="wif-k"><small>Score</small><div class="wif-sc"><span class="rc-pill ${cls(sc0)}">${sc0 ?? "—"}</span><span class="wif-arrow">→</span><span class="rc-pill big" id="wif-new"></span><span class="wif-d" id="wif-d"></span></div></div>
@@ -2283,8 +2257,8 @@ async function rvUpdate() {
   rvConfirm(sess);
 }
 window.PNO_drop = async paths => { if (S.page === "ask") { S.attach.push(...paths); drawChat(); return; }
-  if (S.page === "import") { toast(`Reading ${paths.length} file${paths.length > 1 ? "s" : ""}…`); S.importSess = await call("import_analyze", { paths, month: S.impMonth || null }); render(); return; }   // the slot picked on the calendar
-  toast(`Reading ${paths.length} file${paths.length > 1 ? "s" : ""}…`); rvConfirm(await call("import_analyze", { paths, month: null })); };
+  if (S.page === "hiring" && S.hire.vid) { toast(`Reading ${paths.length} CV${paths.length > 1 ? "s" : ""}…`); hireAfterAdd(await call("hire_add_paths", { paths, vacancy_id: S.hire.vid })); return; }
+  if (S.page !== "import") go("import"); S.master = S.master || {}; masterRead({ paths }); };
 let PENDING_SESS = null, RV_AFTER_FIX = null;
 async function rvCourse(key, name) {
   closeModal();
@@ -2350,7 +2324,7 @@ const RV_ACTS = {
   "rv-tile": b => { const F = S.rv; F.sort = b.dataset.k; const c = (DATA.rv && DATA.rv.criteria[b.dataset.k]) || {}; F.desc = c.better ? c.better === "up" : !["stock_days", "oos", "waste", "leavers", "da"].includes(b.dataset.k); render();
     setTimeout(() => { const t = $$(".rpanel").pop(); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); }, 250); },
   "rv-pdf": async b => { const r = await call("profile_export", { emp: b.dataset.emp, fmt: "pdf" }); if (!r.cancelled) toast("Data sheet saved"); },
-  "rv-update": () => rvUpdate(),
+  "rv-update-old": () => rvUpdate(),
   "rv-clear": () => { Object.assign(S.rv, { store: "", dept: "", section: "", role: "", sort: null }); render(); },
   "rv-pfclear": () => { S.rv.pf = { q: "", c: {} }; render(); },
   "rv-course": b => rvCourse(b.dataset.key, b.dataset.name),
@@ -2360,7 +2334,7 @@ const RV_ACTS = {
 };
 SETTINGS.bench = async () => {
   const t = DATA.crit = await API.call("review_criteria", {});
-  const u = r => ({ pct0: "%", pct1: "%", pct1s: "%", pp2s: " pts" }[r.fmt] || "");
+  const u = r => ({ pct0: "%", pct1: "%", pct1s: "%", pct0s: "%", pct2s: "%", pp2s: " pts" }[r.fmt] || "");
   return `<div class="panel"><div class="phd"><h2>Criteria</h2><small>what the Review shows, how much each counts in the score, and where the colours start</small></div>
     <p class="muted" style="margin:0 0 12px">Each result becomes points out of 10 against its own lines: at the amber line it earns 5, at the green line 7, and 10 once it is as far past green as amber is below it (none at all for leavers and cases).
       The score is the weighted average of those points. A weight of 0 shows the criterion without counting it; switch it off to hide it everywhere.</p>
@@ -3285,5 +3259,26 @@ ACT["imp-del"] = b => {
     const r = await call("import_delete", { import_id: id }); closeModal(); toast(`Deleted ${r.file} (${(r.rows || 0).toLocaleString("en-US")} rows)`); S.importSess = null; await afterDataChange(true); };
 };
 ACT["cust-std"] = async b => { await call("review_person_criteria", { key: b.dataset.key, reset: true }); toast("Back on the standard criteria"); render(); };
+async function masterRead(p) {
+  const M = S.master; M.read = { status: "info", headline: "Reading and checking…", checks: [] }; render();
+  try { const r = await call("master_read", { period_type: M.type, month: M.month, ...p }); M.read = r.cancelled ? null : r; } catch (e) { M.read = null; }
+  render();
+}
+async function masterFiles(list) { const out = []; for (const f of list) { const b = new Uint8Array(await f.arrayBuffer()); let bin = ""; for (let i = 0; i < b.length; i += 32768) bin += String.fromCharCode.apply(null, b.subarray(i, i + 32768)); out.push({ name: f.name, b64: btoa(bin) }); } return out; }
+Object.assign(ACT, {
+  "m-type": b => { S.master.type = b.dataset.t; S.master.read = null; render(); },
+  "m-pick": async () => { if (window.qt) return masterRead({}); const fi = $("#m-file"); fi.onchange = async () => { if (fi.files.length) masterRead({ files: await masterFiles(fi.files) }); }; fi.click(); },
+  "m-paste": () => { const b = $("#m-pastebox"); b.hidden = !b.hidden; if (!b.hidden) $("#m-text").focus(); },
+  "m-readtext": () => { const t = $("#m-text").value; if (t.trim()) masterRead({ text: t }); },
+  "m-save": async b => { b.disabled = true; const r = await call("master_save", { token: S.master.read.token }); S.master.read = null; toast(`Saved: ${r.label} is on the Review`); await afterDataChange(true); },
+  "m-show": async b => { await call("po_view", { type: b.dataset.t, to: b.dataset.to }); toast("The Review now shows this period"); render(); },
+  "m-health": b => { S.healthId = +b.dataset.id; go("health"); },
+  "h-f": (b, e) => { if (e) e.preventDefault(); S.healthF = S.healthF === b.dataset.f ? "" : b.dataset.f; render(); },
+});
+document.addEventListener("change", e => {
+  if (e.target && e.target.id === "m-month") { S.master.month = e.target.value; S.master.read = null; render(); }
+  if (e.target && e.target.id === "h-sheet") { S.healthId = +e.target.value; render(); }
+});
+ACT["rv-update"] = () => go("import");
 ACT["side-mini"] = () => { document.body.classList.toggle("side-mini"); try { localStorage.setItem("pno-side-mini", document.body.classList.contains("side-mini") ? "1" : "0"); } catch (e) { /* no storage */ } updateSide(); };
 })();

@@ -83,7 +83,7 @@ def _bench(C, k, unit=False) -> str:
         return "For information"
     if unit and k in ("leavers", "da"):
         return "Group total"
-    u = {"pct0": "%", "pct1": "%", "pct1s": "%", "pp2s": " pts"}.get(c["fmt"], "")
+    u = {"pct0": "%", "pct1": "%", "pct1s": "%", "pct0s": "%", "pct2s": "%", "pp2s": " pts"}.get(c["fmt"], "")
     g = f"{c['green']:g}{u}"
     return f"Green {g} or {'more' if c['better'] == 'up' else 'less'}"
 
@@ -693,7 +693,7 @@ def render_pptx(d: dict, path: str) -> None:
         pl.has_data_labels = True
         dl = pl.data_labels
         dl.font.size, dl.font.name = Pt(9), FONT
-        dl.number_format = {"pct0": '0"%"', "pct1": '0.0"%"', "pct1s": '+0.0"%";-0.0"%"', "pp2s": '+0.00;-0.00', "dec1": "0.0"}.get(ch["fmt"], "0")
+        dl.number_format = {"pct0": '0"%"', "pct1": '0.0"%"', "pct1s": '+0.0"%";-0.0"%"', "pct0s": '+0"%";-0"%"', "pct2s": '+0.00"%";-0.00"%"', "pp2s": '+0.00;-0.00', "dec1": "0.0"}.get(ch["fmt"], "0")
         dl.number_format_is_linked = False
         dl.position = XL_LABEL_POSITION.OUTSIDE_END
         for i, col in enumerate(ch["colors"]):

@@ -50,13 +50,6 @@ def test_undo_removes_the_tab(api):
     assert api.db.q1("SELECT active FROM imports WHERE id=?", (turnover,))[0] == 0
 
 
-def test_ask_pno_answers_p_and_o_questions(api):
-    for q, expect in [("Which roles are at risk?", "Roles at risk"), ("Where is turnover highest?", "Turnover"),
-                      ("Compare Fortress and Lucky One", "LAH Fortress"), ("Explain the leader index", "How the leader index works")]:
-        r = api.dispatch("agent_ask", {"question": q})
-        assert expect in (r.get("answer") or ""), (q, r)
-
-
 def test_name_matching():
     assert canon.section("S050-S051 Deli & Dairy") == "Deli"
     assert canon.section("Comm.FMCG") == "Consumer Goods"

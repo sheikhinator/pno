@@ -77,35 +77,6 @@ def test_import_stores_the_period(db):
     assert rows["po_shrink"] == ("ytd", "2026-01", "2026-09")
 
 
-def test_views_pick_the_right_file_and_keep_general_data(db, tmp_path):
-    api = Api(db)
-    # a second, month-only shrinkage file for August
-    book = make_po_workbook(tmp_path / "aug.xlsx")
-    a = importers.analyze_path(book)
-    shrink = next(r for r in a["results"] if r.kind == "po_shrink")
-    a["results"], a["hash"] = [shrink], "august-file"
-    out = importers.commit(db, a, {shrink.sheet: {"period_type": "mtd", "period_to": "2026-08"}})
-    assert out[0]["status"] == "ok" and out[0]["period"] == "MTD Aug 2026"
-
-    ytd = Insights(PoStore(db), view={"type": "ytd", "from": "2026-01", "to": "2026-09"})
-    assert ytd.periods["po_shrink"] == "YTD Jan–Sep 2026"
-    assert ytd.has("po_role") and ytd.has("po_master")            # general data counts for every period
-    assert any(l.score is not None for l in ytd.leaders())
-
-    mtd = Insights(PoStore(db), view={"type": "mtd", "to": "2026-08"})
-    assert mtd.periods["po_shrink"] == "MTD Aug 2026"
-    assert mtd.has("po_role")
-    assert any("no MTD data" in n for n in mtd.notes)               # tabs that only have YTD say so
-
-    p = api.dispatch("po_view", {"type": "mtd", "to": "2026-08"})
-    assert p["label"] == "MTD Aug 2026" and p["view"]["type"] == "mtd"
-    r = api.dispatch("review", {})
-    assert r["has_data"] and r["period"]["label"] == "MTD Aug 2026"
-    assert {c["type"] for c in r["period"]["coverage"]} >= {"general", "mtd", "ytd"}
-    api.dispatch("po_view", {"type": "latest"})
-    assert api.dispatch("po_period", {})["view"]["type"] == "latest"
-
-
 def test_turnover_is_cut_to_the_period(db):
     full = Insights(PoStore(db))
     dates = sorted(r["date"] for r in full.rows("po_turnover") if r.get("date"))

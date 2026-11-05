@@ -1028,6 +1028,118 @@ class Api:
     def api_import_undo(self, import_id: int) -> dict:
         return importers.undo(self.db, int(import_id))
 
+    # ------------------------------------------------ 6.0 the master sheet: the one upload
+    def api_master_read(self, period_type: str = "ytd", month: str = "", paths: list | None = None, files: list | None = None,
+                        text: str | None = None) -> dict:
+        """Read the master sheet (file or pasted cells), check it, and show what will be saved for the period."""
+        import base64
+        from . import master
+        from .reader import from_text, open_bytes, open_file
+        if paths is None and files is None and not text:
+            paths = self.host.pick_files("reports")
+            if not paths:
+                return {"cancelled": True}
+        wbs = []
+        for p in paths or []:
+            wbs.append(open_file(p))
+        for f in files or []:
+            wbs.append(open_bytes(base64.b64decode(f["b64"]), f["name"]))
+        if text:
+            wbs.append(from_text(text, "Pasted cells"))
+        best = None
+        for wb in wbs:
+            for sh in wb.sheets:
+                if master.score(sh)[0] > 0:
+                    r = master.parse(sh)
+                    if best is None or len(r["rows"]) > len(best[2]["rows"]):
+                        best = (wb, sh, r)
+        if best is None:
+            seen = [f"{wb.name} · {sh.name}" for wb in wbs for sh in wb.sheets]
+            return {"status": "bad", "headline": "This isn't the master sheet.",
+                    "checks": [{"level": "bad", "text": "No sheet has the master sheet's columns (Employee No, Designation and the measures)."}]
+                    + [{"level": "info", "text": f"Looked at: {x}"} for x in seen[:6]], "token": None}
+        wb, sh, r = best
+        ptype = "mtd" if period_type == "mtd" else "ytd"
+        if not re.match(r"^20\d\d-\d\d$", month or ""):
+            t = date.today()
+            month = f"{t.year}-{t.month - 1:02d}" if t.month > 1 else f"{t.year - 1}-12"
+        pfrom = f"{month[:4]}-01" if ptype == "ytd" else month
+        token = uuid.uuid4().hex[:12]
+        self.sessions[token] = {"master": r, "file": wb.name, "hash": wb.file_hash, "ptype": ptype, "pfrom": pfrom, "pto": month, "created": now()}
+        cov = master.coverage(r["rows"])
+        checks = [{"level": "good", "text": f"{len(r['rows'])} leaders read from '{sh.name}'."}]
+        stores = sorted({x["store"] for x in r["rows"] if x["store"]})
+        checks.append({"level": "good", "text": f"{len(stores)} stores: {', '.join(stores[:12])}{'…' if len(stores) > 12 else ''}."})
+        lv = {}
+        for x in r["rows"]:
+            lv[x["designation"] or "?"] = lv.get(x["designation"] or "?", 0) + 1
+        checks.append({"level": "good", "text": "Roles: " + ", ".join(f"{n} {k}" for k, n in sorted(lv.items(), key=lambda kv: -kv[1])) + "."})
+        for m in r["missing_columns"]:
+            checks.append({"level": "bad" if m in ("Employee No", "Designation", "BU") else "warn", "text": f"Column '{m}' is not in the sheet."})
+        for m in cov["measures"]:
+            if m["pct"] < 100:
+                checks.append({"level": "warn" if m["pct"] else "info",
+                               "text": f"{m['label']}: filled for {m['filled']} of {m['of']} leaders" + (" (not filled yet: shows '—' and doesn't count in scores)" if m["pct"] < 100 else "") + "."})
+        for x in r["scaled"]:
+            checks.append({"level": "info", "text": f"{x}: Excel stored these as fractions (0.152); read as percentages (15.2%)."})
+        for w in r["warnings"]:
+            checks.append({"level": "warn", "text": w})
+        same = self.db.q1("SELECT file_name, created_at FROM imports WHERE active=1 AND kind='master' AND period_type=? AND period_to=?", (ptype, month))
+        if same:
+            checks.append({"level": "info", "text": f"Saving replaces the sheet already loaded for this period ({same['file_name']}, {same['created_at'][:10]}); it can be restored from the list."})
+        bad = any(c["level"] == "bad" for c in checks)
+        warn = any(c["level"] == "warn" for c in checks)
+        from . import master as M
+        lab = M.label(ptype, pfrom, month)
+        head = (f"Can't save: the sheet is missing columns P&O needs." if bad else
+                f"Ready to save as {lab}. Some figures aren't filled yet; they show as '—' until next time." if warn else f"Ready to save as {lab}: everything is filled.")
+        prev = [{k: x.get(k) for k in ("emp", "name", "store", "section", "designation", *master.MEASURES)} for x in r["rows"][:8]]
+        return {"token": token, "status": "bad" if bad else "warn" if warn else "good", "headline": head, "checks": checks, "label": lab,
+                "coverage": cov, "preview": prev, "file": wb.name, "sheet": "" if sh.name == wb.name else sh.name}
+
+    def api_master_save(self, token: str) -> dict:
+        from . import master
+        sess = self.sessions.get(token)
+        if not sess or "master" not in sess:
+            raise ValueError("This preview has expired. Please add the sheet again.")
+        r = sess["master"]
+        if not r["rows"]:
+            raise ValueError("Nothing to save.")
+        iid = master.save(self.db, r["rows"], sess["file"], sess["hash"], sess["ptype"], sess["pfrom"], sess["pto"])
+        self.db.set_setting("master_view", None)                  # show the newest
+        self.db.log("import", f"master sheet {sess['file']} {sess['ptype']} {sess['pto']}")
+        self.sessions.pop(token, None)
+        self._po_cache = None
+        self.__dict__.pop("_rv_cache", None)
+        return {"ok": True, "import_id": iid, "label": master.label(sess["ptype"], sess["pfrom"], sess["pto"])}
+
+    def api_master_list(self) -> dict:
+        """Every master sheet loaded, newest first, with how complete it is."""
+        from . import master
+        cur = master.chosen(self.db)
+        out = []
+        for r in self.db.q("SELECT * FROM imports WHERE kind='master' ORDER BY period_to DESC, period_type, id DESC"):
+            r = dict(r)
+            cov = master.coverage(master.rows_for(self.db, r)) if r["active"] else None
+            out.append({"id": r["id"], "label": master.label(r["period_type"], r["period_from"], r["period_to"]), "type": r["period_type"], "to": r["period_to"],
+                        "file": r["file_name"], "at": (r["created_at"] or "")[:16].replace("T", " "), "rows": r["rows"], "active": bool(r["active"]),
+                        "filled": cov["filled_pct"] if cov else None, "on_screen": bool(cur and cur["id"] == r["id"])})
+        return {"rows": out}
+
+    def api_master_health(self, import_id: int | None = None) -> dict:
+        """What is filled and what is still missing in the master sheet on screen (or the one given)."""
+        from . import master
+        p = None
+        if import_id:
+            p = next((x for x in master.periods(self.db) if x["id"] == int(import_id)), None)
+        p = p or master.chosen(self.db)
+        if not p:
+            return {"empty": True}
+        rows = master.rows_for(self.db, p)
+        return {"empty": False, "id": p["id"], "label": master.label(p["period_type"], p["period_from"], p["period_to"]), "file": p["file_name"],
+                "periods": [{"id": x["id"], "label": master.label(x["period_type"], x["period_from"], x["period_to"])} for x in master.periods(self.db)],
+                **master.coverage(rows)}
+
     def api_import_delete(self, import_id: int) -> dict:
         """Delete an uploaded file's data for good (Undo only switches it off)."""
         out = importers.delete(self.db, int(import_id))
@@ -1351,7 +1463,7 @@ class Api:
     # ---------------------------------------------------------------- 4.0 review
     def api_review(self, store: str | None = None, dept: str | None = None, section: str | None = None, role: str | None = None) -> dict:
         from . import review
-        key = ("rv", self.db.version, json.dumps(self.db.get_setting("po_view", None), sort_keys=True), store, dept, section, role)
+        key = ("rv", self.db.version, json.dumps(self.db.get_setting("master_view", None), sort_keys=True), store, dept, section, role)
         c = self.__dict__.setdefault("_rv_cache", {})
         if key not in c:
             if len(c) > 40:
@@ -1705,50 +1817,26 @@ class Api:
 
     # ---------------------------------------------------------------- P&O review (the ten-tab P&O workbook)
     def _po(self):
-        from .po import privacy
-        from .po.insights import Insights
-        from .po.store import PoStore
-
-        hide = self._hide()
-        privacy.set_demo_mode(hide)
-        weights = self.db.get_setting("po_weights", None)
-        view = self.db.get_setting("po_view", None)
-        key = (str(self.db.path), self.db.version, json.dumps(weights, sort_keys=True), json.dumps(view, sort_keys=True), hide)
+        """6.0: everything comes from the master sheet."""
+        from . import master
+        key = (str(self.db.path), self.db.version, json.dumps(self.db.get_setting("master_view", None), sort_keys=True))
         cached = getattr(self, "_po_cache", None)
         if cached and cached[0] == key:
             return cached[1]
-        ins = Insights(PoStore(self.db), weights=weights, view=view)
+        ins = master.Insights(self)
         self._po_cache = (key, ins)
         return ins
 
-    def _po_period(self, ins) -> dict:
-        """The period every P&O screen is showing, what each tab contributes to it, and the choices available."""
-        from .po.insights import PACK_LABELS, _ml
-        cov = sorted(ins.coverage, key=lambda c: (c.get("type") != "general", PACK_LABELS.get(c["kind"], c["kind"])))
-        from .datahealth import _age
-        created = {r["id"]: r["created_at"] for r in self.db.q("SELECT id, created_at FROM imports WHERE active=1")}
-        slots, seen = [], set()
-        for r in self.db.q(f"""SELECT DISTINCT period_type, period_from, period_to FROM imports WHERE active=1 AND period_type IN ('ytd','mtd')
-                               AND kind IN ({",".join("?" * len(self.SUMMARY_KINDS))}) ORDER BY period_to, period_type DESC""", self.SUMMARY_KINDS):
-            t, f, to = r["period_type"], r["period_from"], r["period_to"]
-            if not to or (t, f, to) in seen:
-                continue
-            seen.add((t, f, to))
-            lab = f"{_ml(f)}–{_ml(to)} (YTD)" if t == "ytd" else _ml(to)
-            slots.append({"type": t, "from": f if t == "ytd" else to, "to": to, "label": lab})
-        base = self.ytd_baseline()
-        if base:
-            keep = [x for x in slots if (x["type"] == "ytd" and x["to"] == base and (x["from"] or "").endswith("-01")) or (x["type"] == "mtd" and x["to"] > base)]
-            if not any(x["type"] == "ytd" for x in keep):
-                keep.insert(0, {"type": "ytd", "from": f"{base[:4]}-01", "to": base, "label": f"{_ml(base[:4] + '-01')}–{_ml(base)} (YTD)"})
-            slots = keep
-        return {"slots": slots, "view": ins.view, "label": ins.view_label, "notes": ins.notes, "leaver_window": ins.leaver_window,
-                "sales_label": ins.periods.get("po_sales") or "",
-                "months": [{"value": m, "label": _ml(m)} for m in ins.available["months"]], "types": ins.available["types"],
-                "ytd_from": ins.available.get("ytd_from", {}), "default_to": ins.available.get("default_to"),
-                "coverage": [{"name": PACK_LABELS.get(c["kind"], c["kind"]), "type": c.get("type") or "", "label": c.get("label") or "—",
-                              "rows": c["rows"], "note": c.get("note", ""), "how": c.get("how", ""),
-                              "age": _age(created.get(c.get("iid")))} for c in cov]}
+    def _po_period(self, ins=None) -> dict:
+        """The Review's period bar: every master sheet loaded (year to date or one month), and the one on screen."""
+        from . import master
+        ps = master.periods(self.db)
+        cur = master.chosen(self.db)
+        slots = [{"type": p["period_type"], "from": p["period_from"] or p["period_to"], "to": p["period_to"],
+                  "label": master.label(p["period_type"], p["period_from"], p["period_to"])} for p in ps]
+        view = {"type": cur["period_type"], "from": cur["period_from"] or cur["period_to"], "to": cur["period_to"]} if cur else {"type": "latest"}
+        return {"slots": slots, "view": view, "label": master.label(cur["period_type"], cur["period_from"], cur["period_to"]) if cur else "No data yet",
+                "notes": [], "months": [{"value": p["period_to"], "label": p["period_to"]} for p in ps] or [{"value": "", "label": ""}], "coverage": []}
 
     def api_data_health(self, month: str | None = None) -> dict:
         from . import datahealth
@@ -1767,9 +1855,9 @@ class Api:
         return {"has_data": not ins.empty, **self._po_period(ins)}
 
     def api_po_view(self, type: str = "latest", **kw) -> dict:  # noqa: A002 - matches the screen's field name
-        """Choose the period for the P&O screens: latest data, one month (MTD) or a year-to-date range (from–to)."""
-        view = {"type": type if type in ("latest", "mtd", "ytd") else "latest", "from": kw.get("from"), "to": kw.get("to")}
-        self.db.set_setting("po_view", view)
+        """Pick the period the Review shows: one of the master sheets loaded (latest = the newest)."""
+        self.db.set_setting("master_view", {"type": type, "to": kw.get("to")} if type in ("ytd", "mtd") else None)
+        self.db.version += 1
         return self.api_po_period()
 
     def _leader_row(self, ins, leader, ranks) -> dict:
@@ -1954,3 +2042,12 @@ def load_demo(db: Database) -> None:
         importers.commit(db, a, {"*": {"as_of": "2026-09-30"}} if "Employee" in name else None, source="demo")
     for md, name in FIXED_HOLIDAYS:
         db.x("INSERT OR IGNORE INTO holidays(day, name) VALUES(?,?)", (f"2026-{md}", name))
+    # 6.0: the master sheet, year to date to September and October on its own
+    from . import master
+    from .reader import from_text
+    for month, ytd in (("2026-09", True), ("2026-10", False)):
+        data = demo.master_tsv(month, ytd)
+        r = master.parse(from_text(data.decode("utf-8"), "Master sheet").sheets[0])
+        import hashlib
+        master.save(db, r["rows"], f"Master sheet {'YTD' if ytd else 'MTD'} {month} (demo).xlsx", hashlib.sha1(data).hexdigest(),
+                    "ytd" if ytd else "mtd", f"{month[:4]}-01" if ytd else month, month, source="demo")
