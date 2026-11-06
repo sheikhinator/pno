@@ -534,12 +534,12 @@ AFTER.org = () => { $$(".page select[data-scope]").forEach(s => s.onchange = () 
 
 /* ask: a Claude-style analyst chat */
 const SUGGEST = [
-  ["📊", "How is CG doing at country level?", "Scorecard, what's strong, what's weak, focus"],
-  ["🏬", "What should we focus on in Fresh Food at Fortress?", "One store, one department"],
-  ["👥", "Show the department heads for LHH", "Every criterion and score, not ranked"],
-  ["🥖", "How is Bakery doing across the country?", "One section in every store"],
-  ["🧑‍💼", "Tell me about Arslan Arshad", "One person's full data sheet"],
-  ["🧭", "Compare Fortress and Emporium", "Side by side on every measure"]];
+  ["📊", "Give me an overview", "Country results, High / Good / Low, focus"],
+  ["🧑‍💼", "Tell me about Arslan Arshad", "One person's full sheet: every result, score, ratings"],
+  ["📉", "Bottom 5 department heads on sales", "Ranked on any criterion"],
+  ["🏬", "How is Fortress doing?", "One store: results, focus and every leader"],
+  ["🧭", "Compare Fortress and Emporium", "Side by side on every measure"],
+  ["🧩", "What is missing in the data?", "Who still needs which figure"]];
 const chatStore = { list() { return store.get("chats", []); }, save(list) { store.set("chats", list.slice(0, 25)); } };
 function saveChat() {
   if (!S.chat.length || S.chat.some(m => m.pending)) return;
@@ -570,7 +570,7 @@ function composerHtml(big) {
   const st = S.init.ai;
   return `<div class="cbox ${big ? "big" : ""}" id="cbox">
       <div class="att" id="att">${attChips()}</div>
-      <textarea id="askq" rows="${big ? 3 : 1}" placeholder="Ask anything about your stores, people, sales, turnover, NPS… or drop a file"></textarea>
+      <textarea id="askq" rows="${big ? 3 : 1}" placeholder="Ask about any store or leader: results, scores, ratings, who is missing what… or drop the master sheet"></textarea>
       <div class="cbar"><button class="cbtn" data-act="ask-attach" title="Attach files">${ic("attach", 18)}</button>
         <button class="cbtn" data-act="ask-paste" title="Paste a table">${ic("paste", 17)}</button>
         <div class="menu-wrap"><button class="cmodel" data-act="eng-menu" title="Switch AI" id="engbtn">${engBtn()}</button><div class="cmenu up" id="engmenu" hidden></div></div>

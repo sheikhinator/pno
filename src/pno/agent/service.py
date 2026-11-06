@@ -8,13 +8,11 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 import time
 import uuid
 from pathlib import Path
 
-from .. import engine, importers
-from ..db import now, ro_uri
+from ..db import now
 from . import basic, llm, local
 from .secrets import mask, protect, unprotect
 from .tools import Toolbox, openai_tools
@@ -23,29 +21,29 @@ SYSTEM = """You are "P&O AI", the analyst inside P&O (People & Organisation), th
 Majid Al Futtaim Carrefour Pakistan, used by the P&O Director. Answer from the app's data only, using the tools. Never invent
 names or numbers; if something is not in the data, say so plainly.
 
-What the data covers (call the tools, several if needed, before answering):
-- People scores out of 10 (overview, find_people, person, store, attendance, trend, sql).
-- The P&O review (po_review): store league on sales vs budget, growth, productivity vs target, shrinkage and stock days,
-  out-of-stock, NPS; every section leader with a leader index out of 10, ratings, time in role, roster, team turnover and
-  disciplinary cases; talent grid; bench strength; turnover hotspots and reasons; customer NPS by city and section.
-- Other imported tables (datasets): KPI sheets, lists, surveys the user added.
+The data: ONE master sheet per period (year to date or one month), one row per leader (store managers, deputy managers,
+department heads, section managers, team leaders) with: employee number, name, joining date, grade, store (BU), section,
+designation, time in current role, and their results: Sales vs budget %, Productivity vs target %, Shrink vs budget %,
+Stock days (% of budget), Leavers, Disciplinary (DA) cases, Customer NPS and performance Rating (one per year).
+A blank, "—", #N/A, "Unrated" or a rating of 0 means "not filled yet": it is left out, never counted as zero.
 
-How P&O scores people: each person gets a score out of 10 from what they control (7 = met target, 10 = clearly beat it).
-Store Manager: total store; Department Head: their department; Section Manager / Team Leader: their sections; staff: 70% own
-attendance + 30% section result. Real absence excludes weekly offs, holidays and booked leave; 9 hours is a full day.
-Bands: 9+ Outstanding, 7.5+ Strong, 6+ Meets, 4+ Needs improvement, below 4 Concern.
+How P&O scores a leader: each filled result earns 0-10 points against its benchmark (amber line = 5, green line = 7, one step
+past green = 10); the score out of 10 is the weighted average of those points (at least 3 results are needed for a score).
+Category: High 7+, Good 5-6.9, Low below 5. Some people have their own criteria (marked custom); the tools already apply them.
+The current criteria and weights are given below; quote them as they are.
+
+Always call a tool before answering: person for anyone named (even a first name), people for lists and rankings, store / stores
+for stores, overview for the country, review for a department or section view, data_health for what is missing, sql for anything
+else. If a name matches several people, ask which one. If someone has no score, say which results are missing (not_filled_yet).
 
 How to answer (like a senior analyst writing for a director):
 1. First line: the direct answer in one or two sentences, with the key number in **bold**.
 2. Call the kpis tool with 3-5 headline figures (value + short context, tone good/warn/bad) when numbers matter.
-3. Then short sections with ### headings: what the data shows, why (drivers, comparisons, outliers), what it means.
-   Use markdown tables for comparisons of several items, bullets for lists, and "> " callouts for the single most important
-   risk ("> **Risk:** …") or win ("> **Strength:** …").
-4. Use the chart tool for any ranking, comparison or trend with 3+ values (hbar for rankings, line for trends, donut for
-   shares of a whole, bar for grouped comparisons). One or two charts, not more.
+3. Then short sections with ### headings: what the data shows, why (drivers, comparisons with peers and benchmarks), what it means.
+   Use markdown tables for several items, bullets for lists, and one "> **Risk:** …" or "> **Strength:** …" callout.
+4. Use the chart tool for any ranking or comparison with 3+ values. One or two charts, not more.
 5. End with "### Recommended actions": 2-4 numbered, specific actions (who, what).
-Keep it tight: no filler, no repeating the question. Mention the month or data date. Write + and − signs on changes.
-When the user asks to record leave, holidays or notes, use the propose_* tools; nothing is saved until they click Confirm.
+Keep it tight: no filler, no repeating the question. Say which period the figures cover. Write + and − signs on changes.
 If the user writes in Urdu or Roman Urdu, answer in the same language."""
 
 
@@ -56,13 +54,13 @@ STATUS_LABEL = {"offline": "Offline AI · on this PC", "basic": "Built-in assist
 
 
 FOLLOW = [
-    (r"turnover|leaver|attrition|resign", ["Which sections lose the most people?", "Why are people leaving?", "Make a retention course for team leaders"]),
-    (r"nps|customer", ["Which categories improved most?", "Where is NPS weakest by city?", "Make a 2 hour customer service course for associates"]),
-    (r"leader|talent|section manager|index", ["Who is ready for promotion?", "Which roles have no successor?", "Make a development pack for the weakest leader"]),
+    (r"turnover|leaver|attrition|resign", ["Which stores have the most leavers?", "Which department heads have zero leavers?", "Make a retention course for team leaders"]),
+    (r"nps|customer", ["Which stores have NPS below 50?", "Who has the best NPS?", "Make a 2 hour customer service course for associates"]),
     (r"vacanc|candidate|hiring|cv", ["How is hiring going?", "Who should we interview first?", "Anyone in the talent bank with fresh food experience?"]),
-    (r"course|training", ["What training do we have?", "Make a 3 hour shrink course for section managers", "Which stores completed their training?"]),
-    (r"data health|missing|ready", ["Which reports are missing this month?", "Brief me for the country review", "Which stores need attention and why?"]),
-    (r"sales|budget|store|productiv|shrink", ["Which stores need attention and why?", "Compare the top and bottom store", "Where is shrinkage worst?"]),
+    (r"course|training", ["What training do we have?", "Make a 3 hour shrink course for section managers", "Which store managers need training most?"]),
+    (r"missing|not filled|complete|health", ["Who is missing a rating?", "Which stores have gaps in the data?", "Brief me for the country review"]),
+    (r"store manager|department head|deputy|leader|score|rating", ["Who are the bottom 5 department heads?", "Who could replace a store manager?", "Compare Fortress and Emporium"]),
+    (r"sales|budget|store|productiv|shrink|stock", ["Which stores need attention and why?", "Who is below sales budget?", "Where is stock days worst?"]),
 ]
 
 
@@ -334,44 +332,6 @@ class AgentService:
         self.db.log("agent", f"confirmed {act['kind']}: {act['title']}")
         return {"ok": True, "message": msg}
 
-    # ---------------------------------------------------------------- the read-only SQL sandbox
-    def sql_connection(self, month: str | None, anonymise: bool) -> sqlite3.Connection:
-        mm = engine.model(self.db, month)
-        con = sqlite3.connect(ro_uri(self.db.path), uri=True)
-        con.execute("""CREATE TEMP TABLE people(emp, name, store, city, format, dept_code, dept, section, designation, grade, gender,
-                       role, role_label, score, band, coverage, attendance_score, presence_pct, compliance_pct, worked_days,
-                       absent_days, leave_days, off_days, punches_to_fix, longest_absence, avg_hours, sales_vs_budget_pct,
-                       productivity_vs_target_pct, oos_pct, waste_pct, manager_emp, manager_name, joining)""")
-        rows = []
-        for p in mm.people.values():
-            a = p.att or {}
-            b = p.brief()
-            rows.append((p.emp, f"Employee {p.emp}" if anonymise else p.name, p.store, p.city, p.store_format, p.dept_code, p.dept,
-                         p.section, p.designation, p.grade, p.gender, p.role, b["role_label"], b["score"], b["band"], b["coverage"],
-                         a.get("score"), a.get("presence"), a.get("compliance"), a.get("worked"), a.get("absent"), a.get("leave"),
-                         a.get("off"), a.get("fixes"), a.get("longest_absence"),
-                         round(a["avg_minutes"] / 60, 2) if a.get("avg_minutes") else None, p.kpis.get("sales"), p.kpis.get("prod"),
-                         p.kpis.get("oos"), p.kpis.get("waste"), p.manager_emp,
-                         p.manager_name if not anonymise else None, p.joining))
-        con.executemany(f"INSERT INTO people VALUES({','.join('?' * 33)})", rows)
-        con.execute("""CREATE TEMP VIEW sales AS SELECT st.name AS store, s.month, s.as_of, s.level, s.code, s.name, s.dept, s.actual,
-                       s.budget, s.growth, s.ly, s.waste, s.oos, s.margin_net, s.customers
-                       FROM main.sales s JOIN main.stores st ON st.id=s.store_id JOIN main.imports i ON i.id=s.import_id AND i.active=1
-                       WHERE s.period='MTD' AND s.as_of=(SELECT MAX(s2.as_of) FROM main.sales s2 JOIN main.imports i2 ON i2.id=s2.import_id
-                       AND i2.active=1 WHERE s2.store_id=s.store_id AND s2.month=s.month AND s2.period='MTD')
-                       AND s.level IN ('section','dept','store')""")
-        con.execute("""CREATE TEMP VIEW productivity AS SELECT st.name AS store, p.month, p.row_code, p.row_name, p.actual, p.target, p.ly
-                       FROM main.productivity p JOIN main.stores st ON st.id=p.store_id JOIN main.imports i ON i.id=p.import_id AND i.active=1""")
-        con.execute("""CREATE TEMP VIEW leaves AS SELECT l.emp_no, l.d_from, l.d_to, l.type FROM main.leaves l
-                       LEFT JOIN main.imports i ON i.id=l.import_id WHERE l.import_id IS NULL OR i.active=1""")
-        con.execute("CREATE TEMP VIEW stores AS SELECT id, name, format, city FROM main.stores")
-        allowed = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, getattr(sqlite3, "SQLITE_RECURSIVE", 33)}
-
-        def guard(action, a1, a2, db, src):
-            return sqlite3.SQLITE_OK if action in allowed else sqlite3.SQLITE_DENY
-        con.set_authorizer(guard)
-        return con
-
     # ---------------------------------------------------------------- asking
     def _endpoint(self, engine_name: str, c: dict, keys: dict, wait: float | None = None) -> tuple[str, str, str]:
         if engine_name in llm.PROVIDERS:
@@ -436,9 +396,9 @@ class AgentService:
         return self._reply(tb, note + (intro + "\n\n" if intro else "") + text, "basic", t0)
 
     def _reply(self, tb: Toolbox, text: str, engine_name: str, t0: float) -> dict:
-        if tb.anon:
-            mm = tb._mm()
-            text = re.sub(r"Employee (\d{5,})", lambda m: f"{mm.people[m.group(1)].name} ({m.group(1)})" if m.group(1) in mm.people else m.group(0), text)
+        if tb.anon and tb._facts is not None:
+            by = tb.facts.by_emp
+            text = re.sub(r"Employee (\d{5,})", lambda m: f"{by[m.group(1)]['name']} ({m.group(1)})" if m.group(1) in by else m.group(0), text)
         label = ENGINE_NAME[engine_name]
         if engine_name in llm.PROVIDERS:
             label += " · " + self._model(self._cfg(), engine_name).split("/")[-1]
@@ -447,10 +407,10 @@ class AgentService:
 
     def _llm(self, engine_name: str, c: dict, keys: dict, tb: Toolbox, question: str, history: list) -> str:
         base, model, k = self._endpoint(engine_name, c, keys)
-        mm = tb._mm()
-        ctx = (f"Month on screen: {mm.month} (data up to {mm.as_of}). Filters on screen: "
-               f"{json.dumps(tb.scope) if tb.scope else 'whole country'}. Months available: {', '.join(engine.months_available(self.db))}. "
-               f"Today: {time.strftime('%Y-%m-%d')}.")
+        f = tb.facts
+        ctx = ("No master sheet uploaded yet." if f.empty else
+               f"Period on screen: {f.period_label}. Periods loaded: {', '.join(f.periods)}. Leaders: {len(f.leaders)} in {len(f.stores())} stores "
+               f"({', '.join(f.stores())}). Criteria and weights now: {f.criteria_text()}.") + f" Today: {time.strftime('%Y-%m-%d')}."
         msgs = [{"role": "system", "content": SYSTEM + "\n\n" + ctx}]
         hist = [h for h in history if h.get("role") in ("user", "assistant") and h.get("content")]
         if len(hist) > 6:                       # older turns as one short line each, the last three exchanges in full
@@ -477,74 +437,27 @@ class AgentService:
 
     # ---------------------------------------------------------------- files dropped into the chat
     def _attachments(self, tb: Toolbox, paths: list) -> str:
-        lines = []
-        known = []
-        for p in paths:
-            try:
-                a = importers.analyze_path(p)
-            except Exception as e:
-                lines.append(f"**{Path(p).name}**: could not be read ({e}).")
-                continue
-            if a["results"] and all(r.kind == "dataset" for r in a["results"]):
-                leave = self._leave_from_unknown(p)
-                if leave:
-                    tb.t_propose_leave(leave)
-                    lines.append(f"**{Path(p).name}** looks like a leave list. I prepared {len(leave)} leave records for you to confirm.")
-                    continue
-            if a["results"]:
-                known.append(p)
-                for r in a["results"]:
-                    lines.append(f"**{Path(p).name}** looks like a **{importers.KIND_LABEL[r.kind]}**: {r.summary}.")
-            else:
-                leave = self._leave_from_unknown(p)
-                if leave:
-                    tb.t_propose_leave(leave)
-                    lines.append(f"**{Path(p).name}** looks like a leave list. I prepared {len(leave)} leave records for you to confirm.")
-                else:
-                    lines.append(f"**{Path(p).name}**: I could not recognise this file. Try the Import screen to map it.")
-        if known:
-            res = self.api.api_import_analyze(paths=known)
-            act = self.new_action("import", f"Import {len(known)} file{'s' if len(known) != 1 else ''}",
-                                  [{"file": f["file"], "tables": [r["label"] + f" ({r['rows']} rows)" for r in f["results"]]} for f in res["files"]])
-            self.pending[act["id"]]["token"] = res["token"]
-            needs = {r["sheet"]: {"month": res["suggested_month"]} for f in res["files"] for r in f["results"] if "month" in r["needs"]}
-            if needs:
-                self.pending[act["id"]]["options"] = {f["file"]: needs for f in res["files"]}
-                lines.append(f"A productivity report has no date; I'll file it under **{res['suggested_month']}** (change on the Import screen if needed).")
-            tb.actions.append(act)
-            lines.append("Click **Confirm** to import.")
-        return "\n".join(lines)
-
-    def _leave_from_unknown(self, path: str) -> list[dict]:
-        """A leave list in an unknown layout: the AI sees only the headers and 5 sample rows to work out the columns;
-        the whole file is then read here on this PC."""
+        """A file dropped into the chat: if it is a master sheet, say what is in it and how complete it is."""
+        from .. import master
         from ..reader import open_file
-        from ..util import clean_text, emp_code
-        wb = open_file(path)
-        if not wb.sheets:
-            return []
-        rows = wb.sheets[0].rows
-        hdr_i = next((i for i, r in enumerate(rows[:15]) if sum(1 for x in r if isinstance(x, str) and x.strip()) >= 3), 0)
-        header = [clean_text(x) for x in rows[hdr_i]]
-        sample = [[clean_text(x) for x in r] for r in rows[hdr_i + 1:hdr_i + 6]]
-        mapping = None
-        if self._choose(self._cfg()) != "basic":
-            prompt = ("Columns of a spreadsheet: " + json.dumps(header) + "\nSample rows: " + json.dumps(sample) +
-                      '\nIf this is a list of employee leave, reply with JSON only: {"emp": i, "from": i, "to": i, "type": i, '
-                      '"status": i} using 0-based column indexes (null if missing). If it is not a leave list reply {"leave": false}.')
+        lines = []
+        for p in paths:
+            name = Path(p).name
             try:
-                out = self.complete(prompt, max_tokens=120, task="import")
-                m = re.search(r"\{.*\}", out[0] if out else "", re.S)
-                mapping = json.loads(m.group(0)) if m else None
-            except Exception:
-                mapping = None
-        if not mapping or mapping.get("leave") is False or mapping.get("emp") is None or mapping.get("from") is None:
-            return []
-        out = []
-        for r in rows[hdr_i + 1:]:
-            g = lambda k: r[mapping[k]] if mapping.get(k) is not None and mapping[k] < len(r) else None  # noqa: E731
-            emp = emp_code(g("emp"))
-            if not emp or (g("status") and re.search(r"reject|cancel|pending|declin", str(g("status")), re.I)):
+                wb = open_file(p)
+            except Exception as e:  # noqa: BLE001
+                lines.append(f"**{name}**: could not be read ({e}).")
                 continue
-            out.append({"who": emp, "from": str(g("from")), "to": str(g("to") or g("from")), "type": clean_text(g("type")) or "Leave"})
-        return out
+            sheet = next((sh for sh in wb.sheets if master.score(sh)[0] > 0), None)
+            if not sheet:
+                lines.append(f"**{name}** is not a master sheet (no Employee No, Designation and result columns found).")
+                continue
+            r = master.parse(sheet)
+            cov = master.coverage(r["rows"])
+            gaps = [f"{m['label']} {m['filled']}/{m['of']}" for m in cov["measures"] if m["filled"] < m["of"]]
+            lines.append(f"**{name}** is a master sheet: **{cov['people']} leaders** in {len(cov['stores'])} stores, "
+                         f"{cov['filled_pct']}% of results filled" + (f" (still missing: {', '.join(gaps)})" if gaps else "") + ".")
+            lines += [f"> {w}" for w in r["warnings"][:3]]
+        if lines:
+            lines.append("To use it, open **Data → Master sheet**, pick the period (year to date or one month) and add the file.")
+        return "\n".join(lines)

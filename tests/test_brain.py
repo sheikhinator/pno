@@ -35,19 +35,6 @@ def test_brain_pages(api):
     assert g["nodes"] and all(e["a"] in ids and e["b"] in ids for e in g["edges"])
 
 
-def test_chat_correction_needs_confirm(api):
-    from pno.agent import basic
-    from pno.agent.tools import Toolbox
-    tb = Toolbox(api.agent, "2026-09", {}, False)
-    name = api.dispatch("brain_person", {"emp": api.dispatch("brain_search", {"q": "DEMO0003"})["rows"][0]["emp"]})["name"]
-    a = basic.answer(tb, f"No, {name} is a Department Head, not a team leader")
-    assert "Confirm" in a and tb.actions
-    act = tb.actions[0]
-    assert api.dispatch("brain_person", {"emp": act["items"][0]["emp"]})["designation"] != "Department Head"
-    api.agent.confirm(act["id"], True)
-    assert api.dispatch("brain_person", {"emp": act["items"][0]["emp"]})["designation"] == "Department Head"
-
-
 def test_profile_export(api, tmp_path):
     emp = api.dispatch("brain_search", {"q": "DEMO0001"})["rows"][0]["emp"]
     for fmt in ("pdf", "docx"):

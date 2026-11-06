@@ -1,8 +1,10 @@
 """6.0 The master sheet: one upload with everything the Review needs, one row per leader.
 
 Columns (any order, any spelling close to these; extra columns are ignored):
-  Sr · Employee No · Employee Name · DOJ · Grade · BU · Section · Designation ·
+  Sr · Employee No · Employee Name · DOJ · Grade · BU · Section · Designation · Tenure in Current Role ·
   Sales vs bud. · Productivity · Shrink · Stock days · Leavers · DA cases · NPS · Rating
+  (or one rating column per year — Rating 2023 · Rating 2024 · Rating 2025: the latest year is scored, all are kept;
+   "Unrated" counts as not rated yet)
 
 Each upload is one period: year to date (Jan → month) or one month. Every value is read as it is shown:
   (15.2%) → −15.2      ▲ 3% → 3      ▼ -1% → −1      130% → 130      #N/A, —, blank, #VALUE! → not filled yet
@@ -38,6 +40,8 @@ FIELDS: dict[str, tuple[str, tuple[str, ...]]] = {
     "da": ("DA cases", (r"^DA\b", r"DISCIPLIN")),
     "nps": ("NPS", (r"\bNPS\b",)),
     "rating": ("Rating", (r"RATING", r"APPRAISAL")),
+    "role_since": ("Tenure in current role", (r"TENURE IN (THE )?(CURRENT )?ROLE", r"(IN )?(CURRENT )?ROLE SINCE", r"TIME IN (CURRENT )?ROLE",
+                                              r"CURRENT ROLE")),
 }
 MEASURES = ["sales", "productivity", "shrink", "stock_days", "leavers", "da", "nps", "rating"]
 PCT = {"sales", "productivity", "shrink", "stock_days"}
@@ -58,6 +62,14 @@ def _header(sheet: Sheet) -> tuple[int, dict[str, int]] | None:
                     found[f] = j
                     break
         if all(f in found for f in ("emp", "designation")) and sum(1 for f in MEASURES if f in found) >= 3:
+            years = {int(m.group(0)): j for j, h in enumerate(heads) if re.search(r"RATING|APPRAISAL", h or "")
+                     for m in [re.search(r"\b(19|20)\d{2}\b", h)] if m}
+            if years:                                        # one rating column per year: score the latest, keep them all
+                found["rating"] = years[max(years)]
+                found["_years"] = years
+            multi = next((j for j, h in enumerate(heads) if re.search(r"RATING", h or "") and re.search(r"LAST|THREE|3 ?Y|AVERAGE|AVG", h)), None)
+            if multi is not None and multi != found.get("rating"):
+                found["_rating_avg"] = multi
             return i, found
     return None
 
@@ -132,25 +144,25 @@ def parse(sheet: Sheet) -> dict:
     hi, col = hit
     raw = []
     for row in sheet.rows[hi + 1:]:
-        g = (lambda r: (lambda f: r[col[f]] if f in col and col[f] < len(r) else None))(row)
+        g = (lambda r: (lambda f: r[col[f]] if f in col and isinstance(col[f], int) and col[f] < len(r) else None))(row)
         emp, name = _emp(g("emp")), clean_text(g("name"))
         if not emp and not name:
             continue
         if re.match(r"^(grand\s*)?total", name or "", re.I):
             continue
-        raw.append((emp, name, g))
+        raw.append((emp, name, g, (lambda r: (lambda j: r[j] if j < len(r) else None))(row)))
     # percentages Excel keeps as fractions (0.152 for 15.2%): scaled per column when every value is small
     scale = {}
     for f in PCT:
         if f not in col:
             continue
-        vals = [number(g(f)) for _, _, g in raw]
+        vals = [number(g(f)) for _, _, g, _ in raw]
         nums = [x for x, p in vals if x is not None]
         texty = any(p for _, p in vals)
         scale[f] = 100.0 if nums and not texty and max(abs(x) for x in nums) <= 3 else 1.0
     rows, seen, warnings = [], {}, []
     unknown_store, unknown_role = set(), set()
-    for emp, name, g in raw:
+    for emp, name, g, g_idx in raw:
         bu_raw = clean_text(g("bu"))
         store = canon.store(bu_raw) if bu_raw else ""
         if bu_raw and not canon.store_city(store):
@@ -176,9 +188,17 @@ def parse(sheet: Sheet) -> dict:
                 x = int(round(x))
             vals[f] = x
         gr = g("grade")
+        years = {}
+        for y, j in sorted((col.get("_years") or {}).items()):
+            x, _ = number(g_idx(j))
+            years[str(y)] = x if x is not None and x > 0 else None
+        ravg = number(g_idx(col["_rating_avg"]))[0] if "_rating_avg" in col else None
+        rs = g("role_since")
+        role_since = _date(rs)
         rec = {"emp": emp, "name": canon.repair_name(name) or name, "doj": _date(g("doj")), "grade": _emp(gr) if gr is not None else "",
                "bu": bu_raw, "store": store, "format": canon.store_format(store) if store else "", "city": canon.store_city(store) if store else "",
-               "section_raw": sec_raw, "section": sec, "department": dept, "designation": desig, "level": level, **vals}
+               "section_raw": sec_raw, "section": sec, "department": dept, "designation": desig, "level": level,
+               "role_since": role_since, "ratings": years, "rating_avg": ravg if ravg and ravg > 0 else None, **vals}
         key = emp or f"name:{canon.name_key(name)}"
         if key in seen:
             warnings.append(f"{name} ({emp}) appears twice; the last row is used.")
@@ -190,8 +210,8 @@ def parse(sheet: Sheet) -> dict:
         warnings.append("Stores not recognised: " + ", ".join(sorted(unknown_store)[:6]) + " (Settings → Stores links them).")
     if unknown_role:
         warnings.append("Designations not recognised as a leader level: " + ", ".join(sorted(unknown_role)[:6]) + ".")
-    missing_cols = [FIELDS[f][0] for f in FIELDS if f not in col]
-    return {"rows": rows, "columns": {f: clean_text(sheet.rows[hi][j]) for f, j in col.items()}, "warnings": warnings,
+    missing_cols = [FIELDS[f][0] for f in FIELDS if f not in col and f != "role_since"]
+    return {"rows": rows, "columns": {f: clean_text(sheet.rows[hi][j]) for f, j in col.items() if isinstance(j, int)}, "warnings": warnings,
             "missing_columns": missing_cols, "scaled": [FIELDS[f][0] for f, s in scale.items() if s != 1.0]}
 
 

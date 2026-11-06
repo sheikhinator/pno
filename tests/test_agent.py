@@ -7,7 +7,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from pno import engine
 from pno.agent import llm
 
 
@@ -18,12 +17,12 @@ def ask(api, q, **kw):
 
 
 @pytest.mark.parametrize("q, must", [
-    ("Top 5 section managers in Lahore", "Top 5 section managers in Lahore"),
-    ("bottom 3 department heads", "Bottom 3 department heads"),
-    ("How is attendance?", "Real absence"),
-    ("Which punches need fixing?", "missing punches"),
-    ("How are the stores doing?", "Store league"),
-    ("Show me the trend", "trend"),
+    ("bottom 3 department heads", "department heads"),
+    ("Top 5 store managers", "store managers"),
+    ("Who has NPS below 40?", "Customer NPS"),
+    ("Give me an overview", "leaders in"),
+    ("What is missing in the data?", "results are filled"),
+    ("How is the score worked out?", "weighted average"),
 ])
 def test_basic_assistant_answers(api, q, must):
     r = ask(api, q)
@@ -32,40 +31,54 @@ def test_basic_assistant_answers(api, q, must):
     assert must.lower() in text.lower()
 
 
-def test_basic_person_and_store(api, db):
-    mm = engine.model(db, "2026-09")
-    p = next(p for p in mm.people.values() if p.role == "SM" and p.score is not None)
-    r = ask(api, f"How is {p.name} doing?")
-    assert p.name in r["answer"] and any(b["title"] == "How the score is made" for b in r["blocks"] if b["type"] == "table")
-    r = ask(api, "Tell me about Fortress")
-    assert "Fortress" in r["answer"]
+def test_basic_person_and_store(api):
+    """6.0: a named person gets their full sheet from the master sheet (first name alone is enough when it is unique)."""
+    from pno.agent.facts import Facts
+    f = Facts(api)
+    p = next(p for p in f.leaders if p["level"] == 4 and p["score"] is not None)
+    r = ask(api, f"Tell me about {p['name']}")
+    assert p["name"] in r["answer"] and f"{p['score']}/10" in r["answer"] and "Sales vs budget" in r["answer"]
+    first = p["name"].split()[0]
+    if sum(1 for q in f.leaders if first.lower() in q["name"].lower()) == 1:
+        assert p["name"] in ask(api, f"how is {first} doing")["answer"]
+    r = ask(api, "How is Fortress doing?")
+    assert "Fortress" in r["answer"] and "Store manager" in r["answer"] or "store manager" in r["answer"]
 
 
-def test_holiday_cancel_changes_nothing(api, db):
-    r = ask(api, "Add 15 September 2026 as Test Day holiday")
-    assert r["actions"]
-    api.dispatch("agent_confirm", {"action_id": r["actions"][0]["id"], "approve": False})
-    assert not db.q1("SELECT 1 FROM holidays WHERE day='2026-09-15'")
+def test_ai_tools_read_the_master_sheet(api):
+    from pno.agent.facts import Facts
+    from pno.agent.tools import Toolbox
+    f = Facts(api)
+    p = next(p for p in f.leaders if p["score"] is not None)
+    tb = Toolbox(api.agent)
+    d = tb.run("person", {"who": p["name"]})
+    assert d["score_out_of_10"] == p["score"] and d["results"] and d["store"] == p["store"]
+    assert tb.run("person", {"who": str(p["emp"])})["name"] == p["name"]
+    lst = tb.run("people", {"role": "dept", "sort": "sales", "ascending": True, "limit": 3})
+    assert len(lst["people"]) == 3 and lst["sorted_by"] == "Sales vs budget"
+    assert tb.run("store", {"name": p["store"]})["leaders"]
+    assert tb.run("overview", {})["leaders"] == len(f.leaders)
+    assert "by_criterion" in tb.run("data_health", {})
 
 
 def test_sql_sandbox_reads_but_never_writes(api, db):
-    svc = api.agent
     from pno.agent.tools import Toolbox
-    tb = Toolbox(svc, "2026-09", {}, False)
-    ok = tb.t_sql("SELECT role, COUNT(*) FROM people GROUP BY role ORDER BY 2 DESC")
+    tb = Toolbox(api.agent)
+    ok = tb.t_sql("SELECT role, COUNT(*) FROM leaders GROUP BY role ORDER BY 2 DESC")
     assert ok["rows"] and "error" not in ok
-    assert tb.t_sql("SELECT COUNT(*) FROM sales")["rows"][0][0] > 0
-    for bad in ["DELETE FROM roster", "DROP TABLE roster", "SELECT 1; DELETE FROM roster", "UPDATE stores SET name='x'",
-                "WITH x AS (SELECT 1) DELETE FROM roster", "ATTACH DATABASE 'x.db' AS x", "PRAGMA writable_schema=1"]:
+    for bad in ["DELETE FROM leaders", "DROP TABLE leaders", "SELECT 1; DELETE FROM leaders", "UPDATE leaders SET name='x'",
+                "WITH x AS (SELECT 1) DELETE FROM leaders", "ATTACH DATABASE 'x.db' AS x", "PRAGMA writable_schema=1"]:
         assert "error" in tb.t_sql(bad), bad
-    assert db.val("SELECT COUNT(*) FROM roster") > 0
+    assert db.val("SELECT COUNT(*) FROM master_rows") > 0
 
 
-def test_anonymise_hides_names_from_the_ai_and_restores_them(api, db):
+def test_anonymise_hides_names_from_the_ai_and_restores_them(api):
     from pno.agent.tools import Toolbox
-    tb = Toolbox(api.agent, "2026-09", {}, True)
-    rows = tb.t_sql("SELECT name FROM people LIMIT 5")["rows"]
+    tb = Toolbox(api.agent, anonymise=True)
+    rows = tb.t_sql("SELECT name FROM leaders LIMIT 5")["rows"]
     assert all(r[0].startswith("Employee ") for r in rows)
+    d = tb.run("people", {"limit": 3})
+    assert all(p["name"].startswith("Employee ") for p in d["people"])
 
 
 # ------------------------------------------------------------------ fake OpenAI-compatible server
@@ -124,13 +137,13 @@ def test_groq_tool_loop(api, fake_groq):
     st = api.dispatch("agent_status", {})
     assert st["active"] == "groq" and st["key_masked"].startswith("gsk_") and "test_key" not in st["key_masked"]
     fake_groq.script = [
-        msg(calls=[("find_people", {"role": "SM", "limit": 3}),
+        msg(calls=[("people", {"role": "section", "limit": 3}),
                    ("chart", {"kind": "hbar", "title": "Top SMs", "labels": ["a", "b"], "series": [{"name": "Score", "values": [8, 7]}]})]),
         msg("The top section managers are listed below."),
     ]
     r = ask(api, "Who are the best section managers?")
     assert r["engine"] == "groq" and r["answer"].startswith("The top section managers")
-    assert r["tools"] == ["find_people", "chart"]
+    assert r["tools"] == ["people", "chart"]
     assert any(b["type"] == "chart" for b in r["blocks"])
     first, second = fake_groq.seen
     assert first["auth"] == "Bearer gsk_test_key_123456" and first["body"]["tools"]
@@ -139,19 +152,20 @@ def test_groq_tool_loop(api, fake_groq):
 
 
 def test_groq_proposal_still_needs_confirm(api, db, fake_groq):
+    from pno.agent.facts import Facts
+    p = Facts(api).leaders[0]
     api.dispatch("agent_settings", {"mode": "groq", "key": "gsk_test_key_123456"})
-    fake_groq.script = [msg(calls=[("propose_holiday", {"day": "2026-09-16", "name": "Test"})]), msg("Prepared. Please confirm.")]
-    r = ask(api, "mark 16 sept as a holiday")
-    assert r["actions"] and not db.q1("SELECT 1 FROM holidays WHERE day='2026-09-16'")
-    api.dispatch("agent_confirm", {"action_id": r["actions"][0]["id"]})
-    assert db.q1("SELECT 1 FROM holidays WHERE day='2026-09-16'")
+    fake_groq.script = [msg(calls=[("propose_note", {"who": p["name"], "text": "Check stock days"})]), msg("Prepared. Please confirm.")]
+    r = ask(api, f"add a note to {p['name']}")
+    assert r["actions"] and r["actions"][0]["kind"] == "note"
+    assert api.dispatch("agent_confirm", {"action_id": r["actions"][0]["id"]})["ok"]
 
 
 def test_groq_failure_falls_back_to_built_in(api, fake_groq):
     api.dispatch("agent_settings", {"mode": "groq", "key": "gsk_bad_key_123456"})
     fake_groq.script = [(401, {"error": {"message": "Invalid API Key"}})]
-    r = ask(api, "How is attendance?")
-    assert r["engine"] == "basic" and "not accepted" in r["answer"] and "Real absence" in r["answer"]
+    r = ask(api, "Give me an overview")
+    assert r["engine"] == "basic" and "not accepted" in r["answer"] and "leaders in" in r["answer"]
 
 
 def test_groq_test_button(api, fake_groq):
@@ -167,14 +181,12 @@ def test_key_can_be_cleared(api):
     assert api.dispatch("agent_status", {})["active"] in ("basic", "offline")
 
 
-def test_leave_file_dropped_in_chat(api, db, tmp_path, demo):
-    p = tmp_path / "Leave Register Sep 2026.xlsx"
-    p.write_bytes(demo.files["Leave Register Sep 2026.xlsx"])
+def test_master_sheet_dropped_in_chat(api, tmp_path):
+    from pno import demo
+    p = tmp_path / "Master YTD Sep.tsv"
+    p.write_bytes(demo.master_tsv("2026-09", True))
     r = api.dispatch("agent_ask", {"question": "", "month": "2026-09", "attachments": [str(p)]})
-    assert "Leave register" in r["answer"]
-    assert r["actions"] and r["actions"][0]["kind"] == "import"
-    c = api.dispatch("agent_confirm", {"action_id": r["actions"][0]["id"]})
-    assert c["ok"]
+    assert "is a master sheet" in r["answer"] and "Data → Master sheet" in r["answer"]
 
 
 # ------------------------------------------------------------------ offline AI (a stand-in llama-server on this PC)

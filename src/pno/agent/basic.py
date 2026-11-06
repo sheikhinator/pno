@@ -1,44 +1,199 @@
-"""The built-in assistant: answers the common questions with PNO's own queries, no AI model needed.
+"""The built-in assistant: answers the common questions from the master sheet with P&O's own scoring, no AI model needed.
 
-Used when no Groq key / offline model is available, and as the fallback when an AI service is busy.
+Used when no AI service is set up or reachable, and as the fallback when one is busy. Every number comes from agent/facts.py,
+the same place the AI tools and the Review screen read from.
 """
 
 from __future__ import annotations
 
 import re
-from datetime import date
 
-from ..util import MONTHS, norm, parse_date
+from ..review import fmt as review_fmt
+from .facts import KEYS, role_in
 from .tools import Toolbox
 
-ROLE_WORDS = [("department head", "DH"), ("dept head", "DH"), ("section manager", "SM"), ("supervisor", "SM"),
-              ("store manager", "GM"), ("general manager", "GM"), ("gm", "GM"), ("cco", "CCO"), ("cashier", "STAFF"),
-              ("managers", "MANAGERS"), ("manager", "MANAGERS"), ("staff", "STAFF"), ("h&b", "HBM")]
-LEAVE_TYPES = ["sick", "annual", "casual", "maternity", "paternity", "hajj", "umrah", "compensatory", "unpaid", "emergency", "marriage"]
-HELP = ("I answer from the same numbers as the Review screen, for example:\n"
-        "- **How is CG doing at country level?**\n- **What should we focus on in Fresh Food at Fortress?**\n"
-        "- **Show the department heads for LHH**\n- **How is Bakery doing across the country?**\n"
-        "- **Tell me about Arslan Arshad** (a person's full data sheet)\n- **Compare Fortress and Emporium**\n"
-        "- **Khadija Ghafoor was on sick leave 12 to 14 September** (I'll prepare it for you to confirm)\n"
-        "- **Add 21 March 2027 as Eid holiday**")
+HELP = ("I answer from the master sheet, with the same scores as the Review screen. For example:\n"
+        "- **Tell me about Arslan Arshad** (a person's full sheet)\n- **Bottom 5 department heads on sales**\n"
+        "- **How is Fortress doing?**\n- **Compare Fortress and Emporium**\n- **Who has NPS below 40?**\n"
+        "- **Which store managers are High performers?**\n- **What is missing in the data?**\n- **How is the score worked out?**")
+_DOT = {"good": "🟢", "warn": "🟡", "bad": "🔴", "neutral": "⚪", "none": "⚪", None: "⚪"}
+_DEPT_WORDS = [(r"\b(cg|consumer goods?|fmcg|grocery)\b", "Consumer Goods"), (r"\b(ff|fresh food|fresh)\b", "Fresh Food"),
+               (r"\b(lhh|light household)\b", "Light Household"), (r"\b(hhh|heavy household)\b", "Heavy Household"),
+               (r"\b(textile|txt)\b", "Textile"), (r"\bnon[ -]?food\b", "Non Food")]
+_CRIT_WORDS = [("sales", r"sales|budget"), ("productivity", r"productiv"), ("shrink", r"shrink"), ("stock_days", r"stock"),
+               ("leavers", r"leaver|turnover|attrition"), ("da", r"\bda\b|disciplin"), ("nps", r"\bnps\b|customer"), ("rating", r"rating")]
+_RANK_RX = re.compile(r"\b(top|bottom|best|worst|highest|lowest|weakest|strongest|most|least|rank|ranking|below|above|under|over|less than|more than)\b")
+_HEALTH_RX = re.compile(r"missing|not filled|incomplete|complete|data health|gaps? in (the )?data|what('?s| is) left|unrated|no score", re.I)
+_HOW_RX = re.compile(r"how (is|are) (the )?scor|criteria|weight|benchmark|how .*(calculated|worked out|measured)", re.I)
+_CMP_RX = re.compile(r"\b(compare|comparison|vs|versus|against)\b")
+_OVER_RX = re.compile(r"overview|summary|country|overall|how are we|brief|big picture|everyone|all stores|league", re.I)
 
 
-_HEALTH_RX = re.compile(r"data (health|ready|quality|complete|check)|is (my|the) data|what('?s| is) missing|missing (data|reports?|files?)|"
-                        r"trust (the|these|my) (numbers|data)|data (gaps?|issues?|problems?)|ready to present", re.I)
+def _fmtn(v, d=1):
+    return "—" if v is None else f"{v:.{d}f}"
+
+
+def _person_answer(tb: Toolbox, p: dict) -> str:
+    d = tb.facts.person(p)
+    sc = f"**{d['score_out_of_10']}/10 · {d['category']}**" + (f" · {d['rank_among_same_level']} {p['role'].lower()}s" if d["rank_among_same_level"] else "") \
+        if d["score_out_of_10"] is not None else f"**no score yet**: {d['score_note']}"
+    out = [f"**{d['name']}** · {d['designation']} · {d['store']} ({d['format']}){(' · ' + d['department']) if d['department'] and d['level'] != 'Store Manager' else ''}",
+           "", f"Score {sc} for {d['period']}.", "",
+           f"Employee {d['employee_no']} · grade {d['grade'] or '—'} · with the company {d['with_company']} · in this role {d['time_in_role']}"
+           + (f" · reports to {d['reports_to']}" if d["reports_to"] else ""), "",
+           "| Criterion | Result | Points | Green line | Peers (median) | |", "|---|---|---|---|---|---|"]
+    out += [f"| {r['criterion']} | **{r['result']}** | {_fmtn(r['points_out_of_10'])} | {r['green_line']} | {r['peer_median']} | {_DOT[r['status']]} |"
+            for r in d["results"]]
+    if d["strong_on"]:
+        out.append(f"\n**Strong on:** {', '.join(d['strong_on'])}")
+    if d["below_benchmark_on"]:
+        out.append(f"**Below benchmark on:** {', '.join(d['below_benchmark_on'])}")
+    if d["not_filled_yet"]:
+        out.append(f"**Not filled yet:** {', '.join(d['not_filled_yet'])}")
+    if d["ratings_by_year"]:
+        out.append("**Ratings:** " + " · ".join(f"{y}: {v}" for y, v in d["ratings_by_year"].items()) + (f" ({d['rating_trend']})" if d["rating_trend"] else ""))
+    if d["own_criteria"]:
+        out.append("_Scored on criteria saved for this person (custom)._")
+    if d["results"]:
+        tb.blocks.append({"type": "chart", "kind": "hbar", "title": f"{d['name']} · points out of 10",
+                          "labels": [r["criterion"] for r in d["results"] if r["points_out_of_10"] is not None],
+                          "series": [{"name": "Points", "values": [r["points_out_of_10"] for r in d["results"] if r["points_out_of_10"] is not None]}]})
+    return "\n".join(out)
+
+
+def _people_answer(tb: Toolbox, q: str) -> str | None:
+    ql = q.lower()
+    f = tb.facts
+    role = role_in(ql)
+    dept = next((d for rx, d in _DEPT_WORDS if re.search(rx, ql)), "")
+    sts = f.stores_in_text(q)
+    fmt = "Hypermarket" if re.search(r"\bhyper", ql) else "Supermarket" if re.search(r"\bsuper(market)?s?\b", ql) else ""
+    cat = next((c for c in ("High", "Good", "Low") if re.search(rf"\b{c.lower()}( performers?)?\b", ql) and "performer" in ql), "")
+    crit = next((k for k, rx in _CRIT_WORDS if re.search(rx, ql)), "")
+    asc = bool(re.search(r"bottom|worst|lowest|weakest|below|under|less than", ql))
+    if crit in ("leavers", "da", "shrink", "stock_days") and re.search(r"most|highest|worst|above|over|more than", ql):
+        asc = False
+        better_low = True
+    else:
+        better_low = False
+    m = re.search(r"\b(?:top|bottom|best|worst|first|last)\s*(\d{1,2})\b|\b(\d{1,2})\s+(?:best|worst|top|bottom)", ql)
+    n = int(next(g for g in m.groups() if g)) if m else 10
+    thr = re.search(r"(below|under|less than|above|over|more than)\s*(-?\d+(?:\.\d+)?)", ql)
+    bud = re.search(r"\b(below|under|behind|missing|short of|above|over|ahead of|beating)\s+(the\s+)?(sales\s+)?budget", ql)
+    if bud and not thr:
+        crit = "sales"
+        thr = re.match(r"(\w+) (\S+)", ("below 0" if bud.group(1) in ("below", "under", "behind", "missing", "short of") else "above -0.0001"))
+    if not (role or dept or sts or fmt or cat or crit or _RANK_RX.search(ql)):
+        return None
+    r = f.people(store=sts[0] if len(sts) == 1 else "", dept=dept, role=role, fmt=fmt, category=cat, sort=crit or "score",
+                 ascending=asc if not better_low else True, limit=100)
+    rows = r["people"]
+    if thr and crit:
+        x = float(thr.group(2))
+        below = thr.group(1) in ("below", "under", "less than")
+        if bud:
+            x = 0.0
+        rows = [p for p in rows if p["_values"][crit] is not None and (p["_values"][crit] < x if below else p["_values"][crit] > x)]
+    elif _RANK_RX.search(ql) or m:
+        rows = rows[:n]
+    if not rows:
+        return "Nobody matches that in the master sheet for " + f.period_label + "."
+    label = f.criteria[crit]["label"] if crit else "Score"
+    who = {"store": "store managers", "deputy": "deputy managers", "dept": "department heads and deputy managers", "section": "section managers", "tl": "team leaders"}.get(role, "leaders")
+    where = f" in {sts[0]}" if len(sts) == 1 else f" in {dept}" if dept else f" ({fmt.lower()}s)" if fmt else ""
+    out = [f"**{len(rows)} {who}{where}**" + (f" · sorted by {label.lower()}" if crit else "") + f" · {f.period_label}", "",
+           "| # | Name | Role | Store | Score | Category | " + (label + " |" if crit else "Below benchmark on |"), "|---|---|---|---|---|---|---|"]
+    for i, p in enumerate(rows[:40], 1):
+        extra = review_fmt(crit, p["_values"][crit]) if crit else ", ".join(f.criteria[k]["label"] for k in KEYS if p["_status"].get(k) == "bad") or "—"
+        out.append(f"| {i} | {p['name']} | {p['designation']} | {p['store']} | {_fmtn(p['score'])} | {p['category']} | {extra} |")
+    vals = [(p["name"], p["_values"][crit] if crit else p["score"]) for p in rows[:15]]
+    vals = [v for v in vals if v[1] is not None]
+    if len(vals) >= 3:
+        tb.blocks.append({"type": "chart", "kind": "hbar", "title": label, "labels": [v[0] for v in vals], "series": [{"name": label, "values": [v[1] for v in vals]}]})
+    return "\n".join(out)
+
+
+def _store_answer(tb: Toolbox, st: str) -> str:
+    d = tb.facts.store_view(st)
+    sm = d["store_manager"]
+    out = [f"**{d['store']}** ({d['format']}, {d['city']}) · {d['period']}" + (f" · store manager **{sm['name']}** {_fmtn(sm['score'])}/10 ({sm['category']})" if sm else ""), "",
+           "| Criterion | Result |", "|---|---|"]
+    out += [f"| {k} | {v} |" for k, v in d["store_results"].items()]
+    if d["strong"]:
+        out += ["", "**What's strong**"] + [f"- {x}" for x in d["strong"]]
+    if d["weak"]:
+        out += ["", "**What's weak**"] + [f"- {x}" for x in d["weak"]]
+    if d["focus"]:
+        out += ["", "**Focus**"] + [f"{i}. {x}" for i, x in enumerate(d["focus"], 1)]
+    out += ["", "| Leader | Role | Score | Below benchmark on |", "|---|---|---|---|"]
+    out += [f"| {p['name']} | {p['designation']}{(' · ' + p['department']) if p['department'] and p['department'] != 'Management' else ''} | {_fmtn(p['score'])} ({p['category']}) | {', '.join(p['below_benchmark_on']) or '—'} |"
+            for p in d["leaders"]]
+    return "\n".join(out)
+
+
+def _compare_answer(tb: Toolbox, sts: list[str]) -> str:
+    views = [tb.facts.store_view(s) for s in sts[:4]]
+    keys = list(dict.fromkeys(k for v in views for k in v["store_results"]))
+    out = [f"**{' vs '.join(v['store'] for v in views)}** · {tb.facts.period_label}", "", "| | " + " | ".join(v["store"] for v in views) + " |",
+           "|---|" + "---|" * len(views)]
+    out.append("| Store manager | " + " | ".join(f"{v['store_manager']['name']} ({_fmtn(v['store_manager']['score'])})" if v["store_manager"] else "—" for v in views) + " |")
+    out += [f"| {k} | " + " | ".join(v["store_results"].get(k, "—") for v in views) + " |" for k in keys]
+    out.append("| Average leader score | " + " | ".join(_fmtn(v["average_leader_score"]) for v in views) + " |")
+    return "\n".join(out)
 
 
 def _health_answer(tb: Toolbox) -> str:
-    r = tb.t_data_health()
-    icon = {"ok": "✅", "derived": "🔁", "older": "🟡", "stale": "🟡", "missing": "❌"}
-    lines = [f"**Data health for {r['month']}: {r['score']}/100 · {r['verdict']}.**", "",
-             "| Report | Status | Period |", "|---|---|---|"]
-    lines += [f"| {c['report']} | {icon.get(c['status'], '')} {c['status']} | {c['period'] or '—'} |" for c in r["checklist"]]
-    if r["checks"]:
-        lines += ["", "### To check"] + [f"- **{c['area']}**: {c['message']}" for c in r["checks"][:8]]
-    if r["locked"]:
-        lines += ["", "> This month is **locked**: later imports cannot change it."]
-    lines += ["", "Open **Data health** in the menu to see every item and fix it."]
-    return "\n".join(lines)
+    h = tb.facts.health()
+    out = [f"**{h['filled_pct']}% of results are filled** for {h['period']} ({h['people']} leaders).", "", "| Criterion | Filled |", "|---|---|"]
+    out += [f"| {k} | {v} |" for k, v in h["by_criterion"].items()]
+    if h["who_is_missing_what"]:
+        out += ["", "| Who | Store | Not filled yet |", "|---|---|---|"]
+        out += [f"| {g['name']} | {g['store']} | {', '.join(g['missing'])} |" for g in h["who_is_missing_what"][:25]]
+    out.append("\nUpload the completed sheet for the same period in **Data → Master sheet**; scores update straight away.")
+    return "\n".join(out)
+
+
+def _how_answer(tb: Toolbox) -> str:
+    f = tb.facts
+    out = ["**How P&O scores a leader:** each result in the master sheet earns 0–10 points against its benchmark (amber line = 5, green line = 7, "
+           "one step past green = 10). The score out of 10 is the weighted average of the points; blanks are left out and at least 3 results "
+           "are needed. **High** 7+, **Good** 5–6.9, **Low** below 5.", "", "| Criterion | Weight | Green | Amber | Better |", "|---|---|---|---|---|"]
+    from .. import review
+    out += [f"| {c['label']} | {c['weight']:g}% | {review.fmt(k, c['green'])} | {review.fmt(k, c['amber'])} | {c['better']} |"
+            for k, c in f.criteria.items() if c["on"]]
+    out.append("\nChange them in **Settings → Criteria**; every score moves at once.")
+    return "\n".join(out)
+
+
+def _overview_answer(tb: Toolbox) -> str:
+    o = tb.facts.overview()
+    out = [f"**{o['leaders']} leaders in {o['stores']} stores · average score {_fmtn(o['average_score'])}/10** ({o['period']}): "
+           f"{o['high']} High, {o['good']} Good, {o['low']} Low, {o['not_scored']} not scored.", "", "| Country result | |", "|---|---|"]
+    out += [f"| {k} | {v} |" for k, v in o["country_results"].items()]
+    out += ["", "**What's strong**"] + [f"- {x}" for x in o["strong"]] + ["", "**What's weak**"] + [f"- {x}" for x in o["weak"]]
+    out += ["", "**Focus**"] + [f"{i}. {x}" for i, x in enumerate(o["focus"], 1)]
+    lg = tb.facts.league()["stores"]
+    tb.blocks.append({"type": "chart", "kind": "hbar", "title": "Store manager score by store", "labels": [s["store"] for s in lg if s["store_manager_score"] is not None],
+                      "series": [{"name": "Score", "values": [s["store_manager_score"] for s in lg if s["store_manager_score"] is not None]}]})
+    return "\n".join(out)
+
+
+def _review_answer(tb: Toolbox, q: str) -> str | None:
+    from .. import review
+    ql = q.lower()
+    dept = next((d for rx, d in _DEPT_WORDS if re.search(rx, ql)), None)
+    if not dept:
+        return None
+    sts = tb.facts.stores_in_text(q)
+    r = tb.svc.api.api_review(store=sts[0] if sts else None, dept=dept)
+    if r.get("empty"):
+        return None
+    C = r["criteria"]
+    out = [f"**{r['label']}** · {tb.facts.period_label}", "", "| Criterion | Result | |", "|---|---|---|"]
+    out += [f"| {C[t['key']]['label']} | {review.fmt(t['key'], t['value'])} | {_DOT[t['status']]} |" for t in r["tiles"] if t["value"] is not None]
+    out += ["", "**What's strong**"] + [f"- {x}" for x in r["notes"]["strong"]] + ["", "**What's weak**"] + [f"- {x}" for x in r["notes"]["weak"]]
+    out += ["", "**Focus**"] + [f"{i}. {x}" for i, x in enumerate(r["notes"]["focus"], 1)]
+    return "\n".join(out)
 
 
 _HIRE_RX = re.compile(r"\b(vacanc|candidate|cv|cvs|resume|shortlist|hiring|hire|recruit|interview|talent bank|applicant)", re.I)
@@ -98,115 +253,6 @@ def _learn_answer(tb: Toolbox, q: str) -> str:
     return "\n".join(lines)
 
 
-_STRAT_RX = re.compile(r"flight risk|might leave|likely to leave|at risk of leaving|succession|successor|manpower|understaff|overstaff|"
-                        r"approved heads|manning|overdue action|open action|action tracker|\bactions\b", re.I)
-
-
-def _strategy_answer(tb: Toolbox, q: str) -> str:
-    r = tb.t_people_strategy()
-    ql = q.lower()
-    lines = []
-    if re.search(r"action", ql):
-        a = r["actions"]
-        lines += [f"**{a['open'] + a['in_progress']} open actions, {a['overdue']} overdue.**", ""]
-        lines += [f"- **{x['title']}** · {x['owner'] or 'no owner'} · due {x['due']}" for x in a["overdue_list"]] or ["Nothing overdue."]
-        return "\n".join(lines + ["", "Open **Actions** in the menu to update them."])
-    if re.search(r"manpower|staff|manning|heads", ql):
-        m = r["manpower"]
-        if not m["has_plan"]:
-            return (f"**{m['headcount']} people on the Basic Sheet.** No approved manning has been entered yet: open **Manpower** and paste "
-                    "Store · Department · Approved heads from Excel to see vacancies and over-staffing.")
-        return (f"**{m['headcount']} people against {m['approved']} approved heads (stores with a plan): {m['vacant']} vacant positions, "
-                f"{m['over']} above plan, {m['open_vacancies']} open vacancies in Hiring.** Open **Manpower** for the store and department detail.")
-    if re.search(r"success", ql):
-        gaps = r.get("succession_gaps", [])
-        lines += [f"**{len(gaps)} leadership roles with no successor or no one in the role.**", "", "| Store | Role | Status |", "|---|---|---|"]
-        lines += [f"| {g['store']} | {g['role']} | {g['status']} |" for g in gaps]
-        if r.get("ready_now"):
-            lines += ["", "### Ready now"] + [f"- {x['store']} · {x['role']}: **{x['successor']}**" for x in r["ready_now"]]
-        return "\n".join(lines)
-    risk = r.get("flight_risk", [])
-    if not risk:
-        return "Import the P&O workbook (Time in role, ratings, turnover) to see flight risk."
-    lines += [f"**{sum(1 for x in risk if x['band'] == 'High')} leaders at high and {sum(1 for x in risk if x['band'] == 'Medium')} at medium risk of leaving.**", "",
-              "| Leader | Store | Risk | Why |", "|---|---|---|---|"]
-    lines += [f"| {x['name']} | {x['store']} | **{x['score']}** {x['band']} | {'; '.join(x['reasons'][:3])} |" for x in risk[:10]]
-    lines += ["", "> **Next step:** hold a stay conversation with the top names this week (Flight risk → + Action)."]
-    return "\n".join(lines)
-
-
-_ORG_RX = re.compile(r"span of control|direct reports|probation|calibrat|ratings? (fair|bias)|bias in rating|who (joined|left)|joiners|"
-                     r"promot(ed|ion)s?\b|transfers?\b", re.I)
-
-
-def _org_answer(tb: Toolbox, q: str) -> str:
-    r = tb.t_organisation()
-    ql = q.lower()
-    if re.search(r"probation", ql):
-        p = r["probation"]
-        lines = [f"**{p['ending_30_days']} people end probation in the next 30 days, {p['overdue']} are past the end date.**", ""]
-        lines += [f"- **{x['name']}** · {x['role'] or ''} · {x['store'] or ''} · ends {x['ends']} ({x['status']})" for x in p["people"]] or ["Nobody near the end of probation."]
-        return "\n".join(lines)
-    if re.search(r"span|direct report", ql):
-        s = r["span_of_control"]
-        lines = [f"**{s['managers']} managers, {s['avg']} direct reports on average; {s['too_wide']} have 15 or more.**", "",
-                 "| Manager | Store | Direct reports |", "|---|---|---|"]
-        lines += [f"| {x['manager']} | {x['store']} | {x['direct_reports']} |" for x in s["widest"]]
-        return "\n".join(lines)
-    if re.search(r"calibrat|fair|bias", ql):
-        c = r["calibration"]
-        if "note" in c:
-            return "Import the Performance Rating tab to check calibration."
-        lines = [f"**{c['n']} people rated, average {c['avg']}, {c['top_share']}% rated 4 or 5.**", ""]
-        return "\n".join(lines + ([f"- {f}" for f in c["flags"]] or ["No calibration or fairness flags."]) + ["", "Open **Organisation** for the detail."])
-    ch = r["changes"]
-    if "note" in ch:
-        return ch["note"]
-    lines = [f"**Since {ch['from']}: {len(ch['joiners'])} joined, {len(ch['leavers'])} left, {len(ch['transfers'])} transferred, "
-             f"{ch['promotions']} promoted.**", ""]
-    if ch["unexplained_leavers"]:
-        lines.append(f"{len(ch['unexplained_leavers'])} leavers are not on the turnover tab: check the turnover file is complete.")
-    return "\n".join(lines + ["", "Open **Organisation** for names."])
-
-
-_POLICY_RX = re.compile(r"\bpolic(y|ies)\b|entitle|handbook|code of conduct|are (we|staff|employees) allowed|"
-                        r"\b(how (many|much|long)|what is the|rules? (for|on)|can (an? )?(employee|staff|we))\b.*\b(leave|notice|overtime|probation|"
-                        r"late|lateness|absence|resign\w*|maternity|paternity|hajj|warning|uniform|allowance)", re.I)
-_GOAL_RX = re.compile(r"\bgoals?\b|\bokrs?\b|1:1|one[- ]to[- ]one|store visit|manager effectiveness|managers? need support", re.I)
-
-
-def _policy_answer(tb: Toolbox, q: str) -> str:
-    r = tb.t_hr_policy(q)
-    if not r["found"]:
-        return r["note"]
-    c = r["clauses"]
-    lines = [f"**From {c[0]['policy']}{(' · ' + c[0]['section']) if c[0]['section'] else ''}:**", "", "> " + c[0]["text"].replace("\n", "\n> ")]
-    if len(c) > 1:
-        lines += ["", "Also relevant: " + "; ".join(f"{x['policy']}{(' · ' + x['section']) if x['section'] else ''}" for x in c[1:4]) + "."]
-    return "\n".join(lines + ["", "Open **Policy assistant** to read the full policy."])
-
-
-def _goal_answer(tb: Toolbox, q: str) -> str:
-    r = tb.t_goals_and_notes()
-    ql = q.lower()
-    if re.search(r"manager", ql) and r.get("managers"):
-        lines = ["| Manager | Store | Team | Effectiveness | Watch |", "|---|---|---|---|---|"]
-        lines += [f"| {m['manager']} | {m['store']} | {m['team']} | {m['score']:.0f} ({m['band']}) | {', '.join(m['why']) or '—'} |" for m in r["managers"]]
-        return "**Manager effectiveness** (leader index, team rating, people leaving and discipline in each manager's team):\n\n" + "\n".join(lines)
-    if re.search(r"1:1|one[- ]to|visit", ql):
-        if not r["notes"]:
-            return "No 1:1 or visit notes yet. Open **1:1s & visits** to log one."
-        return "**Latest notes:**\n\n" + "\n".join(f"- **{n['who']}** · {n['kind']} · {n['on']}: {n['notes'][:160]}" + (f" → {n['follow_up']} ({n['follow_up_status']})" if n["follow_up"] else "") for n in r["notes"])
-    g = r["goals"]
-    if not g:
-        return "No goals yet. Open **Goals** to set one with a baseline, target and date."
-    behind = [x for x in g if x["state"] in ("at risk", "off track", "missed")]
-    lines = [f"**{len(g)} open goals, {len(behind)} behind.**", "", "| Goal | Store | Now | Target | Progress | State |", "|---|---|---|---|---|---|"]
-    lines += [f"| {x['title']} | {x['store'] or '—'} | {x['current'] if x['current'] is not None else '—'} | {x['target'] if x['target'] is not None else '—'} | "
-              f"{(str(x['progress_pct']) + '%') if x['progress_pct'] is not None else '—'} | {x['state']} |" for x in g]
-    return "\n".join(lines)
-
-
 _INT_RX = re.compile(r"(who|which|anyone)\b.*\b(replace|ready for|could (be|become|take|fill)|can (be|become|take|fill)|internal candidates?|step up|promot)", re.I)
 _ROLE_WORDS = [("store manager", "store_manager"), ("department head", "department_head"), ("dept head", "department_head"),
                ("section manager", "section_manager"), ("team leader", "team_leader")]
@@ -217,12 +263,10 @@ def _internal_answer(tb: Toolbox, q: str) -> str | None:
     role = next((k for w, k in _ROLE_WORDS if w in ql), None)
     if not role:
         return None
-    from ..po import canon
-    store = canon.store(q)
-    store = store if store and store != q.strip() else ""
-    section = canon.section(q)
-    section = section if section in canon.DEPARTMENT_OF else ""
-    r = tb.t_internal_candidates(role, store, section)
+    sts = tb.facts.stores_in_text(q) if not tb.facts.empty else []
+    store = sts[0] if sts else ""
+    dept = next((d for rx, d in _DEPT_WORDS if re.search(rx, ql)), "")
+    r = tb.t_internal_candidates(role=role, store=store, department=dept)
     v = r["verdict"]
     lines = [f"**{v['title']}**", "", v["text"], ""] + [f"> {n}" for n in r["notes"]]
     if r["candidates"]:
@@ -232,459 +276,51 @@ def _internal_answer(tb: Toolbox, q: str) -> str | None:
     return "\n".join(lines + ["", "Open **Hiring**, create the vacancy and use **Internal talent first** for the full profiles and chains of moves."])
 
 
-_ROLES_RX = r"(?P<role>store manager|deputy (?:store )?manager|department head|section manager|team leader|supervisor|cashier|sales associate|associate|[a-z ]{3,30}?)"
-_CORR = [
-    (re.compile(r"^(?P<who>.+?)\s+is\s+(?:a|an|the)\s+" + _ROLES_RX + r"(?:,|\s)+(?:not|and not)\s+(?:a|an|the)?\s*.+$", re.I), "designation", "role"),
-    (re.compile(r"^(?P<who>.+?)\s+(?:moved|was transferred|has moved|transferred|works)\s+(?:to|in|at)\s+(?P<v>.+?)\.?$", re.I), "store", "v"),
-    (re.compile(r"^(?P<who>.+?)(?:'s| s)\s+manager\s+is\s+(?P<v>.+?)\.?$", re.I), "manager_name", "v"),
-    (re.compile(r"^(?P<who>.+?)\s+(?:left|resigned|has left)(?:\s+(?:the company|carrefour))?(?:\s+on\s+(?P<v>.+?))?\.?$", re.I), "status", "v"),
-    (re.compile(r"^(?P<who>.+?)(?:'s| s)\s+(?P<f>section|department|grade|designation|store|joining date)\s+is\s+(?P<v>.+?)\.?$", re.I), None, "v"),
-]
-
-
-def _correction(tb: Toolbox, q: str) -> str | None:
-    text = re.sub(r"^(no[,.]?\s*|actually[,]?\s*|correction[:,]?\s*)", "", q.strip(), flags=re.I)
-    for rx, field, grp in _CORR:
-        m = rx.match(text)
-        if not m:
-            continue
-        who = m.group("who").strip(" ,.")
-        if field is None:
-            field = {"joining date": "joining_date"}.get(m.group("f").lower(), m.group("f").lower())
-        if field == "designation":
-            value = m.group("role")
-            value = re.sub(r"\s+", " ", value).strip().title()
-        elif field == "status":
-            r = tb.t_propose_correction(who, "status", "left")
-            if m.group("v") and "prepared" in r:
-                tb.t_propose_correction(who, "left_on", m.group("v"))
-            return _corr_reply(r, who)
-        else:
-            value = m.group(grp).strip()
-        return _corr_reply(tb.t_propose_correction(who, field, value), who)
-    return None
-
-
-def _corr_reply(r: dict, who: str) -> str:
-    if r.get("not_found"):
-        dm = r.get("did_you_mean") or []
-        return f"I couldn't find **{who}**." + (" Did you mean: " + "; ".join(dm) + "?" if dm else " Use the employee number.")
-    if r.get("error"):
-        return f"I couldn't prepare that correction: {r['error']}"
-    return (f"Here is the correction: **{r.get('was') or '—'} → {r.get('now')}**. Click **Confirm** to save it. It will win over the imported files "
-            "on every screen and survive later imports.")
-
-
-_DEPT_WORDS = [(r"\b(cg|consumer goods|fmcg)\b", "Consumer Goods"), (r"\b(fresh food|fresh|ff)\b", "Fresh Food"),
-               (r"\b(lhh|light house ?hold)\b", "Light Household"), (r"\b(hhh|heavy house ?hold)\b", "Heavy Household"),
-               (r"\b(textile|txt)\b", "Textile"), (r"\bnon[ -]?food\b", "Non Food"), (r"\b(h&b|health (and|&) beauty|myli)\b", "Health & Beauty")]
-_RV_ROLES = [(r"store managers?|\bsms?\b|\bgms?\b", "store"), (r"department heads?|dept heads?|\bdhs?\b", "dept"),
-             (r"section managers?", "section"), (r"team leaders?|\btls?\b|supervisors?", "tl")]
-_RV_RX = re.compile(r"\b(focus|strong|weak|benchmark|kpis?|scorecard|review|country level|across the country|criteria)\b")
-_RANK_RX = re.compile(r"\b(top|bottom|best|worst|highest|lowest)\s*\d*\b|\brank")
-_DOT = {"good": "🟢", "warn": "🟡", "bad": "🔴", "neutral": "⚪", "none": "⚪"}
-
-
-def _review_answer(tb: Toolbox, q: str) -> str | None:
-    from .. import review
-    from ..po import canon
-    ql = q.lower()
-    api = tb.svc.api
-    ins = api._po()
-    if ins.empty:
-        return None
-    dept = next((d for rx, d in _DEPT_WORDS if re.search(rx, ql)), None)
-    section = next((s for s in canon.SECTION_ORDER if s.lower() in ql and s not in ("Light Household", "Heavy Household", "Textile", "Myli")), None)
-    if section and not dept:
-        dept = canon.department(section) or None
-    role = next((k for rx, k in _RV_ROLES if re.search(rx, ql)), None)
-    stores = ins.stores(include_myli=True)
-    named = []
-    for st in stores:
-        if st.endswith("Myli") and not ("myli" in ql or "h&b" in ql):
-            continue
-        words = [w for w in re.split(r"[\s()·]+", st.lower()) if len(w) > 3 and w not in ("mall", "city", "myli", "markaz")]
-        if any(re.search(rf"\b{re.escape(w)}\b", ql) for w in words):
-            named.append(st)
-    if len(named) >= 2 and re.search(r"\b(compare|comparison|vs|versus|against|and)\b", ql):
-        views = [api.api_review(store=st, dept=dept, section=section, role=None) for st in named[:4]]
-        C = views[0]["criteria"]
-        keys = [t["key"] for t in views[0]["tiles"]]
-        out = [f"**{' vs '.join(named[:4])}**{' · ' + review.SHORT.get(dept, dept) if dept else ''}{' · ' + section if section else ''}", "",
-               "| Criterion | " + " | ".join(named[:4]) + " |", "|---|" + "---|" * len(named[:4])]
-        for k in keys:
-            cells = []
-            for v in views:
-                t = next((x for x in v["tiles"] if x["key"] == k), None)
-                cells.append(f"{review.fmt(k, t['value'])} {_DOT[t['status']]}" if t else "—")
-            out.append(f"| {C[k]['label']} | " + " | ".join(cells) + " |")
-        for st, v in zip(named[:4], views):
-            out += ["", f"**{st}**: focus on " + "; ".join(v["notes"]["focus"])]
-        return "\n".join(out)
-    store = None
-    for st in stores:
-        words = [w for w in re.split(r"[\s()·]+", st.lower()) if len(w) > 3 and w not in ("mall", "city", "myli", "markaz")]
-        if any(re.search(rf"\b{re.escape(w)}\b", ql) for w in words):
-            store = st if (("myli" in ql or "h&b" in ql) == st.endswith("Myli")) else (store or st)
-            if (("myli" in ql or "h&b" in ql) == st.endswith("Myli")):
-                break
-    # a named leader: their data sheet (asked for as a sheet / profile; "how is X doing" keeps the score breakdown answer)
-    sheet_ask = re.search(r"\b(tell me about|about|data sheet|sheet|profile|criteria|benchmark)\b", ql)
-    name_hits = [l for l in ins.leaders() if len(l.name) > 4 and l.name.lower() in ql] if sheet_ask else []
-    if not name_hits and sheet_ask:
-        m = re.search(r"(?:about|who is|tell me about|profile of|sheet (?:for|of)|how is) ([a-z][a-z .'-]{2,40}?)(?:\?|$| doing| performing)", ql)
-        if m:
-            nm = m.group(1).strip()
-            name_hits = [l for l in ins.leaders() if nm in l.name.lower()] if len(nm) > 3 else []
-    if name_hits and len({l.key for l in name_hits}) == 1:
-        p = review.person(api, key=name_hits[0].key)
-        r, C = p["row"], p["criteria"]
-        out = [f"**{r['name']}**: {r['role']} · {r['area']} · {r['store']}", "",
-               " · ".join(f"{k}: {v}" for k, v in p["facts"].items() if v not in (None, "—")), "",
-               "| Criterion | Result | Benchmark | Peers (median) | |", "|---|---|---|---|---|"]
-        for c in r["cells"]:
-            if c["value"] is None:
-                continue
-            out.append(f"| {C[c['key']]['label']} | {review.fmt(c['key'], c['value'])} | {review.fmt(c['key'], C[c['key']]['green']) if C[c['key']]['green'] is not None else '—'} | "
-                       f"{review.fmt(c['key'], p['peer_median'].get(c['key']))} | {_DOT[c['status']]} |")
-        good = [C[c["key"]]["label"] for c in r["cells"] if c["status"] == "good" and c["key"] != "score"]
-        bad = [C[c["key"]]["label"] for c in r["cells"] if c["status"] == "bad" and c["key"] != "score"]
-        out += ["", f"**Strong on:** {', '.join(good) or '—'}", f"**Needs work on:** {', '.join(bad) or '—'}"]
-        if p["ratings"]:
-            out.append("**Ratings:** " + " → ".join(f"{x['rating']:g} ({x['cycle']})" for x in p["ratings"]) + (f", {p['trend']}" if p["trend"] else ""))
-        if p["remarks"]:
-            out.append(f"**Remarks:** {p['remarks']}")
-        return "\n".join(out)
-    if len({l.key for l in name_hits}) > 1:
-        return "Several people match: " + "; ".join(f"**{l.name}** ({l.designation}, {l.store})" for l in name_hits[:8]) + ". Which one?"
-    if _RANK_RX.search(ql) and not _RV_RX.search(ql):
-        return None                                   # an explicit ranking question keeps its ranked answer
-    if not (dept or section or _RV_RX.search(ql) or (role and (store or dept))):
-        return None
-    r = api.api_review(store=store, dept=dept, section=section, role=role)
-    if r.get("empty"):
-        return None
-    C = r["criteria"]
-    out = [f"**{r['label']}** · data as of {r['as_of']}", "", "| Criterion | Result | |", "|---|---|---|"]
-    out += [f"| {C[t['key']]['label']} | {review.fmt(t['key'], t['value'])} | {_DOT[t['status']]} |" for t in r["tiles"]]
-    out += ["", "**What's strong**"] + [f"- {x}" for x in r["notes"]["strong"]]
-    out += ["", "**What's weak**"] + [f"- {x}" for x in r["notes"]["weak"]]
-    out += ["", "**Focus this week**"] + [f"{i}. {x}" for i, x in enumerate(r["notes"]["focus"], 1)]
-    if role or re.search(r"\b(who|people|leaders?|heads?|managers?|team)\b", ql):
-        ppl = r["people"]
-        if ppl:
-            out += ["", f"**People in this view** ({len(ppl)}, in store order, not ranked)", "", "| Person | Store | Score | Below benchmark on |", "|---|---|---|---|"]
-            for p in ppl[:25]:
-                sc = next(c for c in p["cells"] if c["key"] == "score")
-                reds = [C[c["key"]]["short"] for c in p["cells"] if c["status"] == "bad" and c["key"] != "score"]
-                out.append(f"| {p['name']} ({p['role']}, {p['area']}) | {p['store']} | {review.fmt('score', sc['value'])} {_DOT[sc['status']]} | {', '.join(reds) or '—'} |")
-            if len(ppl) > 25:
-                out.append(f"\n…and {len(ppl) - 25} more on the Review screen.")
-    return "\n".join(out)
 
 
 def answer(tb: Toolbox, question: str) -> str:
     q = question.strip()
     ql = q.lower()
-    if re.search(r"\bis (a|an|the) .+\bnot\b|moved to|transferred to|manager is|\b(left|resigned)\b|'s (section|department|grade|designation|store|joining date) is", ql) \
-            and not ql.startswith(("who", "what", "how", "which", "why", "when", "show", "list")):
-        c = _correction(tb, q)
-        if c:
-            return c
+    if _HIRE_RX.search(ql) and not _INT_RX.search(ql):
+        return _hire_answer(tb, q)
+    if _LEARN_RX.search(ql) and not re.search(r"\b(cv|candidate|vacanc)", ql):
+        return _learn_answer(tb, q)
+    f = tb.facts
+    if f.empty:
+        return "No master sheet has been uploaded yet. Open **Data → Master sheet**, pick the period and add the file."
     if _INT_RX.search(ql):
         a = _internal_answer(tb, q)
         if a:
             return a
-    try:
-        rv = _review_answer(tb, q)
-    except Exception:  # noqa: BLE001 - fall back to the other answers
-        rv = None
-    if rv:
-        return rv
-    if _POLICY_RX.search(ql):
-        return _policy_answer(tb, q)
-    if _GOAL_RX.search(ql):
-        return _goal_answer(tb, q)
-    if _ORG_RX.search(ql) and not re.search(r"\b(cv|candidate|course)", ql):
-        return _org_answer(tb, q)
-    if _STRAT_RX.search(ql):
-        return _strategy_answer(tb, q)
-    if _LEARN_RX.search(ql) and not re.search(r"\b(cv|candidate|vacanc)", ql):
-        return _learn_answer(tb, q)
+    if _HOW_RX.search(ql):
+        return _how_answer(tb)
+    p, many = f.find_in_text(q)
+    if p and not re.search(r"\b(top|bottom|rank|ranking|list)\b", ql):
+        if _HEALTH_RX.search(ql) and p["missing"]:
+            return f"**{p['name']}** is missing: {', '.join(p['missing'])}." + ("" if p["score"] is not None else f" With only {p['measured']} of 8 results filled there is no score yet (3 are needed).")
+        return _person_answer(tb, p)
+    ask = re.search(r"(?:about|who is|tell me about|profile of|sheet (?:for|of)|how is|how's|score of)\s+([a-z][a-z .'-]{1,40}?)(?:\?|$|\s+doing|\s+performing|'s)", ql)
+    if not p and not many and ask and not f.stores_in_text(ask.group(1)) and not role_in(ask.group(1)):
+        p, many = f.find(ask.group(1).strip())
+        if p:
+            return _person_answer(tb, p)
+    if many and len(many) <= 10 and not role_in(ql) and re.search(r"\b(about|who is|tell me|how is|profile|sheet|doing|performing|score of)\b", ql):
+        return "Several people match: " + "; ".join(f"**{x['name']}** ({x['designation']}, {x['store']})" for x in many) + ". Which one?"
     if _HEALTH_RX.search(ql):
         return _health_answer(tb)
-    if _HIRE_RX.search(ql):
-        return _hire_answer(tb, q)
-    mm = tb._mm()
-    if not mm.people and not getattr(mm, "sales", {}):
-        return _dataset_answer(tb, q) or _po_answer(tb, q) or "There is no data yet. Import the roster, attendance, productivity and BO sales reports first (Import screen)."
-    store = _find_store(tb, mm, ql)
-    city = _find_city(ql)
-    person, _ = _find_person_in_text(tb, mm, q)
-    ds = _dataset_answer(tb, q)
-    if ds:
-        return ds
-    if re.search(r"\bstores?\b", ql) and re.search(r"\b(rank|top|bottom|best|worst|weakest|highest|lowest|compare|vs|versus|below|above|need|attention)\b", ql) \
-            and re.search(r"sales|budget|growth|productiv|shrink|stock|oos|out of stock|margin|turnover|leaver|nps|attention|risk|index|\bvs\b|compare", ql):
-        po = _po_answer(tb, q)
-        if po:
-            return po
-    if not person:                                   # P&O review topics (leaders, turnover, ratings, shrinkage, roster…)
-        po = _po_answer(tb, q, only_if_topic=True)
-        if po:
-            return po
-
-    # --- data entry: leave and holidays
-    if "holiday" in ql and re.search(r"\badd\b|\bmark\b|\bset\b|\bis\b|\bas\b", ql):
-        d = _first_date(q, mm.month)
-        if d:
-            m = re.search(r"\bas\s+(?:an?\s+)?(.+?)\s*holiday", q, re.I) or re.search(r"holiday\s+(?:for|of)\s+(.+)$", q, re.I)
-            name = (m.group(1).strip().title() if m else "Gazetted holiday")
-            tb.t_propose_holiday(d.isoformat(), name)
-            return f"I've prepared **{name}** on **{d:%A %d %B %Y}** as a gazetted holiday. Click **Confirm** to save it."
-    if re.search(r"\bleave\b|\bleaves\b|\boff sick\b", ql) and person and re.search(r"\d", ql):
-        span = _date_range(q, mm.month)
-        if span:
-            typ = next((t.title() + " Leave" for t in LEAVE_TYPES if t in ql), "Leave")
-            tb.t_propose_leave([{"who": person.emp, "from": span[0].isoformat(), "to": span[1].isoformat(), "type": typ}])
-            days = (span[1] - span[0]).days + 1
-            return (f"I've prepared **{typ}** for **{person.name}** ({person.emp}) from **{span[0]:%d %b %Y}** to "
-                    f"**{span[1]:%d %b %Y}** ({days} day{'s' if days != 1 else ''}). Click **Confirm** to save it; those days will then "
-                    "count as leave, not absence.")
-
-    # --- one person
-    if person and not re.search(r"\btop\b|\bbottom\b|\bbest\b|\bworst\b|\branking\b", ql):
-        d = tb.t_person(person.emp)
-        lines = [f"**{d['name']}** · {d['designation']} · {d['store']} ({d['role']})", ""]
-        if d["score"] is not None:
-            lines.append(f"Score **{d['score']}/10** · {d['band']}" + (" · provisional" if d["provisional"] else "") +
-                         f" · measured on {d['measured_on']}")
-        else:
-            lines.append({"new_joiner": "New joiner: not scored yet.", "not_enough_data": "Not enough data for a score yet."}.get(d["status"], ""))
-        rows = [{"Part": c["label"], "Weight": c["weight"], "Result": c["display"] or "No data (left out)",
-                 "Score": c["score"] if c["score"] is not None else "—"} for c in d["components"]]
-        tb.blocks.append({"type": "table", "title": "How the score is made", "columns": ["Part", "Weight", "Result", "Score"], "rows": rows})
-        a = d["attendance"]
-        if a.get("worked") is not None:
-            lines.append(f"Attendance: {a['worked']} days worked, **{a['absent']} unexplained absences**, {a['leave']} leave, "
-                         f"{a['off']} weekly offs, {a['fixes']} punches to fix; {a['compliance'] or 0:.0f}% of days were full 9 hours.")
-        if d["context_not_scored"]:
-            lines.append("Context (not scored): " + "; ".join(d["context_not_scored"]))
-        return "\n".join(x for x in lines if x is not None)
-
-    scope_args = {"store": store["name"] if store else None, "city": city}
-    n = _number(ql, 10)
-
-    # --- rankings
-    if re.search(r"\btop\b|\bbest\b|\bhighest\b|\bbottom\b|\bworst\b|\blowest\b|\bweakest\b|\brank", ql) and not re.search(r"\bstores?\b(?!\s+manager)", ql):
-        role = next((r for w, r in ROLE_WORDS if w in ql), "")
-        asc = bool(re.search(r"bottom|worst|lowest|weakest", ql))
-        sort = "attendance" if "attendance" in ql else "score"
-        res = tb.t_find_people(role=role, sort=sort, ascending=asc, limit=n, **{k: v for k, v in scope_args.items() if v})
-        rows = [{"#": i + 1, "Name": r["name"], "Role": r["role_label"], "Store": r["store"],
-                 "Score": r["score"] if r["score"] is not None else "—", "Attendance": r["attendance"] if r["attendance"] is not None else "—"}
-                for i, r in enumerate(res["people"])]
-        tb.blocks.append({"type": "table", "title": "Ranking", "columns": list(rows[0].keys()) if rows else [], "rows": rows})
-        if rows:
-            tb.blocks.append({"type": "chart", "kind": "hbar", "title": "Score", "labels": [r["Name"] for r in rows],
-                              "series": [{"name": "Score", "values": [r["Score"] if r["Score"] != "—" else None for r in rows]}]})
-        who = {"GM": "store managers", "DH": "department heads", "SM": "section managers", "CCO": "CCO managers",
-               "STAFF": "staff", "MANAGERS": "managers", "HBM": "H&B store leads"}.get(role, "people")
-        from ..stores import CITIES
-        where = f" in {store['name']}" if store else (f" in {CITIES.get(city, city)}" if city else "")
-        return f"{'Bottom' if asc else 'Top'} {len(rows)} {who}{where} by {sort} ({res['total_matching']} in total)."
-
-    # --- attendance
-    if re.search(r"absen|attendance|present", ql):
-        d = tb.t_attendance(**{k: v for k, v in scope_args.items() if v})
-        t = d["totals"]
-        res = tb.t_find_people(sort="absent", limit=n, **{k: v for k, v in scope_args.items() if v})
-        rows = [{"Name": r["name"], "Store": r["store"], "Absent days": r["absent"], "Presence %": r["presence"]}
-                for r in res["people"] if r.get("absent")]
-        if rows:
-            tb.blocks.append({"type": "table", "title": "Most unexplained absences", "columns": list(rows[0].keys()), "rows": rows})
-        return (f"**Real absence {t['absence_pct'] or 0:.1f}%** in {d['month']} (up to {d['up_to']}); the biometric system shows "
-                f"{t['system_absence_pct'] or 0:.1f}% because it also counts weekly offs, leave and missing punches.\n"
-                f"- {t['fixes']} missing punches to fix\n- {t['long_absence']} people absent 7+ days in a row\n"
-                f"- {t['compliance_pct'] or 0:.0f}% of worked days were full 9 hours")
-
-    if re.search(r"punch|missing in|missing out|fix", ql):
-        d = tb.t_attendance(**{k: v for k, v in scope_args.items() if v})
-        rows = [{"Store": f["store"], "Name": f["name"], "Date": f["day"], "Problem": f["kind"].replace("_", " "),
-                 "IN": f["t_in"] or "—", "OUT": f["t_out"] or "—"} for f in d["punches_to_fix_sample"]]
-        if rows:
-            tb.blocks.append({"type": "table", "title": "Punches to fix (first 15)", "columns": list(rows[0].keys()), "rows": rows})
-        return f"There are **{d['totals']['fixes']} missing punches** to fix. The full list is on the Attendance screen and in the Attendance Exceptions export."
-
-    # --- trends
-    if re.search(r"trend|history|last \d+ months|over time|month on month|previous month", ql):
-        d = tb.t_trend(**{k: v for k, v in scope_args.items() if v})
-        ms = d["months"]
-        tb.blocks.append({"type": "chart", "kind": "line", "title": "Average score", "labels": [m["month"] for m in ms],
-                          "series": [{"name": "Average score", "values": [m["avg_score"] for m in ms]}]})
-        tb.blocks.append({"type": "chart", "kind": "line", "title": "Real absence %", "labels": [m["month"] for m in ms],
-                          "series": [{"name": "Real absence %", "values": [m["real_absence_pct"] for m in ms]}]})
-        from ..stores import CITIES
-        return "Month-by-month trend for " + (store["name"] if store else CITIES.get(city, city) if city else "the whole country") + ":"
-
-    # --- a store
-    if store and not re.search(r"\bstores\b", ql):
-        d = tb.t_store(store["name"], store_id=store["id"])
-        t = d["total"] or {}
-        rows = [{"Section": f"{s['code']} {s['name']}", "Manager": ", ".join(s["managers"]) or "—",
-                 "vs budget %": round(s["sales_pct"]) if s["sales_pct"] is not None else "—",
-                 "Productivity %": round(s["prod_pct"]) if s["prod_pct"] is not None else "—"} for s in d["sections"]]
-        if rows:
-            tb.blocks.append({"type": "table", "title": "Sections", "columns": list(rows[0].keys()), "rows": rows})
-        gm = d["gm"]
-        tot = sum(x.get("actual") or 0 for x in d["departments"]) or 1
-        deps = [x for x in d["departments"] if (x.get("actual") or 0) >= 0.002 * tot]
-        out = (f"**{d['store']}** ({d['format']}, {d['city']})" +
-               (f": store score **{d['store_score']:.1f}/10**" if d.get("store_score") is not None else "") +
-               (f", GM {gm['name']} **{gm['score']}/10**" if gm and gm["score"] is not None else "") +
-               (f". Sales **{t['sales_pct']:.0f}% of budget**, {t['growth']:+.1f}% vs last year" if t.get("sales_pct") is not None else "") +
-               (f". Real absence {d['attendance']['absence_pct']:.1f}%, {d['attendance']['fixes']} punches to fix." if d["attendance"].get("absence_pct") is not None else "."))
-        if deps:
-            pc = lambda v: "—" if v is None else f"{v:.0f}%"  # noqa: E731
-            out += "\n\n| Department | Sales | vs budget | vs last year | Margin | OOS |\n|---|---|---|---|---|---|\n" + "\n".join(
-                f"| {x['name']} | {(x.get('actual') or 0) / 1e6:,.1f} M | {pc(x.get('sales_pct'))} | {(x.get('growth') or 0):+.1f}% | "
-                f"{(x.get('margin') or 0):.1f}% | {(x.get('oos') or 0):.1f}% |" for x in deps)
-        other = [f for f in d.get("other_formats", []) if f != d["format"]]
-        if other and d["format"] != "Health & Beauty":
-            out += f"\n\n{d['store']} also has a **Health & Beauty (Myli)** store, reported separately: ask about \"{d['store']} H&B\"."
-        elif other:
-            out += f"\n\nThis is the Myli (H&B) store. For the {other[0].lower()}, ask about \"{d['store']}\"."
-        return out
-
-    # --- stores league / overview
-    if re.search(r"\bstores?\b|league|compare|overview|summary|how are we|how is|doing", ql) or city:
-        d = tb.t_overview(**{k: v for k, v in scope_args.items() if v})
-        rows = [{"Store": f"{r['store']} · {r['format']}" if r["format"] else r["store"], "Format": r["format"], "Score": round(r["score"], 1) if r["score"] is not None else "—",
-                 "Sales vs budget %": round(r["sales_pct"]) if r["sales_pct"] is not None else "—",
-                 "Real absence %": round(r["absence_pct"], 1) if r["absence_pct"] is not None else "—"} for r in d["store_league"]]
-        if rows:
-            tb.blocks.append({"type": "table", "title": "Store league", "columns": list(rows[0].keys()), "rows": rows})
-            tb.blocks.append({"type": "chart", "kind": "hbar", "title": "Average score by store", "labels": [r["Store"] for r in rows],
-                              "series": [{"name": "Score", "values": [r["Score"] if r["Score"] != "—" else None for r in rows]}]})
-        cards = "; ".join(f"{k}: {_fmt(v)}" for c in d["cards"] for k, v in c.items() if k not in ("change_vs_last_month", "note"))
-        return f"**{d['scope']} · {d['month']}** (data up to {d['data_up_to']}). {cards}." + (
-            "\n\n" + "\n".join("- " + a for a in d["alerts"]) if d["alerts"] else "")
-    return _po_answer(tb, q) or HELP
-
-
-def _dataset_answer(tb: Toolbox, question: str) -> str | None:
-    """A question naming one of the other imported tables: its computed insights."""
-    try:
-        from ..po import explorer
-        q = norm(question)
-        for d in explorer.datasets(tb.db):
-            names = [norm(x) for x in (d.get("ai_title"), d["title"], d["file"].rsplit(".", 1)[0]) if x]
-            if any(n and len(n) >= 4 and n in q for n in names):
-                v = explorer.view(tb.db, d["id"])
-                return f"**{v['title']}** ({v['rows']:,} rows)\n\n" + "\n".join(f"- {i}" for i in v["insights"]) + \
-                    "\n\nOpen **Other data** to regroup it or chart another column."
-    except Exception:
-        return None
-    return None
-
-
-def _po_answer(tb: Toolbox, question: str, only_if_topic: bool = False) -> str | None:
-    """Questions about the P&O review workbook (leaders, turnover, ratings, shrinkage, roster…)."""
-    try:
-        from ..po.analyst import PO_WORDS, PoAnalyst, to_markdown
-        if only_if_topic and not PO_WORDS.search(question):
-            return None
-        ins = tb.svc.api._po()
-        if ins.empty:
-            return None
-        an = PoAnalyst(ins)
-        html = an.answer(question)
-        if html:
-            tb.blocks.extend(an.blocks[:3])
-        return to_markdown(html) if html else None
-    except Exception:
-        return None
-
-
-def _fmt(v):
-    if isinstance(v, float):
-        return f"{v:.1f}"
-    return "—" if v is None else str(v)
-
-
-def _number(ql: str, default: int) -> int:
-    m = re.search(r"\b(?:top|bottom|best|worst|first|last)?\s*(\d{1,3})\b", ql)
-    try:
-        n = int(m.group(1)) if m else default
-    except ValueError:
-        n = default
-    return max(1, min(n, 50)) if n < 1000 else default
-
-
-def _find_store(tb, mm, ql: str):
-    """The store named in the question. 'Packages' and 'Packages Mall' both work; the H&B (Myli) store only when asked for."""
-    from ..stores import canon_store
-    want_hb = bool(re.search(r"\bh\s*&\s*b\b|\bhb\b|myli|health\s*(and|&)\s*beauty", ql))
-    hits = []
-    for s in mm.stores.values():
-        n = s["name"].lower()
-        words = [w for w in re.split(r"[^a-z0-9]+", n) if len(w) >= 3 and w not in ("mall", "city", "phase", "the")]
-        full = len(n) >= 3 and re.search(rf"\b{re.escape(n)}\b", ql)
-        part = words and all(re.search(rf"\b{re.escape(w)}\b", ql) for w in words[:1])
-        if full or part:
-            hits.append((2 if full else 1, len(n), s))
-    if not hits:
-        return None
-    top = max(h[0] for h in hits)
-    hits = [h for h in hits if h[0] == top]
-    pref = [h for h in hits if (h[2].get("format") == "HB") == want_hb] or hits
-    return max(pref, key=lambda h: h[1])[2]
-
-
-def _find_city(ql: str):
-    from ..stores import CITIES
-    for code, name in CITIES.items():
-        if re.search(rf"\b{name.lower()}\b", ql) or re.search(rf"\b{code.lower()}\b", ql):
-            return code
-    return None
-
-
-def _find_person_in_text(tb, mm, q: str):
-    m = re.search(r"\b\d{7,9}\b", q)
-    if m and m.group(0) in mm.people:
-        return mm.people[m.group(0)], []
-    nq = " " + norm(q) + " "
-    hits = [p for p in mm.people.values() if len(p.name) > 4 and f" {norm(p.name)} " in nq]
-    if hits:
-        hits.sort(key=lambda p: -len(p.name))
-        same = [p for p in hits if norm(p.name) == norm(hits[0].name)]
-        return (hits[0], []) if len(same) == 1 else (None, same)
-    return None, []
-
-
-def _first_date(q: str, month: str) -> date | None:
-    m = re.search(r"\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", q)
-    if m:
-        return parse_date(m.group(0))
-    m = re.search(r"(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([A-Za-z]{3,9})\.?,?\s*(\d{4})?", q)
-    if m and m.group(2)[:3].lower() in MONTHS:
-        y = int(m.group(3)) if m.group(3) else int(month[:4])
-        return parse_date(f"{m.group(1)}-{m.group(2)[:3]}-{y}")
-    return None
-
-
-def _date_range(q: str, month: str) -> tuple[date, date] | None:
-    m = re.search(r"(\d{1,2})(?:st|nd|rd|th)?\s*(?:to|till|until|-|–|and)\s*(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([A-Za-z]{3,9})\.?,?\s*(\d{4})?", q)
-    if m and m.group(3)[:3].lower() in MONTHS:
-        y = int(m.group(4)) if m.group(4) else int(month[:4])
-        a = parse_date(f"{m.group(1)}-{m.group(3)[:3]}-{y}")
-        b = parse_date(f"{m.group(2)}-{m.group(3)[:3]}-{y}")
-        if a and b:
-            return (a, b) if a <= b else (b, a)
-    m = re.search(r"from\s+(.+?)\s+(?:to|till|until)\s+(.+?)(?:$|\.|,)", q)
-    if m:
-        a, b = _first_date(m.group(1), month), _first_date(m.group(2), month)
-        if a and b:
-            return (a, b) if a <= b else (b, a)
-    d = _first_date(q, month)
-    return (d, d) if d else None
+    sts = f.stores_in_text(q)
+    if len(sts) >= 2 and (_CMP_RX.search(ql) or " and " in ql):
+        return _compare_answer(tb, sts)
+    ppl = _people_answer(tb, q) if (role_in(ql) or _RANK_RX.search(ql) or re.search(r"\b(who|which|list|show)\b", ql)) else None
+    if ppl and not (len(sts) == 1 and not role_in(ql) and not _RANK_RX.search(ql)):
+        return ppl
+    if len(sts) == 1:
+        return _store_answer(tb, sts[0])
+    rv = _review_answer(tb, q)
+    if rv:
+        return rv
+    if ppl:
+        return ppl
+    if _OVER_RX.search(ql) or re.search(r"\bstores?\b", ql):
+        return _overview_answer(tb)
+    return HELP

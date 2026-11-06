@@ -1,4 +1,7 @@
-"""What the AI may do: read PNO's numbers (never change them) and propose changes that the user confirms."""
+"""What the AI may do: read P&O's numbers (never change them) and propose changes that the user confirms.
+
+6.0: every number comes from the master sheet, scored exactly as the Review screen scores it (agent/facts.py).
+"""
 
 from __future__ import annotations
 
@@ -6,127 +9,71 @@ import re
 import sqlite3
 from typing import Any
 
-from .. import analytics, engine
-from ..stores import FORMAT_LABEL
-from ..org import ROLE_LABEL
-from ..util import norm, parse_date
+from .facts import KEYS, Facts
 
-SQL_HELP = """Tables (SQLite, read-only):
-  people(emp, name, store, city, format, dept_code, dept, section, designation, grade, gender, role, role_label, score,
-         band, coverage, attendance_score, presence_pct, compliance_pct, worked_days, absent_days, leave_days, off_days,
-         punches_to_fix, longest_absence, avg_hours, sales_vs_budget_pct, productivity_vs_target_pct, oos_pct, waste_pct,
-         manager_emp, manager_name, joining)      -- one row per person for the selected month
-  attendance(emp_no, day, status, minutes, t_in, t_out)  -- status: present|manual|missing_in|missing_out|punched_absent|no_punch
-  sales(store, month, as_of, level, code, name, dept, actual, budget, growth, ly, waste, oos, margin_net, customers)
-        -- level: section|dept|store; latest MTD per month; code: S011.., D01..D05, STORE
-  productivity(store, month, row_code, row_name, actual, target, ly)
-  stores(id, name, format, city)
-  leaves(emp_no, d_from, d_to, type)   holidays(day, name)"""
+ROLE_ENUM = ["store", "deputy", "dept", "section", "tl"]
+CRIT_ENUM = ["score", "sales", "productivity", "shrink", "stock_days", "leavers", "da", "nps", "rating", "name", "time_in_role"]
 
 TOOLS: list[dict] = [
-    {"name": "overview", "description": "Headline numbers for the month and filters: headcount, real absence, average score, "
-     "sales vs budget, productivity, score bands, store league, alerts. Start here for general questions.",
+    {"name": "person", "description": "EVERYTHING about one leader (use for any question naming a person, even part of a name): designation, "
+     "store, department, grade, joining date, time with the company and in the current role, who they report to, every result in the "
+     "master sheet (sales vs budget, productivity, shrink, stock days, leavers, DA cases, NPS, rating) with its status, points and the "
+     "benchmark, their score out of 10, category, rank among the same level, ratings by year, what is not filled yet, history.",
+     "parameters": {"type": "object", "properties": {"who": {"type": "string", "description": "name (or part of it) or employee number"}},
+                    "required": ["who"]}},
+    {"name": "people", "description": "List and rank leaders with their score and results. Filter by store, department (Consumer Goods, "
+     "Fresh Food, Heavy Household, Non Food…), section, role, format (Hypermarket / Supermarket), category (High / Good / Low / Not scored) "
+     "or a name. Sort by score or by one criterion (best first; ascending=true for worst first). Use for top / bottom / who is below / lists.",
      "parameters": {"type": "object", "properties": {
-         "month": {"type": "string", "description": "YYYY-MM; omit for the month on screen"},
-         "city": {"type": "string"}, "store": {"type": "string", "description": "store name"},
-         "format": {"type": "string", "enum": ["HM", "SM", "HB"]}, "dept": {"type": "string", "description": "01..06, 11, 99"}}}},
-    {"name": "find_people", "description": "List people with their score, role, store and attendance, filtered and sorted. "
-     "Use for rankings (top / bottom), searching by name and lists like 'most absent'.",
-     "parameters": {"type": "object", "properties": {
-         "query": {"type": "string", "description": "part of a name, an employee number or designation"},
-         "store": {"type": "string"}, "city": {"type": "string"}, "dept": {"type": "string"},
-         "role": {"type": "string", "enum": ["GM", "HBM", "DH", "SM", "CCO", "STAFF", "MANAGERS"]},
-         "sort": {"type": "string", "enum": ["score", "attendance", "absent", "fixes", "name"]},
-         "ascending": {"type": "boolean"}, "limit": {"type": "integer"}, "month": {"type": "string"}}}},
-    {"name": "person", "description": "Everything about one person: score breakdown, attendance, manager, team, history.",
-     "parameters": {"type": "object", "properties": {"who": {"type": "string", "description": "name or employee number"},
-                                                     "month": {"type": "string"}}, "required": ["who"]}},
-    {"name": "store", "description": "One store: GM, departments and sections with their managers, KPIs, attendance.",
-     "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "month": {"type": "string"}}, "required": ["name"]}},
-    {"name": "attendance", "description": "Attendance health for the filters: real vs system absence, punches to fix, "
-     "long absences, 9-hour compliance, worst stores.",
-     "parameters": {"type": "object", "properties": {"month": {"type": "string"}, "store": {"type": "string"},
-                                                     "city": {"type": "string"}, "dept": {"type": "string"}}}},
-    {"name": "trend", "description": "Month-by-month history (up to 12 months) of average score, absence and sales vs budget.",
-     "parameters": {"type": "object", "properties": {"store": {"type": "string"}, "city": {"type": "string"}, "dept": {"type": "string"}}}},
-    {"name": "sql", "description": "Run one read-only SQL SELECT for questions the other tools cannot answer. " + SQL_HELP,
-     "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "month": {"type": "string"}}, "required": ["query"]}},
+         "query": {"type": "string"}, "store": {"type": "string"}, "dept": {"type": "string"}, "section": {"type": "string"},
+         "role": {"type": "string", "enum": ROLE_ENUM, "description": "store managers, deputy managers, department heads, section managers, team leaders"},
+         "format": {"type": "string", "enum": ["Hypermarket", "Supermarket"]}, "category": {"type": "string", "enum": ["High", "Good", "Low", "Not scored"]},
+         "sort": {"type": "string", "enum": CRIT_ENUM}, "ascending": {"type": "boolean"}, "limit": {"type": "integer"}}}},
+    {"name": "store", "description": "One store: its store manager, the store's results against the benchmarks, what is strong / weak / the "
+     "focus, each department's results, and every leader in the store with their score and gaps.",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+    {"name": "stores", "description": "All stores side by side (store league): store manager, their score and the store's results, leaders and "
+     "their average score. Use to compare or rank stores.", "parameters": {"type": "object", "properties": {}}},
+    {"name": "overview", "description": "The country picture for the period: country results, what is strong / weak / the focus, how many "
+     "leaders are High / Good / Low, average score by level, periods loaded. Start here for general questions.",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "review", "description": "The Review screen for any slice: a store, a department (Consumer Goods, Fresh Food, Heavy Household, "
+     "Light Household, Textile, Non Food), a section (Bakery, Grocery…) and optionally a role. Returns each criterion with its value and "
+     "green/amber/red status, strong / weak / focus notes, the level below and the people table.",
+     "parameters": {"type": "object", "properties": {"store": {"type": "string"}, "dept": {"type": "string"}, "section": {"type": "string"},
+                    "role": {"type": "string", "enum": ["store", "dept", "section", "tl"]}}}},
+    {"name": "data_health", "description": "How complete the master sheet is: filled % per criterion and per store, and who is missing what. "
+     "Use for 'what is missing', 'is the data complete', 'why has X no score'.", "parameters": {"type": "object", "properties": {}}},
+    {"name": "sql", "description": "One read-only SQL SELECT over table leaders(emp, name, designation, level, role, store, format, city, "
+     "department, section, grade, joined, role_since, months_in_role, manager, sales, productivity, shrink, stock_days, leavers, da, nps, "
+     "rating, rating_2023, rating_2024, rating_2025, score, category) for questions the other tools cannot answer (counts, averages, "
+     "custom filters). Percent columns are numbers (−7.9 means −7.9%).",
+     "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "internal_candidates", "description": "Who inside the company could fill a role (store_manager, department_head, "
+     "section_manager, team_leader) in a store and department: fit with reasons and what their move leaves behind.",
+     "parameters": {"type": "object", "properties": {"role": {"type": "string", "enum": ["store_manager", "department_head", "section_manager", "team_leader"]},
+                    "store": {"type": "string"}, "department": {"type": "string"}, "section": {"type": "string"}}, "required": ["role"]}},
+    {"name": "hiring", "description": "Hiring: open vacancies, ranked CVs for a vacancy, the talent bank and hiring analytics.",
+     "parameters": {"type": "object", "properties": {"vacancy": {"type": "string"}, "search": {"type": "string"}, "skill": {"type": "string"},
+                    "city": {"type": "string"}}}},
+    {"name": "learning", "description": "Learning: list the courses, or make a new course for a role and topic with the hours wanted.",
+     "parameters": {"type": "object", "properties": {"make": {"type": "boolean"}, "topic": {"type": "string"}, "role": {"type": "string"},
+                    "hours": {"type": "number"}}}},
     {"name": "kpis", "description": "Show 3-5 headline figures as cards at the top of the answer.",
      "parameters": {"type": "object", "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {
          "label": {"type": "string"}, "value": {"type": "string"}, "sub": {"type": "string"},
          "tone": {"type": "string", "enum": ["good", "warn", "bad", ""]}}, "required": ["label", "value"]}}}, "required": ["items"]}},
-    {"name": "chart", "description": "Show a chart under the answer: hbar for rankings, line for trends, donut for shares of a whole, bar for grouped comparisons.",
+    {"name": "chart", "description": "Show a chart under the answer: hbar for rankings, line for trends, donut for shares, bar for comparisons.",
      "parameters": {"type": "object", "properties": {
          "kind": {"type": "string", "enum": ["bar", "hbar", "line", "donut"]}, "title": {"type": "string"},
          "labels": {"type": "array", "items": {"type": "string"}},
          "series": {"type": "array", "items": {"type": "object", "properties": {
              "name": {"type": "string"}, "values": {"type": "array", "items": {"type": "number"}}}}}},
          "required": ["kind", "title", "labels", "series"]}},
-    {"name": "propose_holiday", "description": "Prepare a gazetted holiday for the user to confirm.",
-     "parameters": {"type": "object", "properties": {"day": {"type": "string", "description": "YYYY-MM-DD"},
-                                                     "name": {"type": "string"}}, "required": ["day", "name"]}},
-    {"name": "propose_correction", "description": "The user says some data about a person is wrong (designation, store, section, department, "
-     "manager, grade, joining date, in-role date, a rating, or that they have left). Prepare the correction for the user to confirm; once "
-     "confirmed it wins over the imported files on every screen and in later imports.",
-     "parameters": {"type": "object", "properties": {"who": {"type": "string", "description": "employee number or name"},
-         "field": {"type": "string", "enum": ["designation", "store", "section", "department", "manager_name", "grade", "joining_date",
-                                              "role_since", "status", "left_on", "rating", "employee_name"]},
-         "value": {"type": "string", "description": "the right value; for status 'active' or 'left'; dates YYYY-MM-DD"},
-         "cycle": {"type": "integer", "description": "appraisal year, only for a rating"}, "note": {"type": "string"}},
-         "required": ["who", "field", "value"]}},
     {"name": "propose_note", "description": "Prepare a note on a person's profile for the user to confirm.",
      "parameters": {"type": "object", "properties": {"who": {"type": "string"}, "text": {"type": "string"}}, "required": ["who", "text"]}},
 ]
-TOOLS.insert(0, {"name": "po_review", "description": "The P&O review workbook: store league (sales vs budget, growth, productivity vs target, "
-              "shrinkage and stock days vs budget, out of stock, NPS), section leaders and their P&O index, talent grid, bench strength "
-              "(acting, new in role, not in HR system, low rating), performance ratings, time in role, turnover (leavers, reasons, hotspots), "
-              "disciplinary cases and shift-roster coverage. Pass the question in plain English, for example 'weakest leaders in Lucky One', "
-              "'turnover hotspots', 'compare Fortress and Emporium', 'brief me for the country review', 'which roles are at risk'. "
-              "By default it uses the period shown on screen; set period to 'mtd' (one month) or 'ytd' (from–to months, YYYY-MM) "
-              "when the user asks about a specific month or year to date. General data (employee master, time in role, ratings) "
-              "always applies; the answer says which period each figure covers.",
-              "parameters": {"type": "object", "properties": {"question": {"type": "string"},
-                             "period": {"type": "string", "enum": ["screen", "latest", "mtd", "ytd"]},
-                             "from_month": {"type": "string", "description": "YYYY-MM, YTD start (default January)"},
-                             "to_month": {"type": "string", "description": "YYYY-MM, the month (MTD) or YTD end"}},
-                             "required": ["question"]}})
-TOOLS.insert(0, {"name": "review", "description": "THE REVIEW SCREEN (use first for any performance question). For any slice "
-              "(whole country, a store, a department such as Consumer Goods / Fresh Food / Light Household / Heavy Household / Textile / Non Food, "
-              "a section such as Bakery or Grocery, and optionally a role) returns every criterion with its value and green/amber/red status "
-              "against the benchmark (sales vs budget, growth, productivity vs target, shrinkage vs budget, stock days, out of stock, waste, "
-              "attendance, leavers, disciplinary cases, NPS), what is strong / weak / the focus, the next level down (stores, departments or "
-              "sections) and the people benchmark table (each leader's results and score). These are exactly the numbers on the director's "
-              "screen: quote them as they are. Never rank people by position; describe strengths and gaps.",
-              "parameters": {"type": "object", "properties": {"store": {"type": "string"}, "dept": {"type": "string"}, "section": {"type": "string"},
-                             "role": {"type": "string", "enum": ["store", "dept", "section", "tl"], "description": "store managers, department heads, section managers, team leaders"}}}})
-TOOLS.insert(1, {"name": "internal_candidates", "description": "Who inside the company could fill a role (store manager, department_head, "
-              "section_manager, team_leader) in a store and section: fit score with reasons, and what their move leaves behind (backfill, chain "
-              "of moves, risk). Use for 'who can replace X', 'who is ready for department head at Fortress', 'internal candidates for ...'.",
-              "parameters": {"type": "object", "properties": {"role": {"type": "string", "enum": ["store_manager", "department_head", "section_manager", "team_leader"]},
-                             "store": {"type": "string"}, "section": {"type": "string"}}, "required": ["role"]}})
-TOOLS.insert(1, {"name": "learning", "description": "Learning Studio: list the training courses, or make a new course for a role and "
-              "topic with the hours wanted (full lessons, formulas, charts, quizzes, final assessment). Use for 'make a 3-hour course on "
-              "shrink for team leaders', 'what training do we have', 'training completion'.",
-              "parameters": {"type": "object", "properties": {"make": {"type": "boolean"}, "topic": {"type": "string"},
-                             "role": {"type": "string", "description": "associate, team leader, section manager, department head or store manager"},
-                             "hours": {"type": "number"}}}})
-TOOLS.insert(1, {"name": "hiring", "description": "Hiring: open vacancies, ranked candidates for a vacancy (match score 0-100 with "
-              "strengths, gaps and things to check), the talent bank (search by skill, city, years) and hiring analytics (time to hire, "
-              "funnel, offer acceptance). Use for 'best candidates for X', 'who should we interview', 'how is hiring going', "
-              "'anyone in the bank with butchery experience'.",
-              "parameters": {"type": "object", "properties": {"vacancy": {"type": "string", "description": "words from the vacancy title"},
-                             "search": {"type": "string"}, "skill": {"type": "string"}, "city": {"type": "string"}}}})
-TOOLS.insert(1, {"name": "data_health", "description": "Is the data for a month complete and trustworthy? Returns the checklist of "
-              "expected reports (in, worked out from other periods, older period only, missing), checks across tabs (leavers still on "
-              "the Basic Sheet, unconfirmed store names, conflicting files, totals that do not add up, outliers), a 0-100 health score "
-              "and whether the month is locked. Use it for 'is my data ready', 'what is missing', 'can I trust these numbers'.",
-              "parameters": {"type": "object", "properties": {"month": {"type": "string", "description": "YYYY-MM; default the latest"}}}})
-TOOLS.insert(1, {"name": "datasets", "description": "Other tables the user imported that are not standard P&O reports (KPI sheets, "
-              "training lists, surveys…). Without 'title' lists them; with 'title' returns that table's columns, grouped totals and "
-              "computed insights. Optional group_by and measure are column names.",
-              "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "group_by": {"type": "string"},
-                                                             "measure": {"type": "string"}}}})
-WRITE_TOOLS = {"propose_leave", "propose_holiday", "propose_note", "propose_correction"}
+WRITE_TOOLS = {"propose_note"}
 
 
 def openai_tools() -> list[dict]:
@@ -134,7 +81,7 @@ def openai_tools() -> list[dict]:
 
 
 class Toolbox:
-    def __init__(self, service, month: str | None, scope: dict, anonymise: bool):
+    def __init__(self, service, month: str | None = None, scope: dict | None = None, anonymise: bool = False):
         self.svc = service
         self.db = service.api.db
         self.month = month
@@ -143,69 +90,29 @@ class Toolbox:
         self.blocks: list[dict] = []        # tables and charts shown under the answer
         self.actions: list[dict] = []       # changes waiting for Confirm
         self.used: list[str] = []
+        self._facts: Facts | None = None
 
-    # ---------------------------------------------------------------- helpers
-    def _mm(self, month=None):
-        return engine.model(self.db, month or self.month)
+    @property
+    def facts(self) -> Facts:
+        if self._facts is None:
+            self._facts = Facts(self.svc.api)
+        return self._facts
 
-    def _nm(self, p) -> str:
-        return f"Employee {p.emp}" if self.anon else p.name
+    def _hide(self, out):
+        """Anonymised mode: names are replaced by employee numbers before anything leaves the PC."""
+        if not self.anon:
+            return out
+        names = {p["name"]: f"Employee {p['emp']}" for p in self.facts.leaders if p["emp"]}
 
-    def _scope(self, args: dict) -> dict:
-        sc = dict(self.scope)
-        mm = self._mm(args.get("month"))
-        if args.get("store"):
-            st = self.find_store(mm, args["store"])
-            if st:
-                sc["store_id"] = st["id"]
-        if args.get("city"):
-            c = norm(args["city"])
-            from ..stores import CITIES
-            sc["city"] = next((k for k, v in CITIES.items() if c in (k, norm(v))), c[:3])
-        if args.get("format"):
-            sc["format"] = args["format"]
-        if args.get("dept"):
-            sc["dept"] = str(args["dept"]).zfill(2)
-        return sc
-
-    @staticmethod
-    def find_store(mm, name: str) -> dict | None:
-        n = norm(name)
-        want_hb = bool(re.search(r"\bH AND B\b|\bHB\b|MYLI|HEALTH (AND )?BEAUTY", n))
-        n = re.sub(r"\bH AND B\b|\bHB\b|\bMYLI\b|\bHEALTH (AND )?BEAUTY\b|\bHM\b|\bSM\b", " ", n).strip()
-        n = " ".join(n.split())
-        best, score = None, 0
-        for s in mm.stores.values():
-            sn = norm(s["name"])
-            sc = 3 if sn == n else 2 if n in sn or sn in n else len(set(n.split()) & set(sn.split())) / 2
-            if sc and (s.get("format") == "HB") == want_hb:
-                sc += 0.25
-            if sc > score:
-                best, score = s, sc
-        return best if score >= 0.5 else None
-
-    def find_person(self, mm, who: str):
-        w = str(who).strip()
-        if w in mm.people:
-            return mm.people[w], []
-        m = re.search(r"\d{6,}", w)
-        if m and m.group(0) in mm.people:
-            return mm.people[m.group(0)], []
-        n = norm(w)
-        exact = [p for p in mm.people.values() if norm(p.name) == n]
-        if len(exact) == 1:
-            return exact[0], []
-        part = exact or [p for p in mm.people.values() if n and n in norm(p.name)]
-        if len(part) == 1:
-            return part[0], []
-        return None, part[:10]
-
-    def _row(self, p) -> dict:
-        a = p.att or {}
-        return {"emp": p.emp, "name": self._nm(p), "role": ROLE_LABEL[p.role], "designation": p.designation, "store": p.store,
-                "dept": p.dept, "score": None if p.score is None else round(p.score, 1), "band": engine.band(p.score)[0],
-                "attendance": a.get("score"), "presence_pct": a.get("presence"), "absent_days": a.get("absent"),
-                "punches_to_fix": a.get("fixes")}
+        def walk(x):
+            if isinstance(x, str):
+                return names.get(x, x)
+            if isinstance(x, list):
+                return [walk(y) for y in x]
+            if isinstance(x, dict):
+                return {k: walk(v) for k, v in x.items()}
+            return x
+        return walk(out)
 
     # ---------------------------------------------------------------- tools
     def run(self, name: str, args: dict) -> Any:
@@ -214,56 +121,120 @@ class Toolbox:
         if not fn:
             return {"error": f"unknown tool {name}"}
         try:
-            return fn(**(args or {}))
+            out = fn(**(args or {}))
         except TypeError as e:
             return {"error": f"bad arguments: {e}"}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - the model gets the reason and can try another way
             return {"error": str(e)}
+        return self._hide(out) if name not in ("kpis", "chart") else out
 
-    def t_datasets(self, title: str = "", group_by: str | None = None, measure: str | None = None, **kw) -> dict:
-        from ..po import explorer
-        sets = explorer.datasets(self.db)
-        if not title:
-            return {"datasets": [{"title": d["ai_title"] or d["title"], "rows": d["rows"], "file": d["file"]} for d in sets]}
-        t = norm(title)
-        hit = next((d for d in sets if t in norm(d["ai_title"] or "") or t in norm(d["title"]) or t in norm(d["file"])), None)
-        if not hit:
-            return {"error": f"No dataset called {title}", "available": [d["ai_title"] or d["title"] for d in sets]}
-        v = explorer.view(self.db, hit["id"], group_by, measure)
-        return {"title": v["title"], "rows": v["rows"], "columns": [{k: c.get(k) for k in ("name", "type", "role")} for c in v["columns"]],
-                "grouped_by": v["group"], "measure": v["measure"], "aggregation": v["agg"], "groups": v["series"][:30],
-                "trend": v["trend"][-24:], "insights": v["insights"]}
+    def _no_data(self):
+        return {"note": "No master sheet has been uploaded yet (Data → Master sheet)."} if self.facts.empty else None
 
-    def t_internal_candidates(self, role: str = "section_manager", store: str = "", section: str = "", **kw) -> dict:
-        from ..hiring import internal
-        from ..po import canon
-        r = internal.search(self.svc.api, {"role": role, "store": canon.store(store) if store else "", "section": section, "title": role.replace("_", " ").title()}, limit=6)
-        return {"verdict": r["verdict"], "notes": r.get("notes", []), "candidates": [
-            {k: c[k] for k in ("name", "designation", "store", "leads", "move", "fit", "recommend", "why", "watch")} |
-            {"backfill": {k: c["backfill"].get(k) for k in ("summary", "risk", "status")},
-             "chain": [f"{s['seat']} ← {s['by'] or 'hire from outside'}" for s in c["backfill"].get("steps", [])]} for c in r["candidates"]]}
+    def t_person(self, who: str = "", **kw) -> dict:
+        if self._no_data():
+            return self._no_data()
+        f = self.facts
+        if self.anon:
+            m = re.search(r"Employee (\d+)", who or "")
+            who = m.group(1) if m else who
+        p, cands = f.find(who)
+        if not p:
+            return {"not_found": who, "did_you_mean": [f"{c['name']} ({c['designation']}, {c['store']})" for c in cands],
+                    "note": "Ask which one they mean." if cands else "Nobody with that name is in the master sheet for " + f.period_label + "."}
+        return f.person(p)
+
+    def t_people(self, query: str = "", store: str = "", dept: str = "", section: str = "", role: str = "", format: str = "",
+                 category: str = "", sort: str = "score", ascending: bool = False, limit: int = 30, **kw) -> dict:
+        if self._no_data():
+            return self._no_data()
+        r = self.facts.people(query, store, dept, section, role, format, category, "", sort or "score", bool(ascending), limit)
+        for p in r.get("people", []):
+            p.pop("_values", None)
+            p.pop("_status", None)
+        return r
+
+    def t_store(self, name: str = "", **kw) -> dict:
+        if self._no_data():
+            return self._no_data()
+        return self.facts.store_view(name)
+
+    def t_stores(self, **kw) -> dict:
+        if self._no_data():
+            return self._no_data()
+        return self.facts.league()
+
+    def t_overview(self, **kw) -> dict:
+        if self._no_data():
+            return self._no_data()
+        return self.facts.overview()
+
+    def t_data_health(self, **kw) -> dict:
+        if self._no_data():
+            return self._no_data()
+        return self.facts.health()
 
     def t_review(self, store: str = "", dept: str = "", section: str = "", role: str = "", **kw) -> dict:
         from .. import review
+        from ..po import canon
+        if self._no_data():
+            return self._no_data()
         api = self.svc.api
-        ins = api._po()
-        if store and not ins.empty and store not in ins.stores(include_myli=True):
-            hits = [s for s in ins.stores(include_myli=True) if store.casefold() in s.casefold()]
-            store = hits[0] if hits else store
+        if store:
+            store = self.facts.find_store(store) or store
         names = {v.casefold(): k for k, v in review.SHORT.items()} | {k.casefold(): k for k in review.SHORT}
         dept = names.get((dept or "").casefold(), dept)
         if section:
             section = canon.section(section) or section
         r = api.api_review(store=store or None, dept=dept or None, section=section or None, role=role or None)
         if r.get("empty"):
-            return {"note": "No data imported yet."}
+            return {"note": "No data for that view."}
         C = r["criteria"]
         show = lambda cells, keys: {C[c["key"]]["label"]: f"{review.fmt(c['key'], c['value'])} ({c['status']})" for c in cells if c["key"] in keys and c["value"] is not None}  # noqa: E731
-        return {"view": r["label"], "as_of": r["as_of"], "scorecard": show(r["tiles"], [t["key"] for t in r["tiles"]]), "notes": r["notes"],
+        return {"view": r["label"], "period": self.facts.period_label, "scorecard": show(r["tiles"], [t["key"] for t in r["tiles"]]), "notes": r["notes"],
                 "next_level": {g["name"]: show(g["cells"], r["grid_keys"]) for g in r["grid"]},
-                "people": [{"name": p["name"], "store": p["store"], "role": p["role"], "area": p["area"], **show(p["cells"], r["people_keys"])} for p in r["people"][:40]],
-                "benchmarks": {C[k]["label"]: f"green from {C[k]['green']}, amber from {C[k]['amber']} ({'higher' if C[k]['better'] == 'up' else 'lower'} is better)"
-                               for k in C if C[k]["green"] is not None}}
+                "people": [{"name": p["name"], "store": p["store"], "role": p["role"], "area": p["area"], **show(p["cells"], r["people_keys"])} for p in r["people"][:40]]}
+
+    def t_sql(self, query: str = "", **kw) -> dict:
+        q = (query or "").strip().rstrip(";")
+        if not re.match(r"^\s*(WITH|SELECT)\b", q, re.I) or ";" in q:
+            return {"error": "Only one SELECT statement is allowed."}
+        con = self.sql_connection()
+        try:
+            cur = con.execute(q)
+            cols = [c[0] for c in cur.description or []]
+            rows = cur.fetchmany(200)
+            return {"columns": cols, "rows": [list(r) for r in rows], "truncated": len(rows) == 200}
+        except sqlite3.Error as e:
+            return {"error": f"SQL error: {e}"}
+        finally:
+            con.close()
+
+    def sql_connection(self) -> sqlite3.Connection:
+        con = sqlite3.connect(":memory:")
+        cols = ["emp", "name", "designation", "level", "role", "store", "format", "city", "department", "section", "grade", "joined",
+                "role_since", "months_in_role", "manager", *KEYS, "rating_2023", "rating_2024", "rating_2025", "score", "category"]
+        con.execute(f"CREATE TABLE leaders({', '.join(cols)})")
+        rows = []
+        for p in self.facts.leaders:
+            yr = p["ratings"] if isinstance(p["ratings"], dict) else {}
+            rows.append((p["emp"], f"Employee {p['emp']}" if self.anon else p["name"], p["designation"], p["level"], p["role"], p["store"],
+                         p["format"], p["city"], p["department"], p["section"], p["grade"], p["joined"], p["role_since"], p["in_role_months"],
+                         p["manager"], *[p["values"][k] for k in KEYS], yr.get("2023"), yr.get("2024"), yr.get("2025"), p["score"], p["category"]))
+        con.executemany(f"INSERT INTO leaders VALUES({','.join('?' * len(cols))})", rows)
+        allowed = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, getattr(sqlite3, "SQLITE_RECURSIVE", 33)}
+        con.set_authorizer(lambda action, *a: sqlite3.SQLITE_OK if action in allowed else sqlite3.SQLITE_DENY)
+        return con
+
+    def t_internal_candidates(self, role: str = "section_manager", store: str = "", department: str = "", section: str = "", **kw) -> dict:
+        from ..hiring import internal
+        st = self.facts.find_store(store) if store else ""
+        r = internal.search(self.svc.api, {"role": role, "store": st or "", "department": department, "section": section,
+                                           "title": role.replace("_", " ").title()}, limit=6)
+        return {"verdict": r["verdict"], "notes": r.get("notes", []), "candidates": [
+            {k: c.get(k) for k in ("name", "designation", "store", "experience", "move", "fit", "recommend", "why", "watch")} |
+            {"backfill": {k: c["backfill"].get(k) for k in ("summary", "risk", "status")},
+             "chain": [f"{s['seat']} ← {s['by'] or 'hire from outside'}" for s in c["backfill"].get("steps", [])]} for c in r["candidates"]]}
 
     def t_learning(self, make: bool = False, topic: str = "", role: str = "", hours: float = 3, **kw) -> dict:
         L = self.svc.api.learning
@@ -273,7 +244,7 @@ class Toolbox:
             c = L.build(level=level, hours=float(hours or 3), lecture_min=25, focus=topic)
             ct = c["content"]
             return {"made": True, "course_id": c["id"], "title": ct["title"], "summary": ct["summary"], "modules": [m["title"] for m in ct["modules"]],
-                    "notes": ct.get("notes", []), "where": "Open Learning Studio to read, present or export it (PDF, PowerPoint, Word, Excel)."}
+                    "notes": ct.get("notes", []), "where": "Open Learning to read, present or export it (PDF, PowerPoint, Word, Excel)."}
         d = L.courses()
         return {"courses": [{"title": c["title"], "audience": c["audience"], "hours": c["hours"], "assigned": c["assigned"], "completed": c["completed"],
                              "avg_score": c["avg_score"]} for c in d["rows"]][:20], "stats": L.stats(), "topics": [t["title"] for t in d["topics"]]}
@@ -302,134 +273,17 @@ class Toolbox:
             out["talent_bank"] = [{"name": r["name"], "years": r["years"], "level": r["level"], "city": r["city"], "skills": r["skills"]} for r in b["rows"][:15]]
         return out
 
-    def t_data_health(self, month: str = "", **kw) -> dict:
-        r = self.svc.api.api_data_health(month or None)
-        return {"month": r["month_label"], "score": r["score"], "verdict": r["verdict"], "locked": r["locked"],
-                "checklist": [{"report": c["name"], "status": c["status"], "period": c["label"]} for c in r["checklist"]],
-                "checks": [{"level": c["level"], "area": c["area"], "message": c["message"], "examples": c["items"][:5]} for c in r["checks"]]}
-
-    def t_po_review(self, question: str = "", period: str = "screen", from_month: str = "", to_month: str = "", **kw) -> dict:
-        from ..po import privacy
-        from ..po.analyst import PoAnalyst, to_markdown
-        ins = self.svc.api._po()
-        if period in ("latest", "mtd", "ytd"):
-            from ..po.insights import Insights
-            from ..po.store import PoStore
-            ins = Insights(PoStore(self.svc.db), weights=self.svc.db.get_setting("po_weights", None),
-                           view={"type": period, "from": from_month or None, "to": to_month or None})
-        if ins.empty:
-            return {"answer": "The P&O workbook has not been imported yet."}
-        privacy.set_demo_mode(self.anon or self.svc.api._hide())
-        try:
-            an = PoAnalyst(ins)
-            html = an.answer(question or "brief me for the country review") or an.country_brief()
-        finally:
-            privacy.set_demo_mode(self.svc.api._hide())
-        self.blocks.extend(an.blocks[:3])
-        return {"answer": to_markdown(html), "period": ins.view_label,
-                "data_periods": {k: v for k, v in sorted(ins.periods.items())}, "period_notes": ins.notes,
-                "note": "Key figures and a chart for this are already shown under your answer. Say which period the figures cover."}
-
-    def t_overview(self, month=None, **kw) -> dict:
-        sc = self._scope(kw)
-        d = analytics.dashboard(self.db, month or self.month, sc, None, self.anon)
-        return {"month": d["month_label"], "scope": d["scope_label"], "data_up_to": d["as_of"],
-                "cards": [{c["label"]: c["value"], "change_vs_last_month": c["delta"], "note": c["sub"]} for c in d["cards"]],
-                "bands": {x["label"]: x["count"] for x in d["distribution"]},
-                "store_league": [{k: r[k] for k in ("store", "format", "people", "score", "gm", "gm_score", "sales_pct", "absence_pct")}
-                                 for r in d["league"][:20]],
-                "alerts": [a["text"] for a in d["alerts"]]}
-
-    def t_find_people(self, query="", store=None, city=None, dept=None, role="", sort="score", ascending=False, limit=15,
-                      month=None) -> dict:
-        sc = self._scope({"store": store, "city": city, "dept": dept, "month": month})
-        res = analytics.people_list(self.db, month or self.month, sc, query or "", role or "", "", sort or "score",
-                                    not ascending, max(1, min(int(limit or 15), 60)), 0, self.anon)
-        keep = ("emp", "name", "role_label", "designation", "store", "dept", "score", "band", "attendance", "presence", "absent", "fixes", "delta")
-        return {"total_matching": res["total"], "people": [{k: r.get(k) for k in keep} for r in res["rows"]]}
-
-    def t_person(self, who, month=None) -> dict:
-        mm = self._mm(month)
-        p, cands = self.find_person(mm, who)
-        if not p:
-            return {"not_found": who, "did_you_mean": [f"{self._nm(c)} ({c.emp}, {c.store})" for c in cands]}
-        d = analytics.person(self.db, mm.month, p.emp, self.anon)
-        a = d["attendance_detail"] or {}
-        return {"emp": d["emp"], "name": d["name"], "designation": d["designation"], "role": d["role_label"], "store": d["store"],
-                "measured_on": d["domain"], "score": d["score"], "band": d["band"], "status": d["status"],
-                "coverage_pct": d["coverage"], "provisional": d["provisional"],
-                "components": [{k: c[k] for k in ("label", "weight", "score", "display", "detail")} for c in d["components"]],
-                "context_not_scored": [c["display"] for c in d["context"]],
-                "attendance": {k: a.get(k) for k in ("worked", "absent", "leave", "off", "holiday", "fixes", "presence",
-                                                    "compliance", "avg_hours", "total_hours", "longest_absence", "sys_absent")},
-                "absent_days": [c["day"] for c in a.get("calendar", []) if c["kind"] == "absent"][:31],
-                "manager": d["manager"]["name"], "team_size": len(d["team"]),
-                "history": [{h["month"]: h["score"]} for h in d["history"]]}
-
-    def t_store(self, name, month=None, store_id=None, **kw) -> dict:
-        mm = self._mm(month)
-        st = mm.stores.get(int(store_id)) if store_id else self.find_store(mm, name)
-        if not st:
-            return {"not_found": name, "stores": sorted(s["name"] for s in mm.stores.values())}
-        d = analytics.store_detail(self.db, mm.month, st["id"], self.anon)
-        return {"store": d["store"], "format": d["format_label"], "city": d["city"], "store_score": d["score"],
-                "gm": d["gm"] and {"name": d["gm"]["name"], "score": d["gm"]["score"]}, "total": d["total"],
-                "departments": [{k: r.get(k) for k in ("code", "name", "actual", "budget", "sales_pct", "growth", "margin", "waste", "oos", "prod_pct", "managers")}
-                                for r in d["departments"]],
-                "other_formats": [FORMAT_LABEL.get(o["format"], o["format"]) for o in mm.stores.values()
-                                  if o["id"] != st["id"] and o["name"] == st["name"] and o.get("city") == st.get("city")],
-                "sections": [{k: r[k] for k in ("code", "name", "sales_pct", "growth", "waste", "oos", "prod_pct", "managers")}
-                             for r in d["sections"]],
-                "attendance": {k: d["attendance"][k] for k in ("absence_pct", "system_absence_pct", "fixes", "compliance_pct", "long_absence")},
-                "managers": [{k: m[k] for k in ("name", "designation", "score")} for m in d["managers"]]}
-
-    def t_attendance(self, month=None, **kw) -> dict:
-        sc = self._scope(kw)
-        d = analytics.attendance_view(self.db, month or self.month, sc, self.anon)
-        return {"month": d["month_label"], "up_to": d["as_of"], "totals": d["totals"],
-                "worst_stores": [{k: r[k] for k in ("store", "absence_pct", "system_absence_pct", "fixes", "compliance_pct")}
-                                 for r in d["by_store"][:10]],
-                "long_absences": [{k: r[k] for k in ("emp", "name", "store", "longest", "absent")} for r in d["long_absence"][:15]],
-                "punches_to_fix_sample": d["fixes"][:15]}
-
-    def t_trend(self, **kw) -> dict:
-        sc = self._scope(kw)
-        out = []
-        for mm in engine.history(self.db, 12):
-            ppl = [p for p in mm.people.values() if analytics.in_scope(p, sc)]
-            a = analytics.attendance_totals(ppl)
-            s = analytics.sales_vs_budget(mm, sc)
-            sc_ = [p.score for p in ppl if p.score is not None]
-            out.append({"month": mm.month, "avg_score": round(sum(sc_) / len(sc_), 2) if sc_ else None,
-                        "real_absence_pct": a["absence_pct"], "sales_vs_budget_pct": s and s["pct"], "headcount": len(ppl)})
-        return {"months": out}
-
-    def t_sql(self, query: str, month=None) -> dict:
-        q = query.strip().rstrip(";")
-        if not re.match(r"^\s*(WITH|SELECT)\b", q, re.I) or ";" in q:
-            return {"error": "Only one SELECT statement is allowed."}
-        con = self.svc.sql_connection(month or self.month, self.anon)
-        try:
-            cur = con.execute(q)
-            cols = [c[0] for c in cur.description or []]
-            rows = cur.fetchmany(200)
-            return {"columns": cols, "rows": [list(r) for r in rows], "truncated": len(rows) == 200}
-        except sqlite3.Error as e:
-            return {"error": f"SQL error: {e}"}
-        finally:
-            con.close()
-
-    def t_kpis(self, items, **kw) -> dict:
+    def t_kpis(self, items=None, **kw) -> dict:
         clean = [{"label": str(k.get("label", ""))[:40], "value": str(k.get("value", ""))[:24], "sub": str(k.get("sub", "") or "")[:60],
                   "tone": k.get("tone") if k.get("tone") in ("good", "warn", "bad") else ""} for k in (items or [])[:6] if isinstance(k, dict)]
         if clean:
             self.blocks.insert(0, {"type": "kpis", "items": clean})
         return {"ok": True, "shown": len(clean)}
 
-    def t_chart(self, kind, title, labels, series, **kw) -> dict:
-        labels = [str(x) for x in labels][:40]
+    def t_chart(self, kind="bar", title="", labels=None, series=None, **kw) -> dict:
+        labels = [str(x) for x in (labels or [])][:40]
         clean = []
-        for s in series[:4]:
+        for s in (series or [])[:4]:
             vals = []
             for v in (s.get("values") or [])[:len(labels)]:
                 try:
@@ -441,40 +295,10 @@ class Toolbox:
                             "labels": labels, "series": clean})
         return {"shown": True}
 
-    # ---------------------------------------------------------------- proposals (need Confirm)
-    def t_propose_holiday(self, day, name) -> dict:
-        d = parse_date(day)
-        if not d:
-            return {"error": "date not understood"}
-        act = self.svc.new_action("holiday", f"Add holiday: {name} on {d:%d %b %Y}", [{"day": d.isoformat(), "name": name}])
-        self.actions.append(act)
-        return {"prepared": 1, "note": "Waiting for the user to click Confirm."}
-
-    def t_propose_correction(self, who, field, value, cycle=None, note="", **kw) -> dict:
-        from .. import brain
-        b = self.svc.api._brain()
-        p = b.resolve(who)
+    def t_propose_note(self, who: str = "", text: str = "", **kw) -> dict:
+        p, cands = self.facts.find(who)
         if not p:
-            c = b.candidates(who)
-            return {"not_found": who, "did_you_mean": [f"{x['name']} ({x['emp']}, {x['designation']}, {x['store']})" for x in c[:5]]}
-        if field not in brain.FIELDS:
-            return {"error": f"unknown field {field}"}
-        try:
-            v = brain._clean(field, value)
-        except ValueError as e:
-            return {"error": str(e)}
-        old = (p["facts"].get(field) or {}).get("value")
-        title = f"Correct {p['name']} ({p['emp']}): {brain.FIELDS[field]}{' ' + str(cycle) if cycle else ''} {old or '—'} → {v}"
-        act = self.svc.new_action("correction", title, [{"emp": p["emp"], "name": p["name"], "field": field, "value": v, "cycle": cycle,
-                                                          "note": note, "old": old}])
-        self.actions.append(act)
-        return {"prepared": 1, "was": old, "now": v, "note": "Waiting for the user to click Confirm."}
-
-    def t_propose_note(self, who, text) -> dict:
-        mm = self._mm()
-        p, cands = self.find_person(mm, who)
-        if not p:
-            return {"not_found": who}
-        act = self.svc.new_action("note", f"Add a note to {p.name}'s profile", [{"emp": p.emp, "name": p.name, "text": text}])
+            return {"not_found": who, "did_you_mean": [c["name"] for c in cands]}
+        act = self.svc.new_action("note", f"Add a note to {p['name']}'s profile", [{"emp": p["emp"], "name": p["name"], "text": text}])
         self.actions.append(act)
         return {"prepared": 1, "note": "Waiting for the user to click Confirm."}

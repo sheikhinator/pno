@@ -130,7 +130,16 @@ def test_annualised_turnover(db):
     assert t["window_months"] == 1 and t["annualised"] == t["total"] * 12
 
 
-def test_ai_answers_data_health(db):
-    api = Api(db)
-    r = api.dispatch("agent_ask", {"question": "Is my data ready for September?", "month": "2026-09"})
-    assert "Data health" in r["answer"] and "/100" in r["answer"]
+def test_ai_answers_data_health(api_demo):
+    r = api_demo.dispatch("agent_ask", {"question": "What is missing in the data?", "month": "2026-09"})
+    assert "results are filled" in r["answer"] and "Not filled yet" in r["answer"]
+
+
+@pytest.fixture()
+def api_demo(tmp_path, monkeypatch):
+    from pno.api import load_demo
+    monkeypatch.setenv("PNO_HOME", str(tmp_path / "home"))
+    d = Database(tmp_path / "demo.sqlite3")
+    load_demo(d)
+    return Api(d)
+

@@ -430,14 +430,41 @@ def person(api, emp: str = "", key: str = "") -> dict:
     return {"row": row, "criteria": {k: {"label": v["label"], "fmt": v["fmt"], "better": v["better"], "count": bool(v.get("count")), **eff_t[k]}
                                      for k, v in CRITERIA.items()}, "peer_median": bench, "custom": bool(own),
             "standard": {k: {"weight": v["weight"], "show": v["show"], "green": rv.t[k]["green"], "amber": rv.t[k]["amber"]} for k, v in rv.cfg.items()},
-            "peers": len(peers), "ratings": [{"cycle": plab, "rating": r["rating"], "label": ""}] if r.get("rating") else [], "trend": None,
+            "peers": len(peers), "ratings": _ratings(r, plab), "trend": _trend(r),
             "components": comps, "history": history,
             "peer_scores": [next((x["value"] for x in p["cells"] if x["key"] == "score"), None) for p in peers if p.get("key") != row.get("key")],
             "weights": {k: {"weight": v["weight"], "show": v["show"]} for k, v in eff_cfg.items()},
             "facts": {"Employee number": r["emp"], "Store": r["store"] or r["bu"], "Role": r["designation"], "Section": r["section_raw"] or r["section"],
                       "Grade": r.get("grade") or "—", "Joined": r.get("doj") or "—",
-                      "With the company": f"{months // 12} yrs {months % 12} m" if months is not None else "—", "Period": plab},
+                      "With the company": f"{months // 12} yrs {months % 12} m" if months is not None else "—",
+                      "In current role since": _since(r.get("role_since"), rv.period), "Period": plab},
             "remarks": "", "record": None}
+
+
+def _ratings(r: dict, plab: str) -> list[dict]:
+    yrs = r.get("ratings") or {}
+    if yrs:
+        return [{"cycle": y, "rating": v, "label": "" if v is not None else "Unrated"} for y, v in sorted(yrs.items())]
+    return [{"cycle": plab, "rating": r["rating"], "label": ""}] if r.get("rating") else []
+
+
+def _trend(r: dict) -> str | None:
+    vals = [v for _, v in sorted((r.get("ratings") or {}).items()) if v is not None]
+    if len(vals) < 2:
+        return None
+    return "improving" if vals[-1] > vals[0] else "slipping" if vals[-1] < vals[0] else "steady"
+
+
+def _since(d: str | None, period: dict | None) -> str:
+    if not d:
+        return "—"
+    try:
+        x = date.fromisoformat(d)
+        ref = date.fromisoformat(((period or {}).get("period_to") or date.today().strftime("%Y-%m")) + "-28")
+        m = max(0, (ref.year - x.year) * 12 + ref.month - x.month)
+        return f"{x:%b %Y} ({m // 12} yrs {m % 12} m)"
+    except ValueError:
+        return d
 
 
 def _record(api, emp: str) -> dict | None:
